@@ -1,0 +1,42 @@
+﻿<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+    <title>XO.html scratch examples</title>
+    <script type="text/javascript" src="../js/XO.js"></script>
+    <script type="text/javascript" src="../js/XO.html.js"></script>
+</head>
+<body>
+    <form id="form" method="get" action="html-bindings.html">
+        <input id="text" name="text" type="text" value="text" />
+        <input id="radio" name="radio" type="radio" value="radio" />
+        <input id="checkbox" name="checkbox" type="checkbox" value="checkbox" />
+        <textarea id="textarea" name="textarea">textarea</textarea>
+        <select id="select" name="select">
+            <option>one</option>
+            <option>two</option>
+        </select>
+        <input id="button" type="submit" name="submit" value="Submit" />
+    </form>
+
+    <ul>
+        <!-- {{each item}} -->
+            <li class="item {{classes}}">
+                <input name="{{name}}" />
+                <button type="button" onclick="{{delete}}"><i class="icon-remove-circle"></i></button>
+            </li>
+        <!-- {{/each}} -->
+    </ul>
+    
+    <button type="button" onclick="{{addItem}}"><i class="icon-add-circle"></i> Add Item</button>
+
+    <script type="text/javascript">
+        var form = document.getElementById('form'),
+            text = document.getElementById('text'),
+            radio = document.getElementById('radio'),
+            checkbox = document.getElementById('checkbox'),
+            textarea = document.getElementById('textarea'),
+            select = document.getElementById('select'),
+            submit = document.getElementById('button');
+    </script>
+</body>
+</html>

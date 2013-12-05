@@ -1,0 +1,77 @@
+﻿<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+    <title></title>
+    <script type="text/javascript">
+        // http://jsperf.com/array-item-closures
+        var size = 10001;
+        var array = [];
+
+        for (var i = 0; i < size; i++) {
+            array[i] = i * 2;
+        }
+
+        function PerItemClosureWrapping(array) {
+            var result = {};
+            for (var i = 0; i < array.length; i++) {
+                result[i] = (function (v) {
+                    return function (n) {
+                        if (arguments.length > 0) v = n;
+                        return v;
+                    };
+                })(array[i]);
+            };
+            result.length = function () { return array.length; }
+            return result;
+        }
+
+        function SingleClosureWrapping(array) {
+            array = array.slice(0);
+            var result = function (i, v) {
+                if (arguments.length > 1) {
+                    array[i] = v;
+                }
+                return array[i];
+            };
+            result.len = function () { return array.length; };
+            return result;
+        }
+
+        var sum, test, i;
+
+        sum = 0;
+        test = new PerItemClosureWrapping(array);
+        for (i = 0; i < test.length() ; i++) {
+            sum += test[i]();
+        }
+        for (i = 0; i < test.length() ; i++) {
+            test[i](i * 3);
+        }
+        for (i = 0; i < test.length() ; i++) {
+            sum += test[i]();
+        }
+        console.log(sum);
+
+        sum = 0;
+        test = new SingleClosureWrapping(array);
+        for (i = 0; i < test.len() ; i++) {
+            sum += test(i);
+        }
+        for (i = 0; i < test.len() ; i++) {
+            test(i, i * 3);
+        }
+        for (i = 0; i < test.len() ; i++) {
+            sum += test(i);
+        }
+        console.log(sum);
+
+
+
+
+
+    </script>
+</head>
+<body>
+
+</body>
+</html>
