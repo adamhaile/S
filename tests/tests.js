@@ -1,4 +1,4 @@
-﻿test("X.value atomic actions", function () {
+﻿test("X.val atomic actions", function () {
     var o1, o2, o3;
 
     o1 = X();
@@ -6,8 +6,6 @@
     ok(o1, "can be created without 'new' keyword");
 
     ok(typeof o1 === 'function', "is a function");
-
-    ok(typeof (o1.id) === 'number', "exposes its numeric id");
 
     strictEqual(o1(), undefined, "unassigned X.value has value of undefined");
 
@@ -23,21 +21,17 @@
     o3 = new X();
 
     ok(o3, "can be created with 'new' keyword");
-
-    ok(o1.id !== o2.id && o2.id !== o3.id && o1.id !== o3.id, "has a unique id");
 });
 
-test("X.property atomic actions", function () {
+test("X.fn atomic actions", function () {
     var o1, o2, o3, v;
 
-    throws(function () { o1 = X.property(); }, "throws if no getter defined");
-    throws(function () { o1 = X.property(1); }, "throws if getter is not a function");
+    throws(function () { o1 = X.proc(); }, "throws if no getter defined");
+    throws(function () { o1 = X.proc(1); }, "throws if getter is not a function");
 
     o1 = X(function () { return 1; });
 
     ok(typeof o1 === 'function', "is a function");
-
-    ok(typeof (o1.id) === 'number', "exposes its numeric id");
 
     strictEqual(o1(), 1, "returns value of getter function");
 
@@ -64,35 +58,33 @@ test("X.property atomic actions", function () {
     strictEqual(o3(), 6, "does not re-calculate when non-tracked values change, even when they were changed through a set");
 
     strictEqual(v, 7, "set can perform untracked side effects");
-
-    ok(o1.id !== o2.id && o2.id !== o3.id && o1.id !== o3.id, "has a unique id");
 });
 
-test("X.property to X.value dependencies", function () {
-    var l1 = X(1),
-        n1_evals = 0,
-        n1 = X(function () { n1_evals++; return l1(); }, function (v) { l1(v); });
+test("X.fn to X.val dependencies", function () {
+    var v = X(1),
+        p_evals = 0,
+        p = X(function () { p_evals++; return v(); }, function (_v) { v(_v); });
 
-    strictEqual(n1(), 1, "reflects value of source");
+    strictEqual(p(), 1, "reflects value of source");
 
-    l1(2);
+    v(2);
 
-    strictEqual(n1(), 2, "reflects changes to source");
+    strictEqual(p(), 2, "reflects changes to source");
 
-    n1(3);
+    v(3);
 
-    strictEqual(l1(), 3, "can push changes to source from a set");
+    strictEqual(v(), 3, "can push changes to source from a set");
 
-    strictEqual(n1(), 3, "reflects changes pushed to source by a set");
+    strictEqual(p(), 3, "reflects changes pushed to source by a set");
 
-    strictEqual(n1(4), 4, "re-evaluates when it changes a source");
+    strictEqual(p(4), 4, "re-evaluates when it changes a source");
 
-    n1_evals = 0;
-    n1();
-    l1();
-    strictEqual(n1_evals, 0, "uses memoized value");
+    p_evals = 0;
+    p();
+    v();
+    strictEqual(p_evals, 0, "uses memoized value");
 
-    n1_evals = 0;
-    l1(5);
-    strictEqual(n1_evals, 1, "re-evaluates when source changes");
+    p_evals = 0;
+    v(5);
+    strictEqual(p_evals, 1, "re-evaluates when source changes");
 });

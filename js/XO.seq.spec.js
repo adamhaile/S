@@ -59,7 +59,7 @@ reverse
     X.seq = seq;
 
     function seq(array) {
-        var seq = X.value(array);
+        var seq = X.val(array);
 
         // mutations
         seq.add = add;
