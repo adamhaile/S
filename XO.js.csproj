@@ -57,8 +57,6 @@
     <Reference Include="System.EnterpriseServices" />
   </ItemGroup>
   <ItemGroup>
-    <Content Include="js\Broadway.js" />
-    <Content Include="js\NewYork-not-global.js" />
     <Content Include="js\XO.html.js" />
     <Content Include="js\XO.js" />
     <Content Include="js\XO.seq.js" />

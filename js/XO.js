@@ -9,19 +9,21 @@ var X = (function () {
         updating = [],
         bundles = [];
 
-    X.lift = lift;
-    X.val = val;
-    X.proc = proc;
-    X.bundle = bundle;
-    X.peek = peek;
-    X.sub = sub;
-    X.mod = {
-        reset: mod_reset,
-        detach: mod_detach,
-        defer: mod_defer,
-        throttle: mod_throttle,
-        debounce: mod_debounce
-    };
+    // initializer
+    X.lift     = lift;
+
+    X.val      = val;
+    X.proc     = proc;
+    X.bundle   = bundle;
+    X.peek     = peek;
+    X.sub      = sub;
+
+    // modifiers
+    X.reset    = reset;
+    X.detach   = detach;
+    X.defer    = defer;
+    X.throttle = throttle;
+    X.debounce = debounce;
 
     return X;
 
@@ -151,9 +153,7 @@ var X = (function () {
 
         function add(node) {
             nodes.push(node);
-            if (node.id) {
-                node.in(inMod);
-            }
+            if (node.in) node.in(inMod);
             node.out(outMod);
 
             return bundle;
@@ -161,12 +161,10 @@ var X = (function () {
 
         function _in(mod) {
             for (var i = 0; i < nodes.length; i++) {
-                if (nodes[i].in) {
-                    nodes[i].in(mod);
-                }
+                if (nodes[i].in) nodes[i].in(mod);
             }
 
-            inMod = mod_compose(inMod, mod);
+            inMod = modCompose(inMod, mod);
 
             return bundle;
         }
@@ -176,7 +174,7 @@ var X = (function () {
                 nodes[i].out(mod);
             }
 
-            outMod = mod_compose(outMod, mod);
+            outMod = modCompose(outMod, mod);
 
             return bundle;
         }
@@ -258,23 +256,23 @@ var X = (function () {
     }
 
     // in/out modifiers
-    function mod_reset(fn, orig, id) {
+    function reset(fn, orig, id) {
         orig(id);
         return orig;
     }
 
-    function mod_detach(fn, orig, id) {
+    function detach(fn, orig, id) {
         detachDownstream(id);
         return noop;
     }
 
-    function mod_defer(fn) {
+    function defer(fn) {
         return function (id) {
             setTimeout(fn, 0, id);
         };
     }
 
-    function mod_throttle(delay) {
+    function throttle(delay) {
         return function (fn) {
             var last = 0,
                 scheduled = false;
@@ -299,7 +297,7 @@ var X = (function () {
         };
     }
 
-    function mod_debounce(delay) {
+    function debounce(delay) {
         return function (fn) {
             var tout = 0;
 
@@ -311,7 +309,7 @@ var X = (function () {
         };
     }
 
-    function mod_compose(mod1, mod2) {
+    function modCompose(mod1, mod2) {
         return function (fn, orig, id) {
             return mod1(mod2(fn, orig, id), orig, id);
         };
