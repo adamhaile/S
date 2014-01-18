@@ -57,6 +57,7 @@
     <Reference Include="System.EnterpriseServices" />
   </ItemGroup>
   <ItemGroup>
+    <Content Include="js\XO.endpoints.js" />
     <Content Include="js\XO.edges.js" />
     <Content Include="js\XO.classical.js" />
     <Content Include="js\XO.html.js" />

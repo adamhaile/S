@@ -1,3 +1,16 @@
+var foo = {
+    bar:  X.update.debounce(X(1), 300),
+    bore: X.debounceUpdate(300, X(1)),
+    blec: X(1).in(X.debounce(300)),
+    bork: X(1).update.debounce(300),
+    bing: X(1).update(X.debounce(300)),
+    bong: X.modUpdate(X.debounce, 300, X(1))
+};
+
+X.debounceUpdate(X(1), 300)
+x.update = X.debounce(300, x.update)
+x = X.debounce(X(1), 'update', 300)
+
 var X = (function () {
     "use strict";
 
@@ -68,6 +81,7 @@ var X = (function () {
     function proc(get, set) {
         var id = count++,
             propagate = propagateImmediately,
+            _bundler = bundler,
             updating = false,
             value;
 
@@ -77,23 +91,25 @@ var X = (function () {
         proc.in = _in;
         proc.out = out;
 
-        bundler(proc);
+        _bundler(proc);
 
         update();
 
         return proc;
 
         function proc(setValue) {
-            var _consumer;
+            var _consumer,
+                __bundler;
 
             if (arguments.length > 0) {
                 if (set) {
-                    _consumer = consumer;
-                    consumer = 0;
+                    _consumer = consumer, consumer = 0;
+                    __bundler = bundler, bundler = _bundler;
                     try {
                         set(setValue);
                     } finally {
                         consumer = _consumer;
+                        bundler = __bundler;
                     }
                 }
             } else {
@@ -117,18 +133,20 @@ var X = (function () {
 
         function update() {
             var newValue,
-                _consumer;
+                _consumer,
+                __bundler;
 
             if (!updating) {
                 updating = true;
-                _consumer = consumer;
-                consumer = id;
+                _consumer = consumer, consumer = id;
+                __bundler = bundler, bundler = _bundler;
 
                 try {
                     newValue = get();
                 } finally {
-                    consumer = _consumer;
                     updating = false;
+                    consumer = _consumer;
+                    bundler = __bundler;
                 }
 
                 if (value !== newValue) {
@@ -152,12 +170,13 @@ var X = (function () {
         edges[source] = {};
 
         for (consumer in consumers) {
-            updaters[consumer]();
+            updaters[consumer](consumer);
         }
     }
 
     function bundle(fn) {
-        var inMods = identity,
+        var nodes = [],
+            inMods = identity,
             outMods = identity,
             bundle = {
                 in: _in,
@@ -170,8 +189,7 @@ var X = (function () {
         return bundle;
 
         function watch(fn) {
-            var _bundler = bundler;
-            bundler = add;
+            var _bundler = bundler, bundler = add;
 
             try {
                 fn();
@@ -180,8 +198,9 @@ var X = (function () {
             }
 
             function add(node) {
-                if (node.in) node.in(inModer);
-                if (node.out) node.out(outModer);
+                if (node.in) node.in(inMods);
+                if (node.out) node.out(outMods);
+                nodes.push(node);
                 _bundler(node);
             }
         }
@@ -189,25 +208,21 @@ var X = (function () {
         function _in(mod) {
             inMods = compose(inMods, mod);
 
+            for (var i = 0; i < nodes.length; i++) {
+                nodes[i].in(mod);
+            }
+
             return bundle;
         }
 
         function out(mod) {
             outMods = compose(outMods, mod);
 
+            for (var i = 0; i < nodes.length; i++) {
+                nodes[i].in(mod);
+            }
+
             return bundle;
-        }
-
-        function inModer(fn) {
-            return function (x) {
-                (inMods(fn))(x);
-            }
-        }
-
-        function outModer(fn) {
-            return function (x) {
-                (outMods(fn))(x);
-            }
         }
     }
 
@@ -223,7 +238,7 @@ var X = (function () {
     }
 
     function sub(/* arg1, arg2, ... argn, fn */) {
-        var args = arguments.slice(),
+        var args = Array.prototype.slice.call(arguments),
             fn = noop,
             realFn = args.pop(),
             sub = proc(function () {
@@ -290,6 +305,58 @@ var X = (function () {
                 tout = setTimeout(fn, delay, id);
             };
         };
+    }
+
+    function ticker() {
+        var fns = [],
+            ids = [];
+
+        ticker.mod = mod;
+
+        return ticker;
+
+        function ticker() {
+            var _fns = fns,
+                _ids = ids;
+
+            fns = [];
+            ids = [];
+
+            for (var i = 0; i < _fns.length; i++) {
+                _fns[i](_ids[i]);
+            }
+        }
+
+        function mod(fn) {
+            return function (id) {
+                fns.push(fn);
+                ids.push(id);
+            }
+        }
+    }
+
+    function throttledTicker() {
+        var fns = {};
+
+        ticker.mod = mod;
+
+        return ticker;
+
+        function ticker() {
+            var _fns = fns;
+
+            fns = [];
+
+            for (var i in _fns) {
+                _fns[i](i);
+            }
+        }
+
+        function mod(fn) {
+            return function (id) {
+                fns[id] = fn;
+            }
+        }
     }
 
     function compose(g, f) {
