@@ -58,13 +58,9 @@
   </ItemGroup>
   <ItemGroup>
     <Content Include="js\XO.endpoints.js" />
-    <Content Include="js\XO.edges.js" />
-    <Content Include="js\XO.classical.js" />
     <Content Include="js\XO.html.js" />
-    <Content Include="js\XO.js" />
     <Content Include="js\XO.seq.js" />
     <Content Include="js\XO.seq.spec.js" />
-    <Content Include="js\XO.visible.js" />
     <Content Include="scratch\array-closures.html" />
     <Content Include="scratch\bm-classical-vs-xo.js" />
     <Content Include="scratch\dom-snippets.js" />

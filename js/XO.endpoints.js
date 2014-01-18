@@ -1,16 +1,3 @@
-var foo = {
-    bar:  X.update.debounce(X(1), 300),
-    bore: X.debounceUpdate(300, X(1)),
-    blec: X(1).in(X.debounce(300)),
-    bork: X(1).update.debounce(300),
-    bing: X(1).update(X.debounce(300)),
-    bong: X.modUpdate(X.debounce, 300, X(1))
-};
-
-X.debounceUpdate(X(1), 300)
-x.update = X.debounce(300, x.update)
-x = X.debounce(X(1), 'update', 300)
-
 var X = (function () {
     "use strict";
 
