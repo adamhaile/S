@@ -23,7 +23,7 @@
     ok(o3, "can be created with 'new' keyword");
 });
 
-test("X.fn atomic actions", function () {
+test("X.proc atomic actions", function () {
     var o1, o2, o3, v;
 
     throws(function () { o1 = X.proc(); }, "throws if no getter defined");
@@ -60,7 +60,7 @@ test("X.fn atomic actions", function () {
     strictEqual(v, 7, "set can perform untracked side effects");
 });
 
-test("X.fn to X.val dependencies", function () {
+test("X.proc to X.val dependencies", function () {
     var v = X(1),
         p_evals = 0,
         p = X(function () { p_evals++; return v(); }, function (_v) { v(_v); });

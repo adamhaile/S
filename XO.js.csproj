@@ -59,8 +59,10 @@
   <ItemGroup>
     <Content Include="js\XO.js" />
     <Content Include="js\XO.html.js" />
+    <Content Include="js\XO.mods.js" />
     <Content Include="js\XO.seq.js" />
     <Content Include="js\XO.seq.spec.js" />
+    <Content Include="js\XO.sub.js" />
     <Content Include="scratch\array-closures.html" />
     <Content Include="scratch\bm-classical-vs-xo.js" />
     <Content Include="scratch\dom-snippets.js" />

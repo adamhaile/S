@@ -177,7 +177,7 @@ reverse
     }
 
     function append(/* arguments */) {
-        var seqs = arguments;
+        var seqs = Array.prototype.slice.call(arguments);
         var append = X(function () {
             var arrays = _.map(seqs, function (seq) { return seq(); });
             return Array.prototype.concat.apply([], arrays);

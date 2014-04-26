@@ -14,13 +14,6 @@ var X = (function () {
     X.proc     = proc;
     X.bundle   = bundle;
     X.peek     = peek;
-    X.sub      = sub;
-
-    // modifiers
-    X.detach   = detach;
-    X.defer    = defer;
-    X.throttle = throttle;
-    X.debounce = debounce;
 
     return X;
 
@@ -154,10 +147,11 @@ var X = (function () {
         var consumers = edges[source],
             consumer;
 
-        edges[source] = {};
-
         for (consumer in consumers) {
-            updaters[consumer](consumer);
+            if (consumers[consumer]) {
+                consumers[consumer] = false;
+                updaters[consumer](consumer);
+            }
         }
     }
 
@@ -193,20 +187,28 @@ var X = (function () {
         }
 
         function _in(mod) {
+            var i,
+                node;
+
             inMods = compose(inMods, mod);
 
-            for (var i = 0; i < nodes.length; i++) {
-                nodes[i].in(mod);
+            for (i = 0; i < nodes.length; i++) {
+                node = nodes[i];
+                if (node.in) node.in(mod);
             }
 
             return bundle;
         }
 
         function out(mod) {
+            var i,
+                node;
+
             outMods = compose(outMods, mod);
 
             for (var i = 0; i < nodes.length; i++) {
-                nodes[i].in(mod);
+                node = nodes[i];
+                if (node.out) node.out(mod);
             }
 
             return bundle;
@@ -215,134 +217,13 @@ var X = (function () {
 
     function peek(fn) {
         var _consumer = consumer;
+
         consumer = 0;
 
         try {
             return fn();
         } finally {
             consumer = _consumer;
-        }
-    }
-
-    function sub(/* arg1, arg2, ... argn, fn */) {
-        var args = Array.prototype.slice.call(arguments),
-            fn = noop,
-            realFn = args.pop(),
-            sub = proc(function () {
-                var values = [],
-                    i;
-
-                for (i = 0; i < args.length; i++) {
-                    values.push(args[i]());
-                }
-
-                return X.peek(function () {
-                    return fn.apply(undefined, values);
-                });
-            });
-
-        fn = realFn;
-
-        return sub;
-    }
-
-    // in/out modifiers
-    function detach(fn) {
-        return noop;
-    }
-
-    function defer(fn) {
-        return function (id) {
-            setTimeout(fn, 0, id);
-        };
-    }
-
-    function throttle(delay) {
-        return function (fn) {
-            var last = 0,
-                scheduled = false;
-
-            return function (id) {
-                if (scheduled) return;
-
-                var now = Date.now();
-
-                if ((now - last) >= delay) {
-                    last = now;
-                    fn(id);
-                } else {
-                    scheduled = true;
-                    setTimeout(function () {
-                        last += delay;
-                        scheduled = false;
-                        fn(id);
-                    }, delay - (now - last));
-                }
-            };
-        };
-    }
-
-    function debounce(delay) {
-        return function (fn) {
-            var tout = 0;
-
-            return function (id) {
-                if (tout) clearTimeout(tout);
-
-                tout = setTimeout(fn, delay, id);
-            };
-        };
-    }
-
-    function ticker() {
-        var fns = [],
-            ids = [];
-
-        ticker.mod = mod;
-
-        return ticker;
-
-        function ticker() {
-            var _fns = fns,
-                _ids = ids;
-
-            fns = [];
-            ids = [];
-
-            for (var i = 0; i < _fns.length; i++) {
-                _fns[i](_ids[i]);
-            }
-        }
-
-        function mod(fn) {
-            return function (id) {
-                fns.push(fn);
-                ids.push(id);
-            }
-        }
-    }
-
-    function throttledTicker() {
-        var fns = {};
-
-        ticker.mod = mod;
-
-        return ticker;
-
-        function ticker() {
-            var _fns = fns;
-
-            fns = [];
-
-            for (var i in _fns) {
-                _fns[i](i);
-            }
-        }
-
-        function mod(fn) {
-            return function (id) {
-                fns[id] = fn;
-            }
         }
     }
 
