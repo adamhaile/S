@@ -66,7 +66,7 @@ var X = (function () {
     function proc(get, set) {
         var id = count++,
             updating = false,
-            value,
+            msg,
             sources = {},
             updaters = {},
             our_bundler = bundler;
@@ -79,7 +79,7 @@ var X = (function () {
 
         return proc;
 
-        function proc(setValue) {
+        function proc(in_msg) {
             var prev_linker,
                 prev_bundler;
 
@@ -89,7 +89,7 @@ var X = (function () {
                     prev_bundler = bundler, bundler = our_bundler;
 
                     try {
-                        set(setValue);
+                        set(in_msg);
                     } finally {
                         linker = prev_linker;
                         bundler = prev_bundler;
@@ -99,11 +99,11 @@ var X = (function () {
                 if (linker) linker(id, updaters);
             }
 
-            return value;
+            return msg;
         }
 
         function update() {
-            var newValue,
+            var new_msg,
                 prev_linker,
                 prev_bundler;
 
@@ -113,15 +113,15 @@ var X = (function () {
                 prev_bundler  = bundler, bundler  = our_bundler;
 
                 try {
-                    newValue = get();
+                    new_msg = get();
                 } finally {
                     updating = false;
                     linker = prev_linker;
                     bundler = prev_bundler;
                 }
 
-                if (value !== newValue) {
-                    value = newValue;
+                if (new_msg !== undefined) {
+                    msg = new_msg;
                     propagate(updaters);
                 }
             }
@@ -188,20 +188,19 @@ var X = (function () {
             }
 
             function add(node) {
-                if (node.in) node.in(inMods);
+                node.in(inMods);
                 nodes.push(node);
-                _bundler(node);
+                prev_bundler(node);
             }
         }
 
         function _in(mod) {
-            var i, node;
+            var i;
 
             inMods = compose(inMods, mod);
 
             for (i = 0; i < nodes.length; i++) {
-                node = nodes[i];
-                if (node.in) node.in(mod);
+                nodes[i].in(mod);
             }
 
             return bundle;
@@ -225,8 +224,6 @@ var X = (function () {
             return g(f(x, y), y);
         };
     }
-
-    function noop() { }
 
     function identity(x) { return x; }
 }());

@@ -60,7 +60,6 @@
     <Content Include="js\XO.js" />
     <Content Include="js\XO.html.js" />
     <Content Include="js\XO.mods.js" />
-    <Content Include="js\XO.seq.eem_map.js" />
     <Content Include="js\XO.seq.js" />
     <Content Include="js\XO.seq.spec.js" />
     <Content Include="js\XO.sub.js" />

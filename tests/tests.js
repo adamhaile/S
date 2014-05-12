@@ -88,3 +88,111 @@ test("X.proc to X.val dependencies", function () {
     v(5);
     strictEqual(p_evals, 1, "re-evaluates when source changes");
 });
+
+test("X.seq creation", function () {
+    var s = X.seq([1, 2, 3]);
+
+    ok(s, "can be created");
+
+    deepEqual(s(), [1, 2, 3], "contains expected values");
+
+    var t = X([1, 2, 3, 4]);
+
+    ok(t, "can be created with X([...]) shorthand");
+
+    deepEqual(t(), [1, 2, 3, 4], "object created by X[...]) shorthand contains expected values");
+});
+
+test("X.seq reset", function () {
+    var s = X.seq([1, 2, 3]);
+
+    s([4, 5, 6]);
+
+    deepEqual(s(), [4,5,6], "seq reflects reset values");
+});
+
+test("X.seq.add", function () {
+    var s = X.seq([1, 2, 3]);
+
+    s.add(4);
+
+    deepEqual(s(), [1, 2, 3, 4], "added item appears in values");
+});
+
+test("X.seq.remove", function () {
+    var s = X.seq([1, 2, 3, 4, 5]);
+
+    s.remove(5);
+
+    deepEqual(s(), [1, 2, 3, 4], "value removed from end is gone");
+
+    s.remove(3);
+
+    deepEqual(s(), [1, 2, 4], "value removed from middle is gone");
+
+    s.remove(1);
+
+    deepEqual(s(), [2, 4], "value removed from beginning is gone");
+});
+
+test("X.seq.map creation", function () {
+    var s = X.seq([1, 2, 3]),
+        m = s .X. map(function (i) { return i * 2; });
+
+    ok(m, "map returns object");
+
+    ok(m.X, "object returned by map is a seq");
+
+    deepEqual(m(), [2, 4, 6], "map contains expected values");
+});
+
+test("X.seq.map with add", function () {
+    var s = X.seq([1, 2, 3]),
+        m = s .X. map(function (i) { return i * 2; });
+
+    s.add(4);
+
+    deepEqual(m(), [2, 4, 6, 8], "map updates with expected added value");
+});
+
+test("X.seq.map with remove", function () {
+    var s = X.seq([1, 2, 3, 4, 5]),
+        exited = [],
+        m = s .X. map(function (i) { return i * 2; }, function (i) { exited.push(i); });
+
+    s.remove(5);
+
+    deepEqual(m(), [2, 4, 6, 8], "map responds to removal from end");
+    deepEqual(exited, [10], "exit called for value removed from end");
+
+    s.remove(3);
+
+    deepEqual(m(), [2, 4, 8], "map responds to removal from middle");
+    deepEqual(exited, [10, 6], "exit called for value removed from middle");
+
+    s.remove(1);
+
+    deepEqual(m(), [4, 8], "map responds to removal from start");
+    deepEqual(exited, [10, 6, 2], "exit called for value removed from start");
+});
+
+test("X.seq .X. filter", function () {
+    var s = X.seq([1, 2, 3, 4, 5, 6]),
+        f = s .X. filter(function (n) { return n % 2; });
+
+    deepEqual(f(), [1, 3, 5]);
+});
+
+test("X.seq .X. map with chanels", function () {
+    var c = X(true),
+        s = X([c]),
+        f = function (c) { return c(); },
+        m = s .X. map(f);
+
+    c(false);
+
+    deepEqual(m(), [true]);
+
+    deepEqual(_.map(s(), f), [false]);
+
+});

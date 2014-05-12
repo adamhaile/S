@@ -1,191 +1,130 @@
 ﻿// sets, unordered and ordered, in XO
 
-/*
-var x = X([1, 2, 3]).orderBy(function (i) { return i % 3; }).append(X([4]));
-var x = X([1, 2, 3]).orderBy(i => i % 3).append(X([4]));
-var x = X.seq.append(X.seq.orderBy(function (i) { return i % 3; }, X([1, 2, 3])), X[4]);
-var x = X.seq.append(X.seq.orderBy(i => i % 3, X([1, 2, 3])), X[4]);
-var x = X.seq.append(X.seq.orderBy(X([1, 2, 3]), function (i) { return i % 3; }), X[4]);
-var x = X.append(X.orderBy(function (i) { return i % 3; }, X([1, 2, 3])), X[4]);
-var x = append(orderBy(function (i) { return i % 3; }, X([1, 2, 3])), X[4]);
-var x = append(orderBy(i => i % 3, X([1, 2, 3])), X[4]);
-
-var x = X([1, 2, 3]);
-x = X.seq.orderBy(function (i) { return i % 3; }, x);
-x = X.seq.append(x, X([4]));
-
-x(); // [3,1,2,4]
-
-map
-each
-sort
-orderBy
-orderByDesc
-reverse
-groupBy
-filter
-find
-contains
-all
-any
-append
-reduce
-reduceRight
-max
-min
-
-// from JS
-forEach
-every
-some
-filter
-map
-reduce
-reduceRight
-
-// missing from JS
-sort / orderBy / orderByDesc
-groupBy
-contains / indexOf / lastIndexOf
-append
-max / min
-reverse
-
-*/
-
 (function (X) {
     "use strict";
 
     X.seq = seq;
 
-    function seq(array) {
-        var seq = X.val(array);
+    function seq(values) {
+        var seq = X.ch(values);
+
+        seq.X = new Xcombinator(seq);
 
         // mutations
         seq.add = add;
         seq.remove = remove;
 
-        addFluentMethods(seq);
-
         return seq;
 
         function add(item) {
-            array = array.slice();
-            array.push(item);
-            seq(array);
+            values.push(item);
+            seq(values);
             return seq;
         }
 
         function remove(item) {
-            array = array.slice();
-            for (var i = 0; i < array.length; i++) {
-                if (array[i] === item) {
-                    array.splice(i, 1);
+            for (var i = 0; i < values.length; i++) {
+                if (values[i] === item) {
+                    values.splice(i, 1);
                     break;
                 }
             }
-            seq(array);
+            seq(values);
             return seq;
         }
     }
 
-    function addFluentMethods(seq) {
-        seq.order  = fluent_order;
-        seq.map    = fluent_map;
-        seq.reduce = fluent_reduce;
-        seq.filter = fluent_filter;
-        seq.append = fluent_append;
-    }
+    function map(source, enter, exit, move) {
+        var items = [],
+            mapped = [],
+            len = 0;
 
-    function fluent_order(fn)        { return order(this, fn); }
-    function fluent_map(fn)          { return map(this, fn); }
-    function fluent_reduce(fn, seed) { return reduce(this, fn, seed); }
-    function fluent_filter(fn)       { return filter(this, fn); }
-    function fluent_append()         { return append.apply(undefined, Array.prototype.concat.apply([this], arguments)); }
-
-    function order(upstream, fn) {
-        var order = X(function () { return _.sortBy(upstream(), fn); });
-
-        addFluentMethods(order);
-
-        return order;
-    }
-
-    function map(upstream, enter, exit) {
-        var last = [],
-            lastindices = [],
-            lastmapped = [];
+        enter = enter || function (x) { return x; };
 
         var map = X(function () {
-            var array = upstream(),
-                len = array.length,
-                lastlen = last.length,
-                indices = new Array(len),
-                mapped = new Array(len),
-                persisted = new Array(len),
-                i, j, k;
-
-            ITEM:
+            var new_items = source(),
+                new_len = new_items.length,
+                temp = new Array(new_len),
+                i, j, k, item;
+            
+            // 1) step through all old items and see if they can be found in the new set; if so, save them in a temp array and mark them moved; if not, exit them 
+            NEXT:
             for (i = 0, k = 0; i < len; i++) {
-                for (j = 0; j < lastlen; j++, k = (k + 1) % lastlen) {
-                    if (array[i] === last[k]) {
-                        mapped[i] = lastmapped[k];
-                        indices[i] = lastindices[k];
-                        indices[i](i);
-                        persisted[k] = true;
-                        continue ITEM;
+                item = mapped[i];
+                for (j = 0; j < new_len; j++, k = (k + 1) % new_len) {
+                    if (items[i] === new_items[k] && !temp.hasOwnProperty(k)) {
+                        temp[k] = item;
+                        if (move) move(item, i, k)
+                        continue NEXT;
                     }
                 }
-                indices[i] = X(i);
-                // use an IIFE to capture the current value of i
-                mapped[i] = (function (v, i) { return X(function () { return enter(v, i); }); })(array[i], indices[i]);
+                if (exit) exit(item, i);
             }
 
-            if (exit) {
-                for (j = 0; j < lastlen; j++) {
-                    if (!persisted[j]) {
-                        exit(last[j], lastindices[j], lastmapped[j]);
-                    }
+            // 2) set all the new values, pulling from the temp array if copied, otherwise entering the new value
+            for (i = 0; i < new_len; i++) {
+                if (temp.hasOwnProperty(i)) {
+                    mapped[i] = temp[i];
+                } else {
+                    item = new_items[i];
+                    mapped[i] = enter ? enter(item, i) : item;
                 }
             }
 
-            last = array;
-            lastmapped = mapped;
+            // 3) in case the new set is shorter than the old, set the length of the mapped array
+            len = mapped.length = new_len;
+
+            // 4) saved a copy of the mapped items for the next update
+            items = new_items.slice();
 
             return mapped;
         });
 
-        addFluentMethods(map);
+        map.X = new Xcombinator(map);
 
         return map;
     }
 
-    function reduce(upstream, fn, seed) {
-        var reduce = X(function () { return _.reduce(upstream(), fn, seed); });
+    function order(source, fn) {
+        var order = X(function () { return _.sortBy(source(), fn); });
 
-        addFluentMethods(reduce);
+        order.X = new Xcombinator(order);
 
-        return reduce;
+        return order;
     }
 
-    function filter(upstream, predicate) {
-        var filter = X(function () { return _.filter(upstream(), predicate); });
+    function filter(source, predicate) {
+        var filter = X(function () { return _.filter(source(), predicate); });
 
-        addFluentMethods(filter);
+        filter.X = new Xcombinator(filter);
 
         return filter;
     }
 
-    function append(/* arguments */) {
-        var seqs = Array.prototype.slice.call(arguments);
+    function append(source, others) {
         var append = X(function () {
-            var arrays = _.map(seqs, function (seq) { return seq(); });
-            return Array.prototype.concat.apply([], arrays);
+            return Array.prototype.concat.apply(source(), _.map(others, function (o) { return o(); }));
         });
 
-        addFluentMethods(append);
+        append.X = new Xcombinator(append);
 
         return append;
     }
+
+    function reduce(source, fn, seed) {
+        return X(function () { return _.reduce(source(), fn, seed); });
+    }
+
+    function Xcombinator(seq) {
+        this.seq = seq;
+    }
+
+    Xcombinator.prototype = {
+        map:    function _X_map(enter, exit, move) { return map   (this.seq, enter, exit, move); },
+        order:  function _X_order(fn)              { return order (this.seq, fn); },
+        filter: function _X_filter(fn)             { return filter(this.seq, fn); },
+        append: function _X_append()               { return append(this.seq, arguments); },
+        reduce: function _X_reduce(fn, seed)       { return reduce(this.seq, fn, seed); }
+    };
 
 })(X);
