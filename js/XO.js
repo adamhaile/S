@@ -44,9 +44,11 @@ var X = (function () {
 
     function proc(fn) {
         var id = count++,
+            gen = 1,
             updating = false,
             msg,
             source_ids = [],
+            source_gens = [],
             source_offsets = [],
             source_updaters = [],
             updaters = [],
@@ -75,7 +77,7 @@ var X = (function () {
                 prev_linker = linker, linker = our_linker;
                 prev_bundler = bundler, bundler = our_bundler;
 
-                unlink();
+                gen++;
 
                 try {
                     new_msg = fn();
@@ -84,6 +86,8 @@ var X = (function () {
                     linker = prev_linker;
                     bundler = prev_bundler;
                 }
+
+                prune_stale_sources();
 
                 if (new_msg !== undefined) {
                     msg = new_msg;
@@ -103,31 +107,37 @@ var X = (function () {
         }
 
         function our_linker(sid, updaters) {
-            var i, len
+            var i, len, source_gen;
 
             for (i = 0, len = source_ids.length; i < len; i++) {
                 if (sid === source_ids[i]) {
-                    source_updaters[i] = updaters;
-                    updaters[source_offsets[i]] = updateref;
+                    source_gen = source_gens[i];
+                    if (source_gen === 0) {
+                        source_updaters[i] = updaters;
+                        updaters[source_offsets[i]] = updateref;
+                    }
+                    source_gens[i] = gen;
                     return;
                 }
             }
 
             source_ids.push(sid);
+            source_gens.push(gen);
+            source_offsets.push(updaters.length);
             source_updaters.push(updaters);
 
-            source_offsets.push(updaters.length);
             updaters.push(updateref);
         }
 
-        function unlink() {
-            var i, len, u;
+        function prune_stale_sources() {
+            var i, len, source_gen;
 
-            for (i = 0, len = source_ids.length; i < len; i++) {
-                u = source_updaters[i];
-                if (u) {
-                    u[source_offsets[i]] = undefined;
+            for (i = 0, len = source_gens.length; i < len; i++) {
+                source_gen = source_gens[i];
+                if (source_gen !== 0 && source_gen < gen) {
+                    source_updaters[i][source_offsets[i]] = undefined;
                     source_updaters[i] = undefined;
+                    source_gens[i] = 0;
                 }
             }
         }
