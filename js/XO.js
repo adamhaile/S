@@ -29,7 +29,7 @@ var X = (function () {
 
     function val(value) {
         var id = count++,
-            updaters = {};
+            updaters = [];
 
         return val;
 
@@ -48,7 +48,7 @@ var X = (function () {
 
     function ch(msg) {
         var id = count++,
-            updaters = {};
+            updaters = [];
 
         return ch;
 
@@ -67,8 +67,10 @@ var X = (function () {
         var id = count++,
             updating = false,
             msg,
-            sources = {},
-            updaters = {},
+            source_ids = [],
+            source_offsets = [],
+            source_updaters = [],
+            updaters = [],
             our_bundler = bundler;
 
         proc.in = _in;
@@ -110,7 +112,9 @@ var X = (function () {
             if (!updating) {
                 updating = true;
                 prev_linker = linker, linker = our_linker;
-                prev_bundler  = bundler, bundler  = our_bundler;
+                prev_bundler = bundler, bundler = our_bundler;
+
+                unlink();
 
                 try {
                     new_msg = get();
@@ -138,28 +142,41 @@ var X = (function () {
         }
 
         function our_linker(sid, updaters) {
-            sources[sid] = updaters;
-            updaters[id] = updateref;
+            var i, len
+
+            for (i = 0, len = source_ids.length; i < len; i++) {
+                if (sid === source_ids[i]) {
+                    source_updaters[i] = updaters;
+                    updaters[source_offsets[i]] = updateref;
+                    return;
+                }
+            }
+
+            source_ids.push(sid);
+            source_updaters.push(updaters);
+
+            source_offsets.push(updaters.length);
+            updaters.push(updateref);
         }
 
         function unlink() {
-            var sid, updaters;
+            var i, len, u;
 
-            for (sid in sources) {
-                updaters = sources[sid];
-                if (updaters) {
-                    updaters[id] = undefined;
-                    sources[sid] = undefined;
+            for (i = 0, len = source_ids.length; i < len; i++) {
+                u = source_updaters[i];
+                if (u) {
+                    u[source_offsets[i]] = undefined;
+                    source_updaters[i] = undefined;
                 }
             }
         }
     }
 
     function propagate(updaters) {
-        var id, updater;
+        var i, len, updater;
 
-        for (id in updaters) {
-            updater = updaters[id];
+        for (i = 0, len = updaters.length; i < len; i++) {
+            updater = updaters[i];
             if (updater) {
                 updater();
             }
