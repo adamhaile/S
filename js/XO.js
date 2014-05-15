@@ -8,7 +8,6 @@ var X = (function () {
     // initializer
     X.lift     = lift;
 
-    X.val      = val;
     X.ch       = ch;
     X.proc     = proc;
     X.bundle   = bundle;
@@ -21,29 +20,9 @@ var X = (function () {
     }
 
     function lift(arg1, arg2) {
-        return arguments.length == 0 ? ch()
-            : typeof arg1 === 'function' ? proc(arg1, arg2)
+        return typeof arg1 === 'function' ? proc(arg1, arg2)
             : arg1 instanceof Array ? X.seq(arg1)
-            : val(arg1);
-    }
-
-    function val(value) {
-        var id = count++,
-            updaters = [];
-
-        return val;
-
-        function val(set_value) {
-            if (arguments.length > 0) {
-                if (value !== set_value) {
-                    value = set_value;
-                    propagate(updaters);
-                }
-            } else {
-                if (linker) linker(id, updaters);
-            }
-            return value;
-        }
+            : ch(arg1);
     }
 
     function ch(msg) {
@@ -63,7 +42,7 @@ var X = (function () {
         }
     }
 
-    function proc(get, set) {
+    function proc(fn) {
         var id = count++,
             updating = false,
             msg,
@@ -81,26 +60,8 @@ var X = (function () {
 
         return proc;
 
-        function proc(in_msg) {
-            var prev_linker,
-                prev_bundler;
-
-            if (arguments.length > 0) {
-                if (set) {
-                    prev_linker = linker, linker = undefined;
-                    prev_bundler = bundler, bundler = our_bundler;
-
-                    try {
-                        set(in_msg);
-                    } finally {
-                        linker = prev_linker;
-                        bundler = prev_bundler;
-                    }
-                }
-            } else {
-                if (linker) linker(id, updaters);
-            }
-
+        function proc() {
+            if (linker) linker(id, updaters);
             return msg;
         }
 
@@ -117,7 +78,7 @@ var X = (function () {
                 unlink();
 
                 try {
-                    new_msg = get();
+                    new_msg = fn();
                 } finally {
                     updating = false;
                     linker = prev_linker;
@@ -237,7 +198,7 @@ var X = (function () {
     }
 
     function compose(g, f) {
-        return function (x, y) {
+        return function compose(x, y) {
             return g(f(x, y), y);
         };
     }
