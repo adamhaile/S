@@ -176,6 +176,67 @@ test("X.seq.map with remove", function () {
     deepEqual(exited, [10, 6, 2], "exit called for value removed from start");
 });
 
+test("X.seq.enter creation", function () {
+    var s = X.seq([1, 2, 3]),
+        m = s .X. enter(function (i) { return i * 2; });
+
+    ok(m, "enter returns object");
+
+    ok(m.X, "object returned by enter is a seq");
+
+    deepEqual(m(), [2, 4, 6], "enter contains expected values");
+});
+
+test("X.seq.enter with add", function () {
+    var s = X.seq([1, 2, 3]),
+        m = s .X. enter(function (i) { return i * 2; });
+
+    s.add(4);
+
+    deepEqual(m(), [2, 4, 6, 8], "enter updates with expected added value");
+});
+
+test("X.seq.enter with reset", function () {
+    var s = X.seq([1, 2, 3]),
+        m = s .X. enter(function (i) { return i * 2; });
+
+    s([4, 5, 6]);
+
+    deepEqual(m(), [8, 10, 12], "enter updates with expected added value");
+});
+
+test("X.seq.exit with reset", function () {
+    var s = X.seq([1, 2, 3]),
+        exited = [],
+        m = s .X. exit(function (i) { exited.push(i); });
+
+    s([3, 4, 5, 6]);
+
+    deepEqual(m(), [3, 4, 5, 6], "exit returns correct array value");
+    deepEqual(exited, [1, 2], "exit called for removed values");
+});
+
+test("X.seq.exit with remove", function () {
+    var s = X.seq([1, 2, 3, 4, 5]),
+        exited = [],
+        m = s .X. exit(function (i) { exited.push(i); });
+
+    s.remove(5);
+
+    deepEqual(m(), [1, 2, 3, 4], "map responds to removal from end");
+    deepEqual(exited, [5], "exit called for value removed from end");
+
+    s.remove(3);
+
+    deepEqual(m(), [1, 2, 4], "map responds to removal from middle");
+    deepEqual(exited, [5, 3], "exit called for value removed from middle");
+
+    s.remove(1);
+
+    deepEqual(m(), [2, 4], "map responds to removal from start");
+    deepEqual(exited, [5, 3, 1], "exit called for value removed from start");
+});
+
 test("X.seq .X. filter", function () {
     var s = X.seq([1, 2, 3, 4, 5, 6]),
         f = s .X. filter(function (n) { return n % 2; });
@@ -196,3 +257,78 @@ test("X.seq .X. map with chanels", function () {
     deepEqual(_.map(s(), f), [false]);
 
 });
+
+test("X.seq.map vs X.seq.enter - map", function () {
+    var i, j, s, m, c = 0;
+
+    for (i = 1; i <= 1000; i++) {
+        s = X.seq([]);
+        m = s.X.map(function (v) { c++; return v * 2; });
+        for (j = 0; j < 50; j++) {
+            s.add(j);
+        }
+    }
+
+    equal(c, 50000);
+});
+
+test("X.seq.map vs X.seq.enter - enter", function () {
+    var i, j, s, m, c = 0;
+
+    for (i = 1; i <= 1000; i++) {
+        s = X.seq([]);
+        m = s.X.enter(function (v) { c++; return v * 2; });
+        for (j = 0; j < 50; j++) {
+            s.add(j);
+        }
+    }
+
+    equal(c, 50000);
+});
+
+function mapSpeed() {
+    var i, j, s, m, c = 0;
+
+    for (i = 1; i <= 10000; i++) {
+        s = X.seq([]);
+        m = s.X.map(function (v) { c++; return v * 2; });
+        for (j = 0; j < 50; j++) {
+            s.add(j);
+        }
+    }
+
+    return c;
+}
+
+function enterSpeed() {
+    var i, j, s, m, c = 0;
+
+    for (i = 1; i <= 10000; i++) {
+        s = X.seq([]);
+        m = s.X.enter(function (v) { c++; return v * 2; });
+        for (j = 0; j < 50; j++) {
+            s.add(j);
+        }
+    }
+
+    return c;
+}
+
+function propagateSpeed(nary, depth) {
+    var root = X.ch(0), c = 0, i;
+
+    tree(root, nary, depth);
+
+    for (i = 1; i <= 10000; i++) {
+        root(i);
+    }
+
+    return c;
+
+    function tree(node, nary, depth) {
+        if (depth <= 0) return;
+        for (var i = 0; i < nary; i++) {
+            tree(X(function () { c++; return node() + 1; }), nary, depth - 1);
+        }
+    }
+}
