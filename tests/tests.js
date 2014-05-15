@@ -1,68 +1,104 @@
-﻿test("X.val atomic actions", function () {
-    var o1, o2, o3;
+﻿test("X.ch basics", function () {
+    var c = X();
 
-    o1 = X();
+    ok(c, "can be created without 'new' keyword");
 
-    ok(o1, "can be created without 'new' keyword");
+    ok(typeof c === 'function', "is a function");
 
-    ok(typeof o1 === 'function', "is a function");
+    strictEqual(c(), undefined, "unassigned ch has value of undefined");
 
-    strictEqual(o1(), undefined, "unassigned X.value has value of undefined");
+    c(1);
 
-    o1(1);
+    strictEqual(c(), 1, "returns stored value");
+    strictEqual(c(2), 2, "returns value when stored");
 
-    strictEqual(o1(), 1, "returns stored value");
-    strictEqual(o1(2), 2, "returns value when stored");
+    c = X("test");
 
-    o2 = X("test");
+    strictEqual(c(), "test", "can be created with initial values");
 
-    strictEqual(o2(), "test", "can be created with initial values");
+    c = new X();
 
-    o3 = new X();
-
-    ok(o3, "can be created with 'new' keyword");
+    ok(typeof c === 'function', "can be created with 'new' keyword");
 });
 
-test("X.proc atomic actions", function () {
-    var o1, o2, o3, v;
+test("X.proc basics", function () {
+    var p, v;
 
-    throws(function () { o1 = X.proc(); }, "throws if no fn defined");
-    throws(function () { o1 = X.proc(1); }, "throws if arg is not a function");
+    throws(function () { X.proc(); }, "throws if no fn defined");
+    throws(function () { X.proc(1); }, "throws if arg is not a function");
 
-    o1 = X(function () { return 1; });
+    p = X(function () { return 1; });
 
-    ok(typeof o1 === 'function', "is a function");
+    ok(typeof p === 'function', "is a function");
 
-    strictEqual(o1(), 1, "returns value of getter function");
+    strictEqual(p(), 1, "returns value of getter function");
 
     v = 5;
-    o2 = X(function () { return v; });
+    p = X(function () { return v; });
 
-    strictEqual(o2(), 5, "returns value of getter function, when getter references non-tracked values");
+    strictEqual(p(), 5, "returns value of getter function, when getter references non-tracked values");
 
     v = 6;
-    strictEqual(o2(), 5, "does not re-calculate when non-tracked values change, even if they would change the value returned by the getter");
+    strictEqual(p(), 5, "does not re-calculate when non-tracked values change, even if they would change the value returned by the getter");
 });
 
-test("X.proc to X.val dependencies", function () {
-    var v = X(1),
+test("X.proc to X.ch dependencies", function () {
+    var c = X(1),
         p_evals = 0,
-        p = X(function () { p_evals++; return v(); });
+        p = X(function () { p_evals++; return c(); });
 
+    strictEqual(p_evals, 1, "evaluates once on definition");
     strictEqual(p(), 1, "reflects value of source");
 
-    v(2);
+    c(2);
 
     strictEqual(p(), 2, "reflects changes to source");
 
     p_evals = 0;
     p();
-    v();
+    c();
     strictEqual(p_evals, 0, "uses memoized value");
 
     p_evals = 0;
-    v(5);
+    c(5);
     strictEqual(p_evals, 1, "re-evaluates when source changes");
+});
+
+test("X.proc to X.ch dynamic dependencies", function () {
+    var pred = X(true), t = X("t"), f = X("f"),
+        p_evals = 0,
+        p = X(function () { p_evals++; return pred() ? t() : f(); });
+
+    strictEqual(p(), "t", "reflects value of complex source");
+
+    p_evals = 0;
+    f("F");
+    strictEqual(p_evals, 0, "does not re-evaluate when irrelevant channel changes");
+
+    p_evals = 0;
+    pred(false);
+
+    strictEqual(p_evals, 1, "re-evaluates when relevant channel changes");
+    strictEqual(p(), "F", "reflects value of changed complex source");
+
+    p_evals = 0;
+    t("T");
+    strictEqual(p_evals, 0, "does not re-evaluate when now-irrelevant channel changes");
+
+    p_evals = 0;
+    f("f");
+    strictEqual(p_evals, 1, "does re-evalute when now-relevant channel changes");
+    strictEqual(p(), "f", "reflects value of chamged complex source");
+});
+
+test("X.proc to X.proc dependencies", function () {
+    var c = X(1),
+        p1 = X(function () { return c(); }),
+        p2 = X(function () { return p1(); });
+
+    c(2);
+
+    strictEqual(p2(), 2, "changes propagate through procs");
 });
 
 test("X.seq creation", function () {
@@ -213,14 +249,14 @@ test("X.seq.exit with remove", function () {
     deepEqual(exited, [5, 3, 1], "exit called for value removed from start");
 });
 
-test("X.seq .X. filter", function () {
+test("X.seq.filter", function () {
     var s = X.seq([1, 2, 3, 4, 5, 6]),
         f = s .X. filter(function (n) { return n % 2; });
 
     deepEqual(f(), [1, 3, 5]);
 });
 
-test("X.seq .X. map with chanels", function () {
+test("X.seq.map with chanels", function () {
     var c = X(true),
         s = X([c]),
         f = function (c) { return c(); },
@@ -232,34 +268,6 @@ test("X.seq .X. map with chanels", function () {
 
     deepEqual(_.map(s(), f), [false]);
 
-});
-
-test("X.seq.map vs X.seq.enter - map", function () {
-    var i, j, s, m, c = 0;
-
-    for (i = 1; i <= 1000; i++) {
-        s = X.seq([]);
-        m = s.X.map(function (v) { c++; return v * 2; });
-        for (j = 0; j < 50; j++) {
-            s.add(j);
-        }
-    }
-
-    equal(c, 50000);
-});
-
-test("X.seq.map vs X.seq.enter - enter", function () {
-    var i, j, s, m, c = 0;
-
-    for (i = 1; i <= 1000; i++) {
-        s = X.seq([]);
-        m = s.X.enter(function (v) { c++; return v * 2; });
-        for (j = 0; j < 50; j++) {
-            s.add(j);
-        }
-    }
-
-    equal(c, 50000);
 });
 
 function mapSpeed() {
