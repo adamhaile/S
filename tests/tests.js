@@ -316,3 +316,19 @@ function propagateSpeed(nary, depth) {
         }
     }
 }
+
+function chCreateSpeed(count) {
+    var i;
+
+    for (i = 0; i < count; i++) {
+        X.ch(i);
+    }
+}
+
+function procCreateSpeed(count) {
+    var i;
+
+    for (i = 0; i < count; i++) {
+        X.proc(function () { });
+    }
+}

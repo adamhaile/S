@@ -2,7 +2,7 @@ var X = (function () {
     "use strict";
 
     var count = 1,
-        linker = undefined,
+        listener = undefined,
         bundler = undefined;
 
     // initializer
@@ -12,6 +12,10 @@ var X = (function () {
     X.proc     = proc;
     X.bundle   = bundle;
     X.peek     = peek;
+
+    X.ch.X = chX;
+    procX.prototype = new chX();
+    X.proc.X = procX;
 
     return X;
 
@@ -27,16 +31,18 @@ var X = (function () {
 
     function ch(msg) {
         var id = count++,
-            updaters = [];
+            listeners = [];
+
+        ch.X = new chX();
 
         return ch;
 
         function ch(new_msg) {
             if (arguments.length > 0) {
                 msg = new_msg;
-                propagate(updaters);
+                propagate(listeners);
             } else {
-                if (linker) linker(id, updaters);
+                if (listener) listener(id, listeners);
             }
             return msg;
         }
@@ -47,14 +53,15 @@ var X = (function () {
             gen = 1,
             updating = false,
             msg,
+            // for sources, use parallel arrays instead of array of objects so that we can scan ids and gens fast
             source_ids = [],
             source_gens = [],
             source_offsets = [],
-            source_updaters = [],
-            updaters = [],
+            source_listeners = [],
+            listeners = [],
             our_bundler = bundler;
 
-        proc.in = _in;
+        proc.X = new procX(update, source_offsets, source_listeners);
 
         if (our_bundler) our_bundler(proc);
 
@@ -63,18 +70,18 @@ var X = (function () {
         return proc;
 
         function proc() {
-            if (linker) linker(id, updaters);
+            if (listener) listener(id, listeners);
             return msg;
         }
 
         function update() {
             var new_msg,
-                prev_linker,
+                prev_listener,
                 prev_bundler;
 
             if (!updating) {
                 updating = true;
-                prev_linker = linker, linker = our_linker;
+                prev_listener = listener, listener = our_listener;
                 prev_bundler = bundler, bundler = our_bundler;
 
                 gen++;
@@ -83,7 +90,7 @@ var X = (function () {
                     new_msg = fn();
                 } finally {
                     updating = false;
-                    linker = prev_linker;
+                    listener = prev_listener;
                     bundler = prev_bundler;
                 }
 
@@ -91,30 +98,20 @@ var X = (function () {
 
                 if (new_msg !== undefined) {
                     msg = new_msg;
-                    propagate(updaters);
+                    propagate(listeners);
                 }
             }
         }
 
-        function _in(mod) {
-            update = mod(update, sources);
-
-            return proc;
-        }
-
-        function updateref() {
-            update();
-        }
-
-        function our_linker(sid, updaters) {
+        function our_listener(sid, listeners) {
             var i, len, source_gen;
 
             for (i = 0, len = source_ids.length; i < len; i++) {
                 if (sid === source_ids[i]) {
                     source_gen = source_gens[i];
                     if (source_gen === 0) {
-                        source_updaters[i] = updaters;
-                        updaters[source_offsets[i]] = updateref;
+                        source_listeners[i] = listeners;
+                        listeners[source_offsets[i]] = proc.X;
                     }
                     source_gens[i] = gen;
                     return;
@@ -123,10 +120,10 @@ var X = (function () {
 
             source_ids.push(sid);
             source_gens.push(gen);
-            source_offsets.push(updaters.length);
-            source_updaters.push(updaters);
+            source_offsets.push(listeners.length);
+            source_listeners.push(listeners);
 
-            updaters.push(updateref);
+            listeners.push(proc.X);
         }
 
         function prune_stale_sources() {
@@ -135,21 +132,29 @@ var X = (function () {
             for (i = 0, len = source_gens.length; i < len; i++) {
                 source_gen = source_gens[i];
                 if (source_gen !== 0 && source_gen < gen) {
-                    source_updaters[i][source_offsets[i]] = undefined;
-                    source_updaters[i] = undefined;
+                    source_listeners[i][source_offsets[i]] = undefined;
+                    source_listeners[i] = undefined;
                     source_gens[i] = 0;
                 }
             }
         }
     }
 
-    function propagate(updaters) {
-        var i, len, updater;
+    function chX() { }
 
-        for (i = 0, len = updaters.length; i < len; i++) {
-            updater = updaters[i];
-            if (updater) {
-                updater();
+    function procX(update, source_offsets, source_listeners) {
+        this._update = update;
+        this._source_offsets = source_offsets;
+        this._source_listeners = source_listeners;
+    }
+
+    function propagate(listeners) {
+        var i, len, listener;
+
+        for (i = 0, len = listeners.length; i < len; i++) {
+            listener = listeners[i];
+            if (listener) {
+                listener._update();
             }
         }
     }
@@ -196,14 +201,19 @@ var X = (function () {
     }
 
     function peek(fn) {
-        var prev_linker = linker;
+        var prev_listener;
 
-        linker = undefined;
-
-        try {
+        if (!listener) {
             return fn();
-        } finally {
-            linker = prev_linker;
+        } else {
+            prev_listener = listener;
+            listener = undefined;
+
+            try {
+                return fn();
+            } finally {
+                listener = prev_listener;
+            }
         }
     }
 

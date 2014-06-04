@@ -8,7 +8,7 @@
     function seq(values) {
         var seq = X.ch(values);
 
-        seq.X = new Xcombinator(seq);
+        seq.X = new seqX(seq);
 
         // mutations
         seq.add = add;
@@ -47,8 +47,8 @@
                 temp = new Array(new_len),
                 moved = new Array(len),
                 i, j, k, item;
-            
-            // 1) step through all old items and see if they can be found in the new set; if so, save them in a temp array and mark them moved; if not, exit them 
+
+            // 1) step through all old items and see if they can be found in the new set; if so, save them in a temp array and mark them moved; if not, exit them
             NEXT:
             for (i = 0, k = 0; i < len; i++) {
                 item = mapped[i];
@@ -84,7 +84,7 @@
             return mapped;
         });
 
-        map.X = new Xcombinator(map);
+        map.X = new seqProcX(map);
 
         return map;
     }
@@ -92,7 +92,7 @@
     function order(comb, fn) {
         var order = X(function () { return _.sortBy(comb.seq(), fn); });
 
-        order.X = new Xcombinator(order);
+        order.X = new seqProcX(order);
 
         return order;
     }
@@ -100,7 +100,7 @@
     function filter(comb, predicate) {
         var filter = X(function () { return _.filter(comb.seq(), predicate); });
 
-        filter.X = new Xcombinator(filter);
+        filter.X = new seqProcX(filter);
 
         return filter;
     }
@@ -110,7 +110,7 @@
             return Array.prototype.concat.apply(comb.seq(), _.map(others, function (o) { return o(); }));
         });
 
-        append.X = new Xcombinator(append);
+        append.X = new seqProcX(append);
 
         return append;
     }
@@ -145,7 +145,7 @@
             return values;
         });
 
-        enter.X = new Xcombinator(enter, ch);
+        enter.X = new seqProcX(enter, ch);
 
         return enter;
 
@@ -177,7 +177,7 @@
             return delta.values;
         });
 
-        tap.X = new Xcombinator(tap, comb.delta);
+        tap.X = new seqProcX(tap, comb.delta);
 
         return tap;
     }
@@ -203,8 +203,8 @@
     }
 
     function compare(xs, ys) {
-        var exited = [], 
-            moved = [], 
+        var exited = [],
+            moved = [],
             entered = [],
             found = [],
             xlen = xs.length,
@@ -271,20 +271,30 @@
         return X(function () { return _.reduce(source(), fn, seed); });
     }
 
-    function Xcombinator(seq, delta) {
+    function seqX(seq, delta) {
+        X.ch.X.call(this);
+
         this.seq = seq;
         this.delta = delta;
     }
 
-    Xcombinator.prototype = {
-        map:    function _X_map(enter, exit, move) { return map   (this, enter, exit, move); },
-        order:  function _X_order(fn)              { return order (this, fn); },
-        filter: function _X_filter(fn)             { return filter(this, fn); },
-        append: function _X_append()               { return append(this, arguments); },
-        enter:  function _X_enter(fn)              { return enter(this, fn); },
-        exit:   function _X_exit(fn)               { return exit(this, fn); },
-        move:   function _X_move(fn)               { return move(this, fn); },
-        reduce: function _X_reduce(fn, seed)       { return reduce(this, fn, seed); }
-    };
+    function seqProcX(seq, delta) {
+        X.proc.X.call(this, seq.X._update, seq.X._source_offsets, seq.X._source_listeners);
+
+        this.seq = seq;
+        this.delta = delta;
+    }
+
+    seqX.prototype = new X.ch.X();
+    seqProcX.prototype = new X.proc.X(null, null, null);
+
+    seqX.prototype.map    = seqProcX.prototype.map    = function _X_map(enter, exit, move) { return map   (this, enter, exit, move); },
+    seqX.prototype.order  = seqProcX.prototype.order  = function _X_order(fn)              { return order (this, fn); },
+    seqX.prototype.filter = seqProcX.prototype.filter = function _X_filter(fn)             { return filter(this, fn); },
+    seqX.prototype.append = seqProcX.prototype.append = function _X_append()               { return append(this, arguments); },
+    seqX.prototype.enter  = seqProcX.prototype.enter  = function _X_enter(fn)              { return enter (this, fn); },
+    seqX.prototype.exit   = seqProcX.prototype.exit   = function _X_exit(fn)               { return exit  (this, fn); },
+    seqX.prototype.move   = seqProcX.prototype.move   = function _X_move(fn)               { return move  (this, fn); },
+    seqX.prototype.reduce = seqProcX.prototype.reduce = function _X_reduce(fn, seed)       { return reduce(this, fn, seed); }
 
 })(X);
