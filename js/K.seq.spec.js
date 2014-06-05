@@ -1,14 +1,14 @@
-﻿// sets, unordered and ordered, in XO
+﻿// sets, unordered and ordered, in K.js
 
-(function (X) {
+(function (K) {
     "use strict";
 
-    X.seq = seq;
+    K.seq = seq;
 
     function seq(values) {
-        var seq = X.ch(values);
+        var seq = K.ch(values);
 
-        seq.X = new seqX(seq);
+        seq.K = new seqChCombinator(seq);
 
         // mutations
         seq.add = add;
@@ -41,7 +41,7 @@
 
         enter = enter || function (x) { return x; };
 
-        var map = X(function () {
+        var map = K(function () {
             var new_items = comb.seq(),
                 new_len = new_items.length,
                 temp = new Array(new_len),
@@ -84,45 +84,45 @@
             return mapped;
         });
 
-        map.X = new seqProcX(map);
+        map.K = new seqProcCombinator(map);
 
         return map;
     }
 
     function order(comb, fn) {
-        var order = X(function () { return _.sortBy(comb.seq(), fn); });
+        var order = K(function () { return _.sortBy(comb.seq(), fn); });
 
-        order.X = new seqProcX(order);
+        order.K = new seqProcCombinator(order);
 
         return order;
     }
 
     function filter(comb, predicate) {
-        var filter = X(function () { return _.filter(comb.seq(), predicate); });
+        var filter = K(function () { return _.filter(comb.seq(), predicate); });
 
-        filter.X = new seqProcX(filter);
+        filter.K = new seqProcCombinator(filter);
 
         return filter;
     }
 
     function append(comb, others) {
-        var append = X(function () {
+        var append = K(function () {
             return Array.prototype.concat.apply(comb.seq(), _.map(others, function (o) { return o(); }));
         });
 
-        append.X = new seqProcX(append);
+        append.K = new seqProcCombinator(append);
 
         return append;
     }
 
     function enter(comb, fn) {
-        var values = X.peek(comb.seq).map(_fn),
+        var values = K.peek(comb.seq).map(_fn),
             outs = new Delta(),
-            ch = X.ch(outs);
+            ch = K.ch(outs);
 
         var ins = getDelta(comb);
 
-        var enter = X(function () {
+        var enter = K(function () {
             var i, exited, entered;
 
             comb.delta();
@@ -145,7 +145,7 @@
             return values;
         });
 
-        enter.X = new seqProcX(enter, ch);
+        enter.K = new seqProcCombinator(enter, ch);
 
         return enter;
 
@@ -166,7 +166,7 @@
     function tapDelta(comb, fn) {
         var delta = getDelta(comb);
 
-        var tap = X(function () {
+        var tap = K(function () {
             comb.delta();
 
             while (delta.next) {
@@ -177,7 +177,7 @@
             return delta.values;
         });
 
-        tap.X = new seqProcX(tap, comb.delta);
+        tap.K = new seqProcCombinator(tap, comb.delta);
 
         return tap;
     }
@@ -188,7 +188,7 @@
         if (!comb.delta) {
             delta = new Delta();
 
-            comb.delta = X(function () {
+            comb.delta = K(function () {
                 var current = comb.seq();
 
                 delta = delta.next = compare(delta.values, current.slice());
@@ -196,7 +196,7 @@
                 return delta;
             });
         } else {
-            delta = X.peek(comb.delta);
+            delta = K.peek(comb.delta);
         }
 
         return delta;
@@ -268,33 +268,33 @@
     }
 
     function reduce(source, fn, seed) {
-        return X(function () { return _.reduce(source(), fn, seed); });
+        return K(function () { return _.reduce(source(), fn, seed); });
     }
 
-    function seqX(seq, delta) {
-        X.ch.X.call(this);
+    function seqChCombinator(seq, delta) {
+        K.ch.K.call(this);
 
         this.seq = seq;
         this.delta = delta;
     }
 
-    function seqProcX(seq, delta) {
-        X.proc.X.call(this, seq.X._update, seq.X._source_offsets, seq.X._source_listeners);
+    function seqProcCombinator(seq, delta) {
+        K.proc.K.call(this, seq.K._update, seq.K._source_offsets, seq.K._source_listeners);
 
         this.seq = seq;
         this.delta = delta;
     }
 
-    seqX.prototype = new X.ch.X();
-    seqProcX.prototype = new X.proc.X(null, null, null);
+    seqChCombinator.prototype = new K.ch.K();
+    seqProcCombinator.prototype = new K.proc.K(null, null, null);
 
-    seqX.prototype.map    = seqProcX.prototype.map    = function _X_map(enter, exit, move) { return map   (this, enter, exit, move); },
-    seqX.prototype.order  = seqProcX.prototype.order  = function _X_order(fn)              { return order (this, fn); },
-    seqX.prototype.filter = seqProcX.prototype.filter = function _X_filter(fn)             { return filter(this, fn); },
-    seqX.prototype.append = seqProcX.prototype.append = function _X_append()               { return append(this, arguments); },
-    seqX.prototype.enter  = seqProcX.prototype.enter  = function _X_enter(fn)              { return enter (this, fn); },
-    seqX.prototype.exit   = seqProcX.prototype.exit   = function _X_exit(fn)               { return exit  (this, fn); },
-    seqX.prototype.move   = seqProcX.prototype.move   = function _X_move(fn)               { return move  (this, fn); },
-    seqX.prototype.reduce = seqProcX.prototype.reduce = function _X_reduce(fn, seed)       { return reduce(this, fn, seed); }
+    seqChCombinator.prototype.map    = seqProcCombinator.prototype.map    = function _K_map(enter, exit, move) { return map   (this, enter, exit, move); },
+    seqChCombinator.prototype.order  = seqProcCombinator.prototype.order  = function _K_order(fn)              { return order (this, fn); },
+    seqChCombinator.prototype.filter = seqProcCombinator.prototype.filter = function _K_filter(fn)             { return filter(this, fn); },
+    seqChCombinator.prototype.append = seqProcCombinator.prototype.append = function _K_append()               { return append(this, arguments); },
+    seqChCombinator.prototype.enter  = seqProcCombinator.prototype.enter  = function _K_enter(fn)              { return enter (this, fn); },
+    seqChCombinator.prototype.exit   = seqProcCombinator.prototype.exit   = function _K_exit(fn)               { return exit  (this, fn); },
+    seqChCombinator.prototype.move   = seqProcCombinator.prototype.move   = function _K_move(fn)               { return move  (this, fn); },
+    seqChCombinator.prototype.reduce = seqProcCombinator.prototype.reduce = function _K_reduce(fn, seed)       { return reduce(this, fn, seed); }
 
-})(X);
+})(K);

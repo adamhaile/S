@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 2012
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "XO.js", "XO.js.csproj", "{A2005B58-E1A1-4B9E-8B49-7B2B5AD16C60}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "K.js", "K.js.csproj", "{A2005B58-E1A1-4B9E-8B49-7B2B5AD16C60}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

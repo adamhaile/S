@@ -1,13 +1,13 @@
-﻿(function (X) {
+﻿(function (K) {
     "use strict";
 
     // modifiers
-    X.detach = detach;
-    X.defer = defer;
-    X.throttle = throttle;
-    X.debounce = debounce;
-    X.ticker = ticker;
-    X.throttledTicker = throttledTicker;
+    K.detach = detach;
+    K.defer = defer;
+    K.throttle = throttle;
+    K.debounce = debounce;
+    K.ticker = ticker;
+    K.throttledTicker = throttledTicker;
 
     return;
 
@@ -110,4 +110,4 @@
             }
         }
     }
-}(X));
+}(K));

@@ -1,4 +1,4 @@
-﻿// sets, unordered and ordered, in XO
+﻿// sets, unordered and ordered, in K
 
 // seq -> seq
 // 1st: map, order, filter
@@ -8,10 +8,10 @@
 // seq -> val
 // 1st: find, all, any, contains, reduce, reduceRight, max, min
 
-(function (X) {
+(function (K) {
     "use strict";
 
-    X.seq = seq;
+    K.seq = seq;
 
     // cmd codes
     var ENTER = 0,
@@ -23,10 +23,10 @@
     function seq(values) {
         var len = values.length,
             deltas = {},
-            changed = X.ch(deltas),
-            seq = X.proc(function () { changed(); return values; }, update);
+            changed = K.ch(deltas),
+            seq = K.proc(function () { changed(); return values; }, update);
 
-        add_seq_methods(seq, values, deltas, changed);
+        addSeqMethods(seq, values, deltas, changed);
 
         seq.add = add;
         seq.remove = remove;
@@ -79,9 +79,9 @@
         var values = invalues.map(enter),
             len = values.length,
             deltas = {},
-            changed = X.ch(values),
-            cmds = [ cmd_enter, cmd_exit, cmd_move ],
-            updater = X(function () {
+            changed = K.ch(values),
+            cmds = [ cmdEnter, cmdExit, cmdMove ],
+            updater = K(function () {
                 inchanged();
                 while (indeltas.next) {
                     indeltas = indeltas.next;
@@ -96,7 +96,7 @@
 
         return map;
 
-        function cmd_enter() {
+        function cmdEnter() {
             var i = indeltas.i,
                 item = enter ? enter(indeltas.item, i) : indeltas.item;
 
@@ -108,7 +108,7 @@
             changed(values);
         }
 
-        function cmd_exit() {
+        function cmdExit() {
             var i = indeltas.i,
                 item = values[i];
 
@@ -119,7 +119,7 @@
             changed(values);
         }
 
-        function cmd_move() {
+        function cmdMove() {
             var moves = indeltas.moves,
                 copy = [],
                 i;
@@ -140,7 +140,7 @@
         }
     }
 
-    function add_seq_methods(seq, values, deltas, changed) {
+    function addSeqMethods(seq, values, deltas, changed) {
 
         seq.map = seq_map;
 
@@ -148,4 +148,4 @@
             return map(values, deltas, changed, enter, exit, move);
         }
     }
-})(X);
+})(K);

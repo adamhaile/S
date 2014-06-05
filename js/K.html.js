@@ -1,7 +1,7 @@
-﻿// HTML bindings for XO.js
-(function (X) {
+﻿// HTML bindings for K.js
+(function (K) {
 
-    X.html = {
+    K.html = {
         control: control,
         text   : text,
         event  : event
@@ -15,12 +15,12 @@
 
         var result =
             tag === 'INPUT'         ? (
-                type === 'TEXT'     ? control_value(el, x) :
-                type === 'RADIO'    ? control_radio(el, x) :
-                type === 'CHECKBOX' ? control_checkbox(el, x) :
+                type === 'TEXT'     ? controlValue(el, x) :
+                type === 'RADIO'    ? controlRadio(el, x) :
+                type === 'CHECKBOX' ? controlCheckbox(el, x) :
                 null) :
-            tag === 'TEXTAREA'      ? control_value(el, x) :
-            tag === 'SELECT'        ? control_value(el, x) :
+            tag === 'TEXTAREA'      ? controlValue(el, x) :
+            tag === 'SELECT'        ? controlValue(el, x) :
             null;
 
         if (!result) throw new Error("Element is not a recognized control");
@@ -28,59 +28,59 @@
         return result;
     }
 
-    function control_value(el, x) {
-        var from = X(function () {
-            el.value = x();
+    function controlValue(el, c) {
+        var from = K(function () {
+            el.value = c();
         });
 
         el.addEventListener('change', function () {
-            x(el.value);
+            c(el.value);
             return true;
         }, false);
 
         return from;
     }
 
-    function control_checkbox(el, x) {
-        var from = X(function () {
-            el.checked = !!x();
+    function controlCheckbox(el, c) {
+        var from = K(function () {
+            el.checked = !!c();
         });
 
         el.addEventListener('change', function () {
-            x(el.checked);
+            c(el.checked);
             return true;
         }, false);
 
         return from;
     }
 
-    function control_radio(el, x) {
-        var from = X(function () {
-            var _x = x(),
-                _t = typeof _x,
-                _v = _t !== "string" && _t !== "undefined" && _x !== null && _x.toString ? _x.toString() : _x;
+    function controlRadio(el, c) {
+        var from = K(function () {
+            var _x = c(),
+                _t = typeof _c,
+                _v = _t !== "string" && _t !== "undefined" && _c !== null && _c.toString ? _c.toString() : _c;
 
             el.checked = (_v === el.getAttribute('value'));
         });
 
         el.addEventListener('change', function () {
-            if (el.checked) x(el.getAttribute('value'));
+            if (el.checked) c(el.getAttribute('value'));
             return true;
         }, false);
 
         return from;
     }
 
-    function text(el, x) {
+    function text(el, c) {
         if (el.nodeType !== 3) throw new Error("Argument is not a text node");
 
-        return X(function () { el.data = x(); });
+        return K(function () { el.data = c(); });
     }
 
-    function event(el, name, x) {
+    function event(el, name, c) {
         el.addEventListener(name, function (evt) {
-            var fn = x();
+            var fn = c();
             fn && fn(evt);
         }, false);
     }
-})(X);
+})(K);

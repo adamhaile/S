@@ -11,8 +11,8 @@
     <ProjectTypeGuids>{349c5851-65df-11da-9384-00065b846f21};{fae04ec0-301f-11d3-bf4b-00c04f79efbc}</ProjectTypeGuids>
     <OutputType>Library</OutputType>
     <AppDesignerFolder>Properties</AppDesignerFolder>
-    <RootNamespace>XO.js</RootNamespace>
-    <AssemblyName>XO.js</AssemblyName>
+    <RootNamespace>K.js</RootNamespace>
+    <AssemblyName>K.js</AssemblyName>
     <TargetFrameworkVersion>v4.5</TargetFrameworkVersion>
     <UseIISExpress>true</UseIISExpress>
     <IISExpressSSLPort />
@@ -57,12 +57,12 @@
     <Reference Include="System.EnterpriseServices" />
   </ItemGroup>
   <ItemGroup>
-    <Content Include="js\XO.js" />
-    <Content Include="js\XO.html.js" />
-    <Content Include="js\XO.mods.js" />
-    <Content Include="js\XO.seq.js" />
-    <Content Include="js\XO.seq.spec.js" />
-    <Content Include="js\XO.sub.js" />
+    <Content Include="js\K.js" />
+    <Content Include="js\K.html.js" />
+    <Content Include="js\K.mods.js" />
+    <Content Include="js\K.seq.js" />
+    <Content Include="js\K.seq.spec.js" />
+    <Content Include="js\K.sub.js" />
     <Content Include="scratch\array-closures.html" />
     <Content Include="scratch\bm-classical-vs-xo.js" />
     <Content Include="scratch\dom-snippets.js" />

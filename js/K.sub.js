@@ -1,7 +1,7 @@
-﻿(function (X) {
+﻿(function (K) {
     "use strict";
 
-    X.sub = sub;
+    K.sub = sub;
 
     return;
 
@@ -11,12 +11,12 @@
             realFn = args.pop(),
             len = args.length,
             values = new Array(len),
-            sub = X(function () {
+            sub = K(function () {
                 for (var i = 0; i < len; i++) {
                     values[i] = args[i]();
                 }
 
-                return X.peek(function () {
+                return K.peek(function () {
                     return fn.apply(undefined, values);
                 });
             });
@@ -25,4 +25,4 @@
 
         return sub;
     }
-}(X));
+}(K));

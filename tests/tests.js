@@ -1,5 +1,5 @@
-﻿test("X.ch basics", function () {
-    var c = X();
+﻿test("K.ch basics", function () {
+    var c = K();
 
     ok(c, "can be created without 'new' keyword");
 
@@ -12,29 +12,29 @@
     strictEqual(c(), 1, "returns stored value");
     strictEqual(c(2), 2, "returns value when stored");
 
-    c = X("test");
+    c = K("test");
 
     strictEqual(c(), "test", "can be created with initial values");
 
-    c = new X();
+    c = new K();
 
     ok(typeof c === 'function', "can be created with 'new' keyword");
 });
 
-test("X.proc basics", function () {
+test("K.proc basics", function () {
     var p, v;
 
-    throws(function () { X.proc(); }, "throws if no fn defined");
-    throws(function () { X.proc(1); }, "throws if arg is not a function");
+    throws(function () { K.proc(); }, "throws if no fn defined");
+    throws(function () { K.proc(1); }, "throws if arg is not a function");
 
-    p = X(function () { return 1; });
+    p = K(function () { return 1; });
 
     ok(typeof p === 'function', "is a function");
 
     strictEqual(p(), 1, "returns value of getter function");
 
     v = 5;
-    p = X(function () { return v; });
+    p = K(function () { return v; });
 
     strictEqual(p(), 5, "returns value of getter function, when getter references non-tracked values");
 
@@ -42,10 +42,10 @@ test("X.proc basics", function () {
     strictEqual(p(), 5, "does not re-calculate when non-tracked values change, even if they would change the value returned by the getter");
 });
 
-test("X.proc to X.ch dependencies", function () {
-    var c = X(1),
+test("K.proc to K.ch dependencies", function () {
+    var c = K(1),
         p_evals = 0,
-        p = X(function () { p_evals++; return c(); });
+        p = K(function () { p_evals++; return c(); });
 
     strictEqual(p_evals, 1, "evaluates once on definition");
     strictEqual(p(), 1, "reflects value of source");
@@ -64,10 +64,10 @@ test("X.proc to X.ch dependencies", function () {
     strictEqual(p_evals, 1, "re-evaluates when source changes");
 });
 
-test("X.proc to X.ch dynamic dependencies", function () {
-    var pred = X(true), t = X("t"), f = X("f"),
+test("K.proc to K.ch dynamic dependencies", function () {
+    var pred = K(true), t = K("t"), f = K("f"),
         p_evals = 0,
-        p = X(function () { p_evals++; return pred() ? t() : f(); });
+        p = K(function () { p_evals++; return pred() ? t() : f(); });
 
     strictEqual(p(), "t", "reflects value of complex source");
 
@@ -91,48 +91,48 @@ test("X.proc to X.ch dynamic dependencies", function () {
     strictEqual(p(), "f", "reflects value of chamged complex source");
 });
 
-test("X.proc to X.proc dependencies", function () {
-    var c = X(1),
-        p1 = X(function () { return c(); }),
-        p2 = X(function () { return p1(); });
+test("K.proc to K.proc dependencies", function () {
+    var c = K(1),
+        p1 = K(function () { return c(); }),
+        p2 = K(function () { return p1(); });
 
     c(2);
 
     strictEqual(p2(), 2, "changes propagate through procs");
 });
 
-test("X.seq creation", function () {
-    var s = X.seq([1, 2, 3]);
+test("K.seq creation", function () {
+    var s = K.seq([1, 2, 3]);
 
     ok(s, "can be created");
 
     deepEqual(s(), [1, 2, 3], "contains expected values");
 
-    var t = X([1, 2, 3, 4]);
+    var t = K([1, 2, 3, 4]);
 
-    ok(t, "can be created with X([...]) shorthand");
+    ok(t, "can be created with K([...]) shorthand");
 
-    deepEqual(t(), [1, 2, 3, 4], "object created by X[...]) shorthand contains expected values");
+    deepEqual(t(), [1, 2, 3, 4], "object created by K([...]) shorthand contains expected values");
 });
 
-test("X.seq reset", function () {
-    var s = X.seq([1, 2, 3]);
+test("K.seq reset", function () {
+    var s = K.seq([1, 2, 3]);
 
     s([4, 5, 6]);
 
     deepEqual(s(), [4,5,6], "seq reflects reset values");
 });
 
-test("X.seq.add", function () {
-    var s = X.seq([1, 2, 3]);
+test("K.seq.add", function () {
+    var s = K.seq([1, 2, 3]);
 
     s.add(4);
 
     deepEqual(s(), [1, 2, 3, 4], "added item appears in values");
 });
 
-test("X.seq.remove", function () {
-    var s = X.seq([1, 2, 3, 4, 5]);
+test("K.seq.remove", function () {
+    var s = K.seq([1, 2, 3, 4, 5]);
 
     s.remove(5);
 
@@ -147,30 +147,30 @@ test("X.seq.remove", function () {
     deepEqual(s(), [2, 4], "value removed from beginning is gone");
 });
 
-test("X.seq.map creation", function () {
-    var s = X.seq([1, 2, 3]),
-        m = s .X. map(function (i) { return i * 2; });
+test("K.seq.map creation", function () {
+    var s = K.seq([1, 2, 3]),
+        m = s .K. map(function (i) { return i * 2; });
 
     ok(m, "map returns object");
 
-    ok(m.X, "object returned by map is a seq");
+    ok(m.K, "object returned by map is a seq");
 
     deepEqual(m(), [2, 4, 6], "map contains expected values");
 });
 
-test("X.seq.map with add", function () {
-    var s = X.seq([1, 2, 3]),
-        m = s .X. map(function (i) { return i * 2; });
+test("K.seq.map with add", function () {
+    var s = K.seq([1, 2, 3]),
+        m = s .K. map(function (i) { return i * 2; });
 
     s.add(4);
 
     deepEqual(m(), [2, 4, 6, 8], "map updates with expected added value");
 });
 
-test("X.seq.map with remove", function () {
-    var s = X.seq([1, 2, 3, 4, 5]),
+test("K.seq.map with remove", function () {
+    var s = K.seq([1, 2, 3, 4, 5]),
         exited = [],
-        m = s .X. map(function (i) { return i * 2; }, function (i) { exited.push(i); });
+        m = s .K. map(function (i) { return i * 2; }, function (i) { exited.push(i); });
 
     s.remove(5);
 
@@ -188,39 +188,39 @@ test("X.seq.map with remove", function () {
     deepEqual(exited, [10, 6, 2], "exit called for value removed from start");
 });
 
-test("X.seq.enter creation", function () {
-    var s = X.seq([1, 2, 3]),
-        m = s .X. enter(function (i) { return i * 2; });
+test("K.seq.enter creation", function () {
+    var s = K.seq([1, 2, 3]),
+        m = s .K. enter(function (i) { return i * 2; });
 
     ok(m, "enter returns object");
 
-    ok(m.X, "object returned by enter is a seq");
+    ok(m.K, "object returned by enter is a seq");
 
     deepEqual(m(), [2, 4, 6], "enter contains expected values");
 });
 
-test("X.seq.enter with add", function () {
-    var s = X.seq([1, 2, 3]),
-        m = s .X. enter(function (i) { return i * 2; });
+test("K.seq.enter with add", function () {
+    var s = K.seq([1, 2, 3]),
+        m = s .K. enter(function (i) { return i * 2; });
 
     s.add(4);
 
     deepEqual(m(), [2, 4, 6, 8], "enter updates with expected added value");
 });
 
-test("X.seq.enter with reset", function () {
-    var s = X.seq([1, 2, 3]),
-        m = s .X. enter(function (i) { return i * 2; });
+test("K.seq.enter with reset", function () {
+    var s = K.seq([1, 2, 3]),
+        m = s .K. enter(function (i) { return i * 2; });
 
     s([4, 5, 6]);
 
     deepEqual(m(), [8, 10, 12], "enter updates with expected added value");
 });
 
-test("X.seq.exit with reset", function () {
-    var s = X.seq([1, 2, 3]),
+test("K.seq.exit with reset", function () {
+    var s = K.seq([1, 2, 3]),
         exited = [],
-        m = s .X. exit(function (i) { exited.push(i); });
+        m = s .K. exit(function (i) { exited.push(i); });
 
     s([3, 4, 5, 6]);
 
@@ -228,10 +228,10 @@ test("X.seq.exit with reset", function () {
     deepEqual(exited, [1, 2], "exit called for removed values");
 });
 
-test("X.seq.exit with remove", function () {
-    var s = X.seq([1, 2, 3, 4, 5]),
+test("K.seq.exit with remove", function () {
+    var s = K.seq([1, 2, 3, 4, 5]),
         exited = [],
-        m = s .X. exit(function (i) { exited.push(i); });
+        m = s .K. exit(function (i) { exited.push(i); });
 
     s.remove(5);
 
@@ -249,18 +249,18 @@ test("X.seq.exit with remove", function () {
     deepEqual(exited, [5, 3, 1], "exit called for value removed from start");
 });
 
-test("X.seq.filter", function () {
-    var s = X.seq([1, 2, 3, 4, 5, 6]),
-        f = s .X. filter(function (n) { return n % 2; });
+test("K.seq.filter", function () {
+    var s = K.seq([1, 2, 3, 4, 5, 6]),
+        f = s .K. filter(function (n) { return n % 2; });
 
     deepEqual(f(), [1, 3, 5]);
 });
 
-test("X.seq.map with chanels", function () {
-    var c = X(true),
-        s = X([c]),
+test("K.seq.map with chanels", function () {
+    var c = K(true),
+        s = K([c]),
         f = function (c) { return c(); },
-        m = s .X. map(f);
+        m = s .K. map(f);
 
     c(false);
 
@@ -274,8 +274,8 @@ function mapSpeed() {
     var i, j, s, m, c = 0;
 
     for (i = 1; i <= 10000; i++) {
-        s = X.seq([]);
-        m = s.X.map(function (v) { c++; return v * 2; });
+        s = K.seq([]);
+        m = s.K.map(function (v) { c++; return v * 2; });
         for (j = 0; j < 50; j++) {
             s.add(j);
         }
@@ -288,8 +288,8 @@ function enterSpeed() {
     var i, j, s, m, c = 0;
 
     for (i = 1; i <= 10000; i++) {
-        s = X.seq([]);
-        m = s.X.enter(function (v) { c++; return v * 2; });
+        s = K.seq([]);
+        m = s.K.enter(function (v) { c++; return v * 2; });
         for (j = 0; j < 50; j++) {
             s.add(j);
         }
@@ -299,7 +299,7 @@ function enterSpeed() {
 }
 
 function propagateSpeed(nary, depth) {
-    var root = X.ch(0), c = 0, i;
+    var root = K.ch(0), c = 0, i;
 
     tree(root, nary, depth);
 
@@ -312,7 +312,7 @@ function propagateSpeed(nary, depth) {
     function tree(node, nary, depth) {
         if (depth <= 0) return;
         for (var i = 0; i < nary; i++) {
-            tree(X(function () { c++; return node() + 1; }), nary, depth - 1);
+            tree(K(function () { c++; return node() + 1; }), nary, depth - 1);
         }
     }
 }
@@ -321,7 +321,7 @@ function chCreateSpeed(count) {
     var i;
 
     for (i = 0; i < count; i++) {
-        X.ch(i);
+        K.ch(i);
     }
 }
 
@@ -329,6 +329,6 @@ function procCreateSpeed(count) {
     var i;
 
     for (i = 0; i < count; i++) {
-        X.proc(function () { });
+        K.proc(function () { });
     }
 }

@@ -1,4 +1,4 @@
-var X = (function () {
+var K = (function () {
     "use strict";
 
     var count = 1,
@@ -6,26 +6,26 @@ var X = (function () {
         bundler = undefined;
 
     // initializer
-    X.lift     = lift;
+    K.lift     = lift;
 
-    X.ch       = ch;
-    X.proc     = proc;
-    X.bundle   = bundle;
-    X.peek     = peek;
+    K.ch       = ch;
+    K.proc     = proc;
+    K.bundle   = bundle;
+    K.peek     = peek;
 
-    X.ch.X = chX;
-    procX.prototype = new chX();
-    X.proc.X = procX;
+    K.ch.K = chCombinator;
+    procCombinator.prototype = new chCombinator();
+    K.proc.K = procCombinator;
 
-    return X;
+    return K;
 
-    function X(arg1, arg2) {
-        return X.lift(arg1, arg2);
+    function K(arg1, arg2) {
+        return K.lift(arg1, arg2);
     }
 
     function lift(arg1, arg2) {
         return typeof arg1 === 'function' ? proc(arg1, arg2)
-            : arg1 instanceof Array ? X.seq(arg1)
+            : arg1 instanceof Array ? K.seq(arg1)
             : ch(arg1);
     }
 
@@ -33,7 +33,7 @@ var X = (function () {
         var id = count++,
             listeners = [];
 
-        ch.X = new chX();
+        ch.K = new chCombinator();
 
         return ch;
 
@@ -61,7 +61,7 @@ var X = (function () {
             listeners = [],
             our_bundler = bundler;
 
-        proc.X = new procX(update, source_offsets, source_listeners);
+        proc.K = new procCombinator(update, source_offsets, source_listeners);
 
         if (our_bundler) our_bundler(proc);
 
@@ -111,7 +111,7 @@ var X = (function () {
                     source_gen = source_gens[i];
                     if (source_gen === 0) {
                         source_listeners[i] = listeners;
-                        listeners[source_offsets[i]] = proc.X;
+                        listeners[source_offsets[i]] = proc.K;
                     }
                     source_gens[i] = gen;
                     return;
@@ -123,7 +123,7 @@ var X = (function () {
             source_offsets.push(listeners.length);
             source_listeners.push(listeners);
 
-            listeners.push(proc.X);
+            listeners.push(proc.K);
         }
 
         function prune_stale_sources() {
@@ -140,9 +140,9 @@ var X = (function () {
         }
     }
 
-    function chX() { }
+    function chCombinator() { }
 
-    function procX(update, source_offsets, source_listeners) {
+    function procCombinator(update, source_offsets, source_listeners) {
         this._update = update;
         this._source_offsets = source_offsets;
         this._source_listeners = source_listeners;
