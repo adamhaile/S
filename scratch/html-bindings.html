@@ -1,9 +1,11 @@
 ﻿<!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml">
 <head>
-    <title>K.html scratch examples</title>
+    <title>K.DOM scratch examples</title>
     <script type="text/javascript" src="../js/K.js"></script>
-    <script type="text/javascript" src="../js/K.html.js"></script>
+    <script type="text/javascript" src="../js/K.DOM.js"></script>
+    <script type="text/javascript" src="../js/K.DOM.Templates.js"></script>
+    <script type="text/javascript" src="../js/K.DOM.Templates.Parser.js"></script>
 </head>
 <body>
     <form id="form" method="get" action="html-bindings.html">
@@ -27,6 +29,144 @@
         <!-- {{/each}} -->
     </ul>
 
+    <script id="foo" data-param="items" type="text/html">
+        <ul>
+            @items.map((item) =>
+                <li class="item @item.classes">
+                    <input value="@item.name" />
+                    <button type="button" onclick="@item.remove"><i class="icon-remove-circle"></i></button>
+                    @item.costs
+                </li>
+            )
+        </ul>
+    </script>
+
+    <script type="text/foo">
+
+    var view = eval(K.DOM.src(
+    'function (items) {\n' +
+    '   return\n' +
+    '       <ul>\n' +
+    '           @items.map((item) =>\n' +
+    '                <li class="item @item.classes">\n' +
+    '                   <input value="@item.name" />\n' +
+    '                   <button type="button" onclick="@item.remove"><i class="icon-remove-circle"></i></button>\n' +
+    '                   @item.costs\n' +
+    '               </li>\n' +
+    '           )\n' +
+    '       </ul>;\n' +
+    '}'
+    ));
+
+    var view = eval(K.DOM.src('\
+    function (items) {         \
+       return                  \
+           <ul>                \
+               @items.map((item) => \
+                    <li class="item @item.classes"> \
+                       <input value="@item.name" /> \
+                       <button type="button" onclick="@item.remove"><i class="icon-remove-circle"></i></button> \
+                       @item.costs \
+                   </li>      \
+               )              \
+           </ul>;             \
+    }'));
+
+    var view = eval(K.DOM.src(
+    '(items) =>\n' +
+    '   <ul>\n' +
+    '       @items.map((item) =>\n' +
+    '            <li class="item @item.classes">\n' +
+    '               <input value="@item.name" />\n' +
+    '               <button type="button" onclick="@item.remove"><i class="icon-remove-circle"></i></button>\n' +
+    '               @item.costs\n' +
+    '           </li>\n' +
+    '       )\n' +
+    '   </ul>' +
+    ));
+
+    function view(items) { return (
+        <ul>
+            @items.map((item) =>
+                <li class="item @item.classes">
+                    <input value="@item.name" />
+                    <button type="button" onclick="@item.remove"><i class="icon-remove-circle"></i></button>
+                    @item.costs
+                </li>
+            )
+        </ul>;
+    )}
+
+    var view = (items) =>
+       <ul>
+           @items.map((item) =>
+                <li class="item @item.classes">
+                   <input value="@item.name" />
+                   <button type="button" onclick="@item.remove"><i class="icon-remove-circle"></i></button>
+                   @item.costs
+               </li>
+           )
+       </ul>;
+
+    "use strict";
+    var __tmpl_ul_34 = K.DOM.template(
+            '\n' +
+            '        <ul>\n' +
+            '        </ul>\n' +
+            '    ',
+            [{ path: [1, 0], splits: ['\n        ', '\n        '] }],
+            [{ path: [1, 1], type: 'node' }]
+        ),
+        __tmpl_li_class_item_35 = K.DOM.template(
+            '\n' +
+            '                <li class="item ">\n' +
+            '                    <input />\n' +
+            '                    <button type="button"><i class="icon-remove-circle"></i></button>\n' +
+            '                    \n' +
+            '                </li>',
+            [{ path: [1, 4], split: ['\n                    ', '\n                '] }],
+            [{ path: [1], type: 'attr', name: 'class' }]
+        );
+    __tmpl_ul_34([
+        function () { return items.map(function (item) {
+            return __tmpl_li_class_item_35([
+                function () { return item.classes; },
+                function () { return item.name; },
+                function () { return item.remove; }
+            ]);
+        }
+    ]);
+
+    "use strict";
+    var __tmpl_ul_34 = K.DOM.template(
+            '\n' +
+            '        <ul>\n' +
+            '        </ul>\n' +
+            '    ',
+            [{ path: [1, 0], splits: ['\n        ', '\n        '] }],
+            [{ path: [1, 1], type: 'node' }]
+        ),
+        __tmpl_li_class_item_35 = K.DOM.template(
+            '\n' +
+            '                <li class="item ">\n' +
+            '                    <input />\n' +
+            '                    <button type="button"><i class="icon-remove-circle"></i></button>\n' +
+            '                    \n' +
+            '                </li>',
+            [{ path: [1, 4], split: ['\n                    ', '\n                '] }],
+            [{ path: [1], type: 'attr', name: 'class' }]
+        );
+    __tmpl_ul_34([
+        () => items.map((item) =>
+            __tmpl_li_class_item_35([
+                () => item.classes,
+                () => item.name,
+                () => item.remove
+            ]);
+    ]);
+
+    </script>
+
     <button type="button" onclick="{{addItem}}"><i class="icon-add-circle"></i> Add Item</button>
 
     <script type="text/javascript">
@@ -36,7 +176,18 @@
             checkbox = document.getElementById('checkbox'),
             textarea = document.getElementById('textarea'),
             select = document.getElementById('select'),
-            submit = document.getElementById('button');
+            submit = document.getElementById('button'),
+            tmpl = document.getElementById('foo').innerText,
+            tmpl64k = tmpl;
+
+            tmpl64k = tmpl64k + tmpl64k + tmpl64k + tmpl64k; // 4
+            tmpl64k = tmpl64k + tmpl64k + tmpl64k + tmpl64k; // 16
+            tmpl64k = tmpl64k + tmpl64k + tmpl64k + tmpl64k; // 64
+            tmpl64k = tmpl64k + tmpl64k + tmpl64k + tmpl64k; // 256
+            tmpl64k = tmpl64k + tmpl64k + tmpl64k + tmpl64k; // 1024
+            tmpl64k = tmpl64k + tmpl64k + tmpl64k + tmpl64k; // 4k
+            tmpl64k = tmpl64k + tmpl64k + tmpl64k + tmpl64k; // 16k
+            tmpl64k = tmpl64k + tmpl64k + tmpl64k + tmpl64k; // 64k
     </script>
 </body>
 </html>

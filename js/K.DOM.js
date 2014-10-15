@@ -1,7 +1,7 @@
 ﻿// HTML bindings for K.js
 (function (K) {
 
-    K.html = {
+    K.DOM = {
         control: control,
         text   : text,
         event  : event
