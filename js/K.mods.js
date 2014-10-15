@@ -12,35 +12,31 @@
     return;
 
     // in/out modifiers
-    function detach(fn) {
-        return noop;
-    }
-
-    function defer(fn) {
-        return function (id) {
-            setTimeout(fn, 0, id);
+    function defer(fn, id) {
+        return function () {
+            setTimeout(fn, 0);
         };
     }
 
     function throttle(delay) {
-        return function (fn) {
+        return function (fn, id) {
             var last = 0,
                 scheduled = false;
 
-            return function (id) {
+            return function () {
                 if (scheduled) return;
 
                 var now = Date.now();
 
                 if ((now - last) >= delay) {
                     last = now;
-                    fn(id);
+                    fn();
                 } else {
                     scheduled = true;
                     setTimeout(function () {
-                        last += delay;
+                        last = Date.now();
                         scheduled = false;
-                        fn(id);
+                        fn();
                     }, delay - (now - last));
                 }
             };
@@ -48,10 +44,10 @@
     }
 
     function debounce(delay) {
-        return function (fn) {
+        return function (fn, id) {
             var tout = 0;
 
-            return function (id) {
+            return function () {
                 if (tout) clearTimeout(tout);
 
                 tout = setTimeout(fn, delay, id);

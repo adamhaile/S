@@ -3,14 +3,14 @@ var K = (function () {
 
     var count = 1,
         listener = undefined,
-        bundler = undefined;
+        region = [];
 
     // initializer
     K.lift     = lift;
 
     K.ch       = ch;
     K.proc     = proc;
-    K.bundle   = bundle;
+    K.region   = _region;
     K.peek     = peek;
 
     K.ch.K = chCombinator;
@@ -31,7 +31,8 @@ var K = (function () {
 
     function ch(msg) {
         var id = count++,
-            listeners = [];
+            listeners = [],
+            our_region = region;
 
         ch.K = new chCombinator();
 
@@ -42,7 +43,7 @@ var K = (function () {
                 msg = new_msg;
                 propagate(listeners);
             } else {
-                if (listener) listener(id, listeners);
+                if (listener) listener(id, our_region, listeners);
             }
             return msg;
         }
@@ -59,93 +60,133 @@ var K = (function () {
             source_offsets = [],
             source_listeners = [],
             listeners = [],
-            our_bundler = bundler;
+            our_region = region,
+            updaters = initUpdaters(update, id, this);
 
-        proc.K = new procCombinator(update, source_offsets, source_listeners);
+        proc.K = new procCombinator(detach);
 
-        if (our_bundler) our_bundler(proc);
-
-        update();
+        updaters[updaters.length - 1]();
 
         return proc;
 
         function proc() {
-            if (listener) listener(id, listeners);
+            if (listener) listener(id, our_region, listeners);
             return msg;
         }
 
         function update() {
             var new_msg,
                 prev_listener,
-                prev_bundler;
+                prev_region;
 
             if (!updating) {
                 updating = true;
                 prev_listener = listener, listener = our_listener;
-                prev_bundler = bundler, bundler = our_bundler;
+                prev_region = region, region = our_region;
 
                 gen++;
 
                 try {
                     new_msg = fn();
+
+                    if (new_msg !== undefined) {
+                        msg = new_msg;
+                        propagate(listeners);
+                    }
                 } finally {
                     updating = false;
                     listener = prev_listener;
-                    bundler = prev_bundler;
+                    region = prev_region;
                 }
 
-                prune_stale_sources();
-
-                if (new_msg !== undefined) {
-                    msg = new_msg;
-                    propagate(listeners);
-                }
+                pruneStaleSources(gen, source_gens, source_offsets, source_listeners);
             }
         }
 
-        function our_listener(sid, listeners) {
-            var i, len, source_gen;
+        function our_listener(sid, source_region, listeners) {
+            var i, j, len, offset;
 
             for (i = 0, len = source_ids.length; i < len; i++) {
                 if (sid === source_ids[i]) {
-                    source_gen = source_gens[i];
-                    if (source_gen === 0) {
+                    offset = source_offsets[i];
+                    if (listeners[offset] === null) {
+                        listeners[offset] = source_listeners[i];
                         source_listeners[i] = listeners;
-                        listeners[source_offsets[i]] = proc.K;
                     }
                     source_gens[i] = gen;
                     return;
                 }
             }
 
+            offset = listeners.length;
+
             source_ids.push(sid);
             source_gens.push(gen);
-            source_offsets.push(listeners.length);
+            source_offsets.push(offset);
             source_listeners.push(listeners);
 
-            listeners.push(proc.K);
+            // set i to the point where the region paths diverge
+            for (i = 0, len = Math.min(our_region.length, source_region.length);
+                 i < len && our_region[i] === source_region[i];
+                 i++);
+
+            listeners.push(updaters[i]);
+
+            for (len = our_region.length; i < len; i++) {
+                our_region[i].offsets.push(offset);
+                our_region[i].listeners.push(listeners);
+            }
         }
 
-        function prune_stale_sources() {
-            var i, len, source_gen;
+        function detach() {
+            var i, len;
 
-            for (i = 0, len = source_gens.length; i < len; i++) {
-                source_gen = source_gens[i];
-                if (source_gen !== 0 && source_gen < gen) {
-                    source_listeners[i][source_offsets[i]] = undefined;
-                    source_listeners[i] = undefined;
-                    source_gens[i] = 0;
-                }
+            for (i = 0, len = source_offsets.length; i < len; i++) {
+                source_listeners[i][source_offsets[i]] = undefined;
+                source_listeners[i] = undefined;
             }
         }
     }
 
+
+    function pruneStaleSources(gen, source_gens, source_offsets, source_listeners) {
+        var i, len, source_gen, listeners, offset;
+
+        for (i = 0, len = source_gens.length; i < len; i++) {
+            source_gen = source_gens[i];
+            if (source_gen !== 0 && source_gen < gen) {
+                listeners = source_listeners[i];
+                offset = source_offsets[i];
+                source_listeners[i] = listeners[offset];
+                listeners[offset] = null;
+                source_gens[i] = 0;
+            }
+        }
+    }
+
+    function initUpdaters(update, id, mod) {
+        var i, updaters = [];
+
+        if (mod && mod.mod) update = mod.mod(update, id);
+
+        updaters[region.length] = update;
+
+        for (i = region.length - 1; i >= 0; i--) {
+            if (region.mod) update = region.mod(update, id);
+            updaters[i] = update;
+        }
+
+        return updaters;
+    }
+
     function chCombinator() { }
 
-    function procCombinator(update, source_offsets, source_listeners) {
-        this._update = update;
-        this._source_offsets = source_offsets;
-        this._source_listeners = source_listeners;
+    function procCombinator(detach) {
+        this.detach = detach;
+    }
+
+    function regionCombinator(detach) {
+        this.detach = detach;
     }
 
     function propagate(listeners) {
@@ -154,74 +195,59 @@ var K = (function () {
         for (i = 0, len = listeners.length; i < len; i++) {
             listener = listeners[i];
             if (listener) {
-                listener._update();
+                listener();
             }
         }
     }
 
-    function bundle(fn) {
-        var nodes = [],
-            inMods = identity,
-            bundle = {
-                in: _in,
-                watch: watch
-            };
+    function _region(fn) {
+        var prev_region = region,
+            offsets = [],
+            listeners = [];
 
-        if (fn) watch(fn);
+        region = region.slice();
 
-        return bundle;
+        region.push({
+            mod: this && this.mod ? this.mod : null,
+            offsets: offsets,
+            listeners: listeners
+        });
 
-        function watch(fn) {
-            var prev_bundler = bundler, bundler = add;
-
-            try {
-                fn();
-            } finally {
-                bundler = prev_bundler;
-            }
-
-            function add(node) {
-                node.in(inMods);
-                nodes.push(node);
-                prev_bundler(node);
-            }
+        try {
+            fn();
+        } finally {
+            region = prev_region;
         }
 
-        function _in(mod) {
-            var i;
+        return {
+            K: new regionCombinator(detach)
+        }
 
-            inMods = compose(inMods, mod);
+        function detach() {
+            var i, len;
 
-            for (i = 0; i < nodes.length; i++) {
-                nodes[i].in(mod);
+            for (i = 0, len = listeners.length; i < len; i++) {
+                listeners[i][offsets[i]] = undefined;
             }
-
-            return bundle;
         }
     }
 
     function peek(fn) {
-        var prev_listener;
+        var prev_listener,
+            val;
 
         if (!listener) {
-            return fn();
+            val = fn();
         } else {
-            prev_listener = listener;
-            listener = undefined;
+            prev_listener = listener, listener = undefined;
 
             try {
-                return fn();
+                val = fn();
             } finally {
                 listener = prev_listener;
             }
         }
-    }
 
-    function compose(g, f) {
-        return function compose(x, y) {
-            return g(f(x, y), y);
-        };
+        return val;
     }
-
-    function identity(x) { return x; }
 }());

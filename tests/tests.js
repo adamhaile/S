@@ -64,6 +64,19 @@ test("K.proc to K.ch dependencies", function () {
     strictEqual(p_evals, 1, "re-evaluates when source changes");
 });
 
+test("K.proc to K.ch creation dependencies", function () {
+    var c = null,
+        p_evals = 0,
+        p = K(function () { p_evals++; c = K(1); });
+
+    strictEqual(p_evals, 1, "evaluates once on definition");
+
+    p_evals = 0;
+    c(2);
+
+    strictEqual(p_evals, 0, "does not re-evaluate when internally created ch changes");
+});
+
 test("K.proc to K.ch dynamic dependencies", function () {
     var pred = K(true), t = K("t"), f = K("f"),
         p_evals = 0,
@@ -99,6 +112,60 @@ test("K.proc to K.proc dependencies", function () {
     c(2);
 
     strictEqual(p2(), 2, "changes propagate through procs");
+});
+
+test("K.proc to K.proc creation dependencies", function () {
+    var v = K(1),
+        p1 = null,
+        p2_evals = 0,
+        p2 = K(function () { p2_evals++; p1 = K(function () { return v(); }); });
+
+    strictEqual(p2_evals, 1, "external proc evaluates once on definition");
+
+    p2_evals = 0;
+    v(2);
+
+    strictEqual(p1(), v(), "internal proc updates when dependency updates");
+    strictEqual(p2_evals, 0, "external proc does not update when internal proc is re-evaluated");
+});
+
+test("K.proc detach", function () {
+    var c = K(1),
+        p = K(function () { return c(); });
+
+    p.K.detach();
+
+    c(2);
+
+    strictEqual(p(), 1, "detached proc does not update");
+});
+
+test("K.region creation and detach", function () {
+    var a = K(1),
+        b,
+        c,
+        r = K.region(function () {
+            b = K(2);
+            c = K(function () { return a() + b(); });
+        });
+
+    strictEqual(c(), 3, "procs inside regions are initialized");
+
+    a(3);
+    b(4);
+    strictEqual(c(), 7, "procs inside regions update");
+
+    r.K.detach();
+
+    a(99);
+
+    strictEqual(c(), 7, "detaching a region detaches its procs");
+
+    b(100);
+    strictEqual(c(), 199, "updating a source within a detached region still updates a proc");
+
+    a(9);
+    strictEqual(c(), 199, "detached procs stay detached");
 });
 
 test("K.seq creation", function () {
