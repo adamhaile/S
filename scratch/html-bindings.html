@@ -4,8 +4,8 @@
     <title>K.DOM scratch examples</title>
     <script type="text/javascript" src="../js/K.js"></script>
     <script type="text/javascript" src="../js/K.DOM.js"></script>
-    <script type="text/javascript" src="../js/K.DOM.Templates.js"></script>
-    <script type="text/javascript" src="../js/K.DOM.Templates.Parser.js"></script>
+    <script type="text/javascript" src="../js/K.DOM.template.js"></script>
+    <script type="text/javascript" src="../js/K.DOM.src.js"></script>
 </head>
 <body>
     <form id="form" method="get" action="html-bindings.html">
@@ -59,18 +59,19 @@
     ));
 
     var view = eval(K.DOM.src('\
-    function (items) {         \
-       return                  \
-           <ul>                \
-               @items.map((item) => \
-                    <li class="item @item.classes"> \
-                       <input value="@item.name" /> \
-                       <button type="button" onclick="@item.remove"><i class="icon-remove-circle"></i></button> \
-                       @item.costs \
-                   </li>      \
-               )              \
-           </ul>;             \
-    }'));
+        function (items) {     \
+           return              \
+               <ul>            \
+                   @items.map((item) => \
+                        <li class="item @item.classes"> \
+                           <input value="@item.name" /> \
+                           <button type="button" onclick="@item.remove"><i class="icon-remove-circle"></i></button> \
+                           @item.costs \
+                       </li>  \
+                   )          \
+               </ul>;         \
+        }                     \
+    '));
 
     var view = eval(K.DOM.src(
     '(items) =>\n' +

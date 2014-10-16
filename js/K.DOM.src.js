@@ -1,5 +1,11 @@
 (function (K) {
+    "use strict";
+    
     K.DOM.src = src;
+
+    // DEBUG
+    K.DOM.tokenize = tokenize;
+    K.DOM.parse = parse;
 
     function src(str) {
         var toks = tokenize(str),
@@ -10,346 +16,333 @@
     }
 
     /// tokens:
-    /// <
-    /// </
+    /// < (followed by \w)
+    /// </ (followed by \w))
     /// >
     /// />
-    /// =
     /// )
     /// (
+    /// =
     /// "
     /// '
     /// @
-    /// <word>
     /// misc (any string not containing one of the above)
 
-    var matchTokens = /<\/|<|>|\/>|=|\)|\(|"|'|@|[a-zA-Z0-9\-]+|(?:[^<>=()@\/"'a-zA-Z0-9\-]|\/(?!>))+/g;
+    var matchTokens = /<\/?(?=\w)|\/?>|\)|\(|=|"|'|@|(?:[^<>\/()="'@]|\/(?!>)|<(?![\/\w])|<\/(?!\w))+/g;
 
+    var propChain = /^[a-zA-Z_$][a-zA-Z_$0-9]*(?:\.[a-zA-Z_$][a-zA-Z_$0-9]+)*/,
+        propTail = /^(?:\.[a-zA-Z_$][a-zA-Z_$0-9]+)+/,
+        attributeName = /([a-zA-Z][a-zA-Z0-9\-]*)(\s*)$/,
+        ws = /^\s*$/;
+            
     function tokenize(str) {
-        return str.match(matchTokens);
+        var TOKS = str.match(matchTokens);
+        
+        // DEBUG
+        //if (TOKS.join("").length != str.length) 
+        //    throw new Error("missing text from tokens!");
+        
+        return TOKS;
     }
 
     var AST = {
-            Template: function Template(html, splits, locs) {
-                this.id = templateId++;
-                this.html = html;
-                this.textSplits = splits;
-                this.locs = locs;
+            CodeTopLevel: function (segments) {
+                this.segments = segments; // [ CodeText | HtmlEmbed ]
             },
-            AttrLocation: function AttrLocation(path, attr) {
-                this.path = path;
-                this.attr = attr;
+            CodeText: function (text) {
+                this.text = text; // string
             },
-            EventLocation: function EventLocation(path, event) {
-                this.path = path;
-                this.event = event;
+            HtmlEmbed: function(nodes) {
+                this.nodes = nodes; // [ HtmlElement | TextNode(ws only) | CodeEmbed ]
             },
-            ControlLocation: function ControlLocation(path) {
-                this.path = path;
+            HtmlElement: function(beginTag, content, endTag) {
+                this.beginTag = beginTag; // [ HtmlText | HtmlAttr ]
+                this.content = content; // [ HtmlElement | TextNode | CodeEmbed ]
+                this.endTag = endTag; // HtmlText | null
             },
-            NodeLocation: function NodeLocation(path) {
-                this.path = path;
+            HtmlText: function (text) {
+                this.text = text; // string
             },
-            TextSplitLocation: function TextSplitLocation(path, splits) {
-                this.path = path;
-                this.splits = splits;
+            HtmlAttr: function (name, eq, quote, value) {
+                this.name = name; // string
+                this.eq = eq; // string
+                this.quote = quote; // string
+                this.value = value; // [ HtmlText | CodeEmbed ]
             },
-            TemplateExpression: function TemplateExpression(template, values) {
-                if (template.locs.length !== vaues.length)
-                    ERR("template expressions must have an equal number of locations and values");
-                this.template = template;
-                this.values = values;
-            },
-            ValueExpression: function ValueExpression(segments) {
-                this.segments = segments;
-            },
-            CodeSegment: function CodeSegment(segment) {
-                this.segment = segment;
-            },
-            ValueLiteral: function ValueLiteral(quote, literal) {
-                this.quote = quote;
-                this.literal = literal;
+            CodeEmbed: function (segments) {
+                this.segments = segments; // [ CodeText | HtmlEmbed ]
             }
-        },
-        templateId = 1;
+        };
 
-    function parse(toks) {
+    function parse(TOKS) {
         var i = 0,
-            eof = toks.length === 0,
-            tok = toks[i];
+            EOF = TOKS.length === 0,
+            TOK = !EOF && TOKS[i];
 
-        return template();
+        return codeTopLevel();
 
-        function template() {
-            var html = "",
-                splits = [],
-                locs = [],
-                values = [];
+        function codeTopLevel() {
+            var segments = [],
+                text = "";
 
-            children(html, splits, locs, values, []);
-
-            return new AST.TemplateExpression(new AST.Template(html, splits, locs), values);
-        }
-
-        function children(html, splits, locs, values, path) {
-            path = path.concat([0]);
-            for (; !eof && tok !== "</"; path[path.length - 1]++) {
-                if (tok === "<") node(html, splits, locs, values, path);
-                else text(html, splits, locs, values, path);
+            while (!EOF) {
+                if (IS('<')) {
+                    if (text) segments.push(new AST.CodeText(text));
+                    text = "";
+                    segments.push(htmlEmbed());
+                } else {
+                    text += TOK, NEXT();
+                }
             }
+
+            if (text) segments.push(new AST.CodeText(text));
+
+            return new AST.CodeTopLevel(segments);
         }
 
-        function node(html, splits, locs, values, path) {
-            if (tok !== "<") ERR("not in a node");
+        function htmlEmbed() {
+            if (NOT('<')) ERR("embed not at start of element");
 
-            EAT(html);
+            var nodes = [];
+
+            while (!EOF) {
+                if (IS('<'))
+                    nodes.push(htmlElement());
+                else if (IS('@'))
+                    nodes.push(codeEmbed());
+                else if (WS() && (PEEK('<') || PEEK('@')))
+                    nodes.push(new AST.HtmlText(TOK))
+                else break;
+            }
+
+            return new AST.HtmlEmbed(nodes);
+        }
+
+        function htmlElement() {
+            if (NOT('<')) ERR("not at start of element");
+
+            var beginTag = [],
+                content = [],
+                endTag = "",
+                text = "",
+                hasContent = true;
+
+            text += TOK, NEXT();
 
             // scan for attributes until end of opening tag
-            var attrstart = 0
-            while (!eof && tok !== ">" && tok != "/>") {
-                if (tok === "@") attr(attrstart, html, splits, locs, values, path);
-                else {
-                    if (tok === "=") attrstart = i;
-                    EAT(html);
+            while (!EOF && NOT('>') && NOT('/>')) {
+                if (IS('=')) {
+                    beginTag.push(htmlAttr(beginTag, text)); // don't add text to beginTag yet, as htmlAttr needs to munge it to find the attr name
+                    text = "";
+                } else text += TOK, NEXT();
+            }
+
+            if (EOF) ERR("unterminated start node");
+
+            hasContent = IS('>');
+
+            text += TOK, NEXT();
+
+            beginTag.push(new AST.HtmlText(text));
+
+            if (hasContent) {
+                while (!EOF && NOT('</')) {
+                    if (IS('<'))
+                        content.push(htmlElement());
+                    else if (IS('@'))
+                        content.push(codeEmbed());
+                    else
+                        content.push(htmlText());
                 }
+
+                if (EOF) ERR("element missing end tag");
+
+                while (!EOF && NOT('>')) {
+                    endTag += TOK, NEXT();
+                }
+
+                if (EOF) ERR("eof within element end tag");
+
+                endTag += TOK, NEXT();
             }
 
-            if (eof) ERR("unterminated start node");
-
-            if (tok === ">") {
-                EAT(html);
-
-                children(html, splits, locs, values, path);
-
-                if (eof) ERR("eof before end of node");
-
-                EAT(html); // </
-                EAT(html); // tag
-                EAT(html); // <
-            } else if (tok === "/>") {
-                EAT(html);
-            }
+            return new AST.HtmlElement(beginTag, content, endTag);
         }
 
-        function text(html, _splits, locs, values, path) {
-            var split = "",
-                splits = [],
-                orig = null;
+        function htmlText() {
+            var text = "";
 
-            while (!eof && tok !== "<" && tok !== "</") {
-                if (tok === "@") {
-                    if (split) {
-                        if (!orig) orig = path.slice();
-                        path[path.length - 1]++;
-                        splits.push(split);
-                        split = "";
-                    }
-                    locs.push(new AST.NodeLocation(path.slice()));
-                    values.push(code());
-                } else {
-                    split += tok;
-                    EAT(html);
-                }
+            while (!EOF && NOT('<') && NOT('@') && NOT('</')) {
+                text += TOK, NEXT();
             }
 
-            if (splits.length) {
-                if (split) splits.push(split);
-                _splits.push(new AST.TextSplitLocation(orig, splits));
-            }
-
+            return new AST.HtmlText(text);
         }
 
-        function attr(eq, html, splits, locs, values, path) {
-            if (tok !== "@") ERR("not at start of code segment");
+        function htmlAttr(beginTag, text) {
+            if (NOT('=')) ERR("not at equal sign of attribute");
 
             // parse the attribute name and type
-            if (eq <= 0) ERR("attribute equal sign not before name");
-            var match = toks[eq - 1].match(/(on)?(\w*)\s*$/),
-                isEvent = !!match[1],
-                name = match[2],
-                isControl = name === "name";
+            var match = text.match(attributeName);
 
-            if (!name) ERR("no attribute name specified");
+            if (!match) ERR("could not identify attribute name");
 
-            // start parsing the value
-            var segments = [],
-                segment = "",
-                quo = null,
-                c,
-                j;
+            var name = match[1],
+                eq = match[2],
+                quote = "",
+                value = [];
 
-            if (i - eq === 1) {
-                // no quotes, just name=@value: consume all code
-                c = code();
+            // shorten the preceding text by the length of the attribute name match
+            text = text.substr(0, text.length - match[0].length);
 
-                if (c.segments.length > 1) ERR("embedded templates not allowed inside attribute values");
+            // if there's any previous text left, add it to the begin tag
+            if (text) beginTag.push(new AST.HtmlText(text));
+            text = "";
 
-                segments.push(c);
-            } else {
-                // quoted case, consume until matching quote
+            eq += TOK, NEXT();
+            while (!EOF && NOT('"') && NOT("'"))
+                eq += TOK, NEXT();
 
-                // find the quote character
-                quo = toks[j = eq + 1];
+            if (EOF) ERR("end of file looking for attribute value");
 
-                // see if there was space before the quote character
-                if (/^\s*$/.test(quo)) quo = toks[++j];
+            quote = TOK, NEXT();
 
-                // confirm that there was a quote character - if not, then the '@' was somewhere in space
-                if (quo !== '"' && quo !== "'") ERR("code segment not in attribute value (missing quotation marks around value?)");
-
-                // add any text prior to @ to an initial segment
-                for (j++; j < i && toks[j] !== quo; j++) segment += toks[j];
-
-                // confirm that the attribute value didn't end before we reached the '@'
-                if (j !== i) ERR("code segment not in attribute value");
-
-                // add the text to segments
-                if (segment.length > 0) segments.push(new AST.ValueLiteral(quo, segment));
-
-                // loop though alternating code and text segments
-                while (!eof && tok === '@') {
-                    c = code();
-
-                    if (c.segments.length > 1) ERR("embedded templates not allowed inside attribute values");
-
-                    segments.push(c.segments[0]);
-
-                    segment = [];
-                    while (!eof && tok !== quo && tok !== '@') {
-                        segment += tok;
-                        EAT(html);
+            while (!EOF && NOT(quote)) {
+                if (IS('@')) {
+                    if (text) {
+                        value.push(new AST.HtmlText(text));
+                        text = "";
                     }
-                    if (segment.length > 0) segments.push(new AST.ValueLiteral(quo, segment));
+                    value.push(codeEmbed());
+                } else {
+                    text += TOK, NEXT();
                 }
-
-                if (eof || tok !== quo) ERR("unterminated attribute value");
-
-                EAT(html);
             }
 
-            path = path.slice(0);
+            if (EOF) ERR("unterminated quote in attribute value");
 
-            if (isEvent) {
-                if (segments.length > 1) ERR("extra text found in event binding");
-                locs.push(new AST.EventLocation(path, name));
-            } else if (isControl) {
-                if (segments.length > 1) ERR("extra text found in control name binding");
-                locs.push(new AST.ControlLocation(path));
-            } else {
-                locs.push(new AST.AttrLocation(path, name));
-            }
+            NEXT();
 
-            values.push(new AST.ValueExpression(segments));
+            if (text) value.push(new AST.HtmlText(text));
+            
+            return new AST.HtmlAttr(name, eq, quote, value);
         }
 
-        function code() {
-            if (tok !== "@") ERR("not in code");
 
-            SKIP();
+        function codeEmbed() {
+            if (NOT("@")) ERR("not at start of code embed");
+
+            NEXT();
 
             var segments = [],
-                segment = "",
+                text = "",
                 match = null,
                 props = null,
                 ended = false;
 
             // consume any initial property chain (@foo.bar.blech)
-            if (match = tok.match(/^\w+(?:\.\w+)*/)) {
+            if (match = MATCH(propChain)) {
                 props = match[0];
-                if (props.length === tok.length) {
-                    EAT(segment);
+                if (props.length === TOK.length) {
+                    text += TOK, NEXT();
                 } else {
                     // split the token
-                    segment += props;
-                    tok = tok.substring(props.length);
+                    text += props;
+                    TOK = TOK.substring(props.length);
                     ended = true;
                 }
             }
 
             // consume any sets of ballanced parentheses
-            while (!ended && tok === "(") {
-                segment = parens(segments, segment);
+            while (!ended && IS("(")) {
+                text += balancedParens(segments, text);
 
                 // consume any terminal or interstitial property chain (@ ... ().blech)
-                if (match = tok.match(/^(?:\.\w+)+/)) {
+                if (match = MATCH(propTail)) {
                     props = match[0];
-                    if (props.length === tok.length) {
-                        EAT(segment);
+                    if (props.length === TOK.length) {
+                        text += TOK, NEXT();
                     } else {
                         // split the token
-                        segment += props;
-                        tok = tok.substring(props.length);
+                        text += props;
+                        TOK = TOK.substring(props.length);
                         ended = true;
                     }
                 }
             }
 
-            if (segment.length) segments.push(new AST.CodeSegment(segment));
+            if (text) segments.push(new AST.CodeText(text));
 
-            return new AST.ValueExpression(segments);
+            return new AST.CodeEmbed(segments);
         }
 
-        function parens(segments, segment) {
-            if (tok !== "(") ERR("not in parentheses");
+        function balancedParens(segments, text) {
+            if (NOT("(")) ERR("not in parentheses");
 
-            EAT(segment);
+            text += TOK, NEXT();
 
-            while (!eof && tok !== ")") {
-                if (tok === "'" || tok === '"') quoted(segment);
-                else if (tok === "<") {
-                    segments.push(new AST.CodeSegment(segment));
-                    segments.push(itemplate());
-                    segment = "";
-                } else if (tok === '(') parens(segments, segment);
-                else EAT(segment);
+            while (!EOF && NOT(")")) {
+                if (IS("'") || IS('"')) text += quotedString();
+                else if (IS("<")) {
+                    if (text) segments.push(new AST.CodeText(text));
+                    text = "";
+                    segments.push(htmlEmbed());
+                } else if (IS('(')) text = balancedParens(segments, text);
+                else text += TOK, NEXT();
             }
 
-            if (eof) ERR("unterminated parentheses");
+            if (EOF) ERR("unterminated parentheses");
 
-            EAT(segment);
+            text += TOK, NEXT();
 
-            return segment;
+            return text;
         }
 
-        function itemplate() {
-            if (tok !== "<") ERR("not at start of template");
+        function quotedString() {
+            if (NOT("'") && NOT('"')) ERR("not in quoted string");
 
-            var html = "",
-                splits = [],
-                locs = [],
-                values = [],
-                path = [0];
+            var quote,
+                text;
 
-            for (; !eof && tok === "<"; path[0]++) {
-                node(html, splits, locs, values, path);
-                if (/^\s+$/.test(tok) && toks[i+1] === "<") EAT(html);
-            }
+            quote = text = TOK, NEXT();
 
-            return new AST.TemplateExpression(new AST.Template(html, splits, locs), values);
+            while (!EOF && NOT(quote))
+                text += TOK, NEXT();
+
+            if (EOF) ERR("unterminated string");
+
+            text += TOK, NEXT();
+
+            return text;
         }
 
-        function quoted(segment) {
-            if (tok !== "'" && tok !== '"') ERR("not in quoted string");
-
-            var quo = tok;
-
-            while (!eof && tok != quo) EAT(segment);
-
-            if (eof) ERR("unterminated string");
-        }
-
-        function EAT(acc) {
-            if (++i >= toks.length) eof = true, tok = null;
-            else acc += tok, tok = toks[i];
-        }
-
-        function SKIP() {
-            if (++i >= toks.length) eof = true, tok = null;
-            else tok = toks[i];
+        function NEXT() {
+            if (++i >= TOKS.length) EOF = true, TOK = null;
+            else TOK = TOKS[i];
         }
 
         function ERR(msg) {
             throw new Error(msg);
+        }
+
+        function IS(t) {
+            return TOK === t;
+        }
+
+        function NOT(t) {
+            return TOK !== t;
+        }
+
+        function MATCH(m) {
+            return m.exec(TOK);
+        }
+        
+        function WS() {
+            return !!MATCH(ws);
+        }
+        
+        function PEEK(t) {
+            return i < TOKS.length - 1 && TOKS[i + 1] === t;
         }
     }
 
