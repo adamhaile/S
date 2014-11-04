@@ -337,6 +337,65 @@ test("K.seq.map with chanels", function () {
 
 });
 
+test("K.rproc - inner proc management", function () {
+    var outer = K(),
+        inner = K(),
+        evals = 0,
+        p = K(function () {
+                outer();
+                K(function () {
+                    inner();
+                    evals++;
+                });
+            });
+
+    strictEqual(evals, 1, "inner proc runs once for initialization");
+
+    evals = 0;
+    inner(1);
+
+    strictEqual(evals, 1, "inner proc runs once on inner trigger");
+
+    evals = 0;
+    outer(1);
+
+    strictEqual(evals, 1, "inner proc duplicated and evaluated on outer trigger");
+
+    evals = 0;
+    inner(1);
+
+    strictEqual(evals, 2, "inner proc now exists twice and is evaluation twice");
+
+    // re-perform tests using an rproc
+    outer = K();
+    inner = K();
+    evals = 0;
+    p = K.rproc(function () {
+            outer();
+            K(function () {
+                inner();
+                evals++;
+            });
+        });
+
+    strictEqual(evals, 1, "inner proc runs once for initialization");
+
+    evals = 0;
+    inner(1);
+
+    strictEqual(evals, 1, "inner proc runs once on inner trigger");
+
+    evals = 0;
+    outer(1);
+
+    strictEqual(evals, 1, "inner proc recreated and evaluated on outer trigger");
+
+    evals = 0;
+    inner(1);
+
+    strictEqual(evals, 1, "inner proc now exists only once");
+});
+
 function mapSpeed() {
     var i, j, s, m, c = 0;
 

@@ -1,108 +1,129 @@
 ﻿(function (K) {
     "use strict";
 
-    // modifiers
-    K.detach = detach;
-    K.defer = defer;
-    K.throttle = throttle;
-    K.debounce = debounce;
-    K.ticker = ticker;
-    K.throttledTicker = throttledTicker;
+    K.defer          = Chainable.prototype.defer          = chainableDefer;
+    K.delay          = Chainable.prototype.delay          = chainableDelay;
+    K.debounce       = Chainable.prototype.debounce       = chainableDebounce;
+    K.throttle       = Chainable.prototype.throttle       = chainableThrottle;
+    K.pause          = Chainable.prototype.pause          = chainablePause;
+    K.throttledPause = Chainable.prototype.throttledPause = chainableThrottledPause;
 
     return;
 
-    // in/out modifiers
-    function defer(fn, id) {
-        return function () {
-            setTimeout(fn, 0);
+    function chainableDefer()     { return new Chainable(defer,       this); }
+    function chainableDelay(t)    { return new Chainable(delay(t),    this); }
+    function chainableDebounce(t) { return new Chainable(debounce(t), this); }
+    function chainableThrottle(t) { return new Chainable(throttle(t), this); }
+    function chainablePause(s)    { return new Chainable(pause(s),    this); }
+    function chainableThrottledPause(s) { return new Chainable(throttledPause(s), this); }
+
+    function defer(fn) {
+        var scheduled = false;
+
+        return function (x) {
+            if (scheduled) return;
+
+            scheduled = true;
+
+            K.defer(function deferred() {
+                scheduled = false;
+                fn(x);
+            });
         };
     }
 
-    function throttle(delay) {
-        return function (fn, id) {
+    function delay(t) {
+        return function (fn) {
+            return function delayed() { setTimeout(fn, t); }
+        }
+    }
+
+    function throttle(t) {
+        return function throttle(fn) {
             var last = 0,
                 scheduled = false;
 
-            return function () {
+            return function (x) {
                 if (scheduled) return;
 
                 var now = Date.now();
 
-                if ((now - last) >= delay) {
+                if ((now - last) >= t) {
                     last = now;
                     fn();
                 } else {
                     scheduled = true;
-                    setTimeout(function () {
+                    setTimeout(function throttled() {
                         last = Date.now();
                         scheduled = false;
-                        fn();
-                    }, delay - (now - last));
+                        fn(x);
+                    }, t - (now - last));
                 }
             };
         };
     }
 
-    function debounce(delay) {
-        return function (fn, id) {
+    function debounce(t) {
+        return function (fn) {
             var tout = 0;
 
-            return function () {
+            return function (x) {
                 if (tout) clearTimeout(tout);
 
-                tout = setTimeout(fn, delay, id);
+                tout = setTimeout(function debounced() {
+                    fn(x);
+                }, t);
             };
         };
     }
 
-    function ticker() {
-        var fns = [],
-            ids = [];
+    function pause(signal) {
+        var fns = [];
 
-        ticker.mod = mod;
+        signal.go = go;
 
-        return ticker;
-
-        function ticker() {
-            var _fns = fns,
-                _ids = ids;
-
-            fns = [];
-            ids = [];
-
-            for (var i = 0; i < _fns.length; i++) {
-                _fns[i](_ids[i]);
+        return function (fn) {
+            return function (x) {
+                fns.push(function paused() { fn(x); });
             }
         }
 
-        function mod(fn) {
-            return function (id) {
-                fns.push(fn);
-                ids.push(id);
+        function go() {
+            var i;
+
+            for (i = 0; i < fns.length; i++) {
+                fns[i]();
             }
         }
     }
 
-    function throttledTicker() {
-        var fns = {};
 
-        ticker.mod = mod;
+    function throttledPause(signal) {
+        var fns = [];
 
-        return ticker;
+        signal.go = go;
 
-        function ticker() {
-            var _fns = fns;
+        return function (fn) {
+            var scheduled = false;
 
-            fns = [];
+            return function (x) {
+                if (scheduled) return;
 
-            for (var i in _fns) {
-                _fns[i](i);
+                scheduled = true;
+
+                fns.push(function paused() {
+                    scheduled = false;
+
+                    fn(x);
+                });
             }
         }
 
-        function mod(fn) {
-            return function (id) {
-                fns[id] = fn;
+        function go() {
+            var i;
+
+            for (i = 0; i < fns.length; i++) {
+                fns[i]();
             }
         }
     }

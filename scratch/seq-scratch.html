@@ -13,6 +13,36 @@
         var f = a.K.filter(function (i) { return i % 2; });
         var r = a.K.reduce(function (r, i) { return r * i; }, 1);
         var c = a.K.append(b);
+
+        seq.K
+            .pipe()
+            .map(x => x + 1)
+            .filter(x => x % 2)
+            .orderBy(x => -x)
+            .skip(3)
+            .take(2)
+            .values()
+
+        seq.K.pipe()
+            .orderBy(x => x.Date())
+            .filter(x => x.Pending())
+            .skip((x, i) => i < pageNum() * pageSize())
+            .take(pageSize)
+            .map(xView)
+            .values();
+
+        {
+            values: [], // tag -> value
+            sequence: [], // [tags]
+        }
+        {
+            addedtags: [],
+            addedvalues: [],
+            addedindices: [],
+            removedtags: [],
+            values: [],
+            sequence: []
+        }
     </script>
 </head>
 <body>

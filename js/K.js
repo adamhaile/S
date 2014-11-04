@@ -3,15 +3,17 @@ var K = (function () {
 
     var count = 1,
         listener = undefined,
-        region = [];
+        region = [],
+        deferred = [];
 
     // initializer
     K.lift     = lift;
 
-    K.ch       = ch;
-    K.proc     = proc;
-    K.region   = _region;
-    K.peek     = peek;
+    K.ch     = ch;
+    K.proc   = proc;
+    K.region = _region;
+    K.peek   = peek;
+    K.defer  = defer;
 
     K.ch.K = chCombinator;
     procCombinator.prototype = new chCombinator();
@@ -42,6 +44,7 @@ var K = (function () {
             if (arguments.length > 0) {
                 msg = new_msg;
                 propagate(listeners);
+                if (!listener) runDeferred();
             } else {
                 if (listener) listener(id, our_region, listeners);
             }
@@ -97,6 +100,7 @@ var K = (function () {
                     updating = false;
                     listener = prev_listener;
                     region = prev_region;
+                    if (!listener) runDeferred();
                 }
 
                 pruneStaleSources(gen, source_gens, source_offsets, source_listeners);
@@ -249,5 +253,15 @@ var K = (function () {
         }
 
         return val;
+    }
+
+    function defer(fn) {
+        deferred.push(fn);
+    }
+
+    function runDeferred() {
+        while (deferred.length) {
+            deferred.shift()();
+        }
     }
 }());

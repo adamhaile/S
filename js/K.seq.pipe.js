@@ -5,34 +5,80 @@
 
     K.seq = seq;
 
-    seq.K = seqChCombinator;
-
     function seq(values) {
-        var seq = K.ch(values);
+        var seq = K.ch(values || []);
 
-        seq.K = new seqChCombinator(seq);
-
-        // mutations
-        seq.add = add;
-        seq.remove = remove;
+        seq.K = new SeqCombinator(seq);
+        seq.pipe = pipe;
 
         return seq;
+    }
 
-        function add(item) {
-            values.push(item);
-            seq(values);
-            return seq;
+    SeqCombinator.prototype = new K.ch.K();
+    SeqCombinatory.prototype.pipe = pipe;
+
+
+    function pipe() {
+        var seq = this,
+            values = K.peek(seq),
+            len = values.length,
+            sequence = new Array(len),
+            i;
+
+        for (i = 0; i < len; i++) sequence[i] = i;
+
+
+
+        return new Junction(ch);
+    }
+
+    function Mutation(at, av, ai, rt, values, sequence) {
+        this.addedtags = at;
+        this.added = av;
+        this.removed = rt;
+        this.values = values;
+        this.sequence = sequence;
+    }
+
+    function Junction(ch) {
+        this.ch = ch;
+    }
+
+    Transformer.prototype
+
+    function map(fn) {
+        var in = this.ch;
+
+        return new Junction(ch);
+    }
+
+    function map(fn, sequence, _values) {
+        var len = sequence.length,
+            values = [],
+            tag,
+            i;
+
+        for (i = 0; i < len; i++) {
+            tag = sequence[i];
+            values[tag] = fn(_values[tag]);
         }
 
-        function remove(item) {
-            for (var i = 0; i < values.length; i++) {
-                if (values[i] === item) {
-                    values.splice(i, 1);
-                    break;
-                }
+        return new Junction(sequence, values, update);
+
+        function update(m) {
+            var i, len, tag, added = [];
+
+            for (i = 0, len = m.removed.length; i < len; i++) {
+                tag = m.removed[i];
+                values[tag] = null;
             }
-            seq(values);
-            return seq;
+
+            for (i = 0, len = m.added.length; i < len; i++) {
+                tag = m.addedtags[i];
+                values[tag] = added[tag] = fn(m.added[i]);
+            }
+
+            return new Mutation(m.addedtags, added, m.addedindices, values, m.sequence);
         }
     }
 
@@ -277,24 +323,5 @@
         this.seq = seq;
         this.delta = delta;
     }
-
-    function seqProcCombinator(seq, delta) {
-        K.proc.K.call(this, seq.K._update, seq.K._source_offsets, seq.K._source_listeners);
-
-        this.seq = seq;
-        this.delta = delta;
-    }
-
-    seqChCombinator.prototype = new K.ch.K();
-    seqProcCombinator.prototype = new K.proc.K(null);
-
-    seqChCombinator.prototype.map    = seqProcCombinator.prototype.map    = function _K_map(enter, exit, move) { return map   (this, enter, exit, move); },
-    seqChCombinator.prototype.order  = seqProcCombinator.prototype.order  = function _K_order(fn)              { return order (this, fn); },
-    seqChCombinator.prototype.filter = seqProcCombinator.prototype.filter = function _K_filter(fn)             { return filter(this, fn); },
-    seqChCombinator.prototype.append = seqProcCombinator.prototype.append = function _K_append()               { return append(this, arguments); },
-    seqChCombinator.prototype.enter  = seqProcCombinator.prototype.enter  = function _K_enter(fn)              { return enter (this, fn); },
-    seqChCombinator.prototype.exit   = seqProcCombinator.prototype.exit   = function _K_exit(fn)               { return exit  (this, fn); },
-    seqChCombinator.prototype.move   = seqProcCombinator.prototype.move   = function _K_move(fn)               { return move  (this, fn); },
-    seqChCombinator.prototype.reduce = seqProcCombinator.prototype.reduce = function _K_reduce(fn, seed)       { return reduce(this, fn, seed); }
 
 })(K);

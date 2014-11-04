@@ -1,0 +1,115 @@
+<html>
+<head>
+    <title>Todo MVC in K.js</title>
+</head>
+<body>
+
+    <script id="todo" type="text/kjs">
+        function ToDo(title, completed) {
+            this.title = K(title);
+            this.completed = K(completed);
+        }
+
+        function ToDosApp(todos) {
+            var todoVMs = todos.K.map(ToDoVM);
+
+            var vm = {
+                filter: K(null),
+                filteredTodos: K(() =>
+                    todoVMs().filter(t => vm.filter() === null || t.completed() === vm.filter())
+                ),
+                incompleteCount: K(() =>
+                    todos().filter(t => !t.completed()).length
+                ),
+                new: {
+                    title: K(""),
+                    onkeydown: $event => {
+                        if ($event.keyCode === 27) { // escape
+                            vm.new.title("");
+                        } else if ($event.keyCode === 10 || $event.keyCode === 13) { // newline or return
+                            todos.add(new ToDo(vm.new.title(), false));
+                            vm.new.title("");
+                        }
+                    }
+                }
+            };
+
+            return vm;
+
+            function ToDoVM(todo) {
+                var vm = {
+                    completed: todo.completed,
+                    title: K(todo.title()),
+                    editing: K(false),
+                    delete: () => todos.remove(todo),
+                    onkeydown: ($event) => {
+                        if ($event.keyCode === 10 || $event.keyCode === 13) { // newline or return
+                            todo.title(vm.title());
+                            vm.editing(false);
+                        } else if ($event.keyCode === 27) { // escape
+                            vm.title(todo.title());
+                            vm.editing(false);
+                        }
+                    }
+                };
+
+                return vm;
+            }
+        }
+
+        var ToDosView = (app) =>
+            <!-- ToDosView -->
+            <ul>
+                @app.filteredTodos().map(todo =>
+                    <!-- ToDoView -->
+                    <li class="@(todo.editing() ? 'editing' : '') @(todo.completed() ? 'completed' : '')"
+                        ondblclick="@todo.editing(true)">
+                        @(todo.editing()
+                          ? <input name="keydown@todo.title" type="text" onkeydown="@todo.onkeydown($event)" />
+                          : <input name="@todo.completed" type="checkbox" />
+                            @todo.title
+                            <a onclick="@todo.delete()">&times;</a>)
+                    </li>)
+                <li>
+                    <input name="keydown@app.new.title" type="text" onkeydown="@app.new.onkeydown($event)" />
+                </li>
+            </ul>
+            <p>@(app.incompleteCount() > 1 ? app.incompleteCount() + " items" :
+                 app.incompleteCount() === 1 ? "1 item" :
+                 'no items') left
+            </p>
+            <p>
+                <a onclick="@app.filter(null)">All</a>
+                | <a onclick="@app.filter(false)">Active</a>
+                | <a onclick="@app.filter(true)">Completed</a>
+            </p>
+
+        var todos = K([]),
+            app = ToDosApp(todos),
+            view = ToDosView(app);
+
+        document.body.appendChild(view);
+    </script>
+
+    <script type="text/javascript" src="../js/K.js"></script>
+    <script type="text/javascript" src="../js/K.rproc.js"></script>
+    <script type="text/javascript" src="../js/K.seq.spec.js"></script>
+    <script type="text/javascript" src="../js/K.DOM.js"></script>
+    <script type="text/javascript" src="../js/K.DOM.template.js"></script>
+    <script type="text/javascript" src="../js/K.DOM.src.js"></script>
+
+    <script type="text/javascript">
+        () => {
+            var ksrc = document.getElementById('todo').innerText,
+                src = K.DOM.src(ksrc),
+                script = document.createElement('script');
+
+            script.type = 'text/javascript';
+            script.src  = 'data:text/javascript;charset=utf-8,' + escape(src);
+
+            document.body.appendChild(script);
+        }();
+    </script>
+
+</body>
+</html>
