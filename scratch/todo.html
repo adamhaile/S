@@ -58,10 +58,8 @@
         }
 
         var ToDosView = (app) =>
-            <!-- ToDosView -->
             <ul>
                 @app.filteredTodos().map(todo =>
-                    <!-- ToDoView -->
                     <li class="@(todo.editing() ? 'editing' : '') @(todo.completed() ? 'completed' : '')"
                         ondblclick="@todo.editing(true)">
                         @(todo.editing()

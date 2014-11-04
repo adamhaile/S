@@ -12,7 +12,7 @@
     function src(str) {
         var toks = tokenize(str),
             ast = parse(toks),
-            out = compile(ast);
+            out = ast.genCode();
 
         return out;
     }
@@ -451,55 +451,42 @@
         }
     }
 
-    function Template(name, html, splits, locations) {
-        this.name = name;
-        this.html = html;
-        this.splits = splits;
-        this.locations = locations;
-    }
+    AST.CodeTopLevel.prototype.genCode = function () {
+        var code = "";
 
-    AST.CodeTopLevel.prototype.genCode = function (templates) {
-        var code = "", i, len;
-        for (i = 0, len = this.segments.length; i < len; i++)
-            code += this.segments[i].genCode(templates, code);
-        return code;
-    };
-    AST.CodeText.prototype.genCode = function (templates, code) { return this.text; };
-    AST.HtmlEmbed.prototype.genCode = function (templates, code) {
-        var html = "",
-            splits = [],
-            locations = [],
-            values = [],
-            template;
-
-        html = genTemplatesForChildren(this.nodes, templates, [], splits, locations, values);
-
-        template = new Template(templateName(html), html, splits, locations);
-
-        templates.push(template);
-
-        return templateInvocation(template, values, code);
-    };
-    AST.HtmlElement.prototype.genTemplates = function (templates, path, splits, locations, values) {
-        var html = "",
-            i, len;
-
-        for (i = 0, len = this.beginTag.length; i < len; i++) {
-            html += this.beginTag[i].genTemplates(templates, path, splits, locations, values);
+        for (var i = 0; i < this.segments.length; i++) {
+            code += this.segments[i].genCode(code);
         }
 
-        html += genTemplatesForChildren(this.content, templates, path, splits, locations, values);
+        return code;
+    };
+    AST.CodeText.prototype.genCode = function (code) { return this.text; };
+    AST.HtmlEmbed.prototype.genCode = function (code) {
+        var bindings = [],
+            values = [],
+            html = genHtmlForChildren(this.nodes, [], bindings, values);
+
+        return templateExpression(html, bindings, values, codeIndent(code));
+    };
+    AST.HtmlElement.prototype.genHtml = function (path, bindings, values) {
+        var html = "";
+
+        for (var i = 0; i < this.beginTag.length; i++) {
+            html += this.beginTag[i].genHtml(path, bindings, values);
+        }
+
+        html += genHtmlForChildren(this.content, path, bindings, values);
 
         html += this.endTag;
 
         return html;
     };
-    AST.HtmlAttr.prototype.genTemplates = function (templates, path, splits, locations, values) {
+    AST.HtmlAttr.prototype.genHtml = function (path, bindings, values) {
         var html = "",
             attrValues = [],
-            i, len = this.value.length,
+            i,
             value,
-            valCount,
+            valueCount,
             event;
 
         if (this.hasCode) {
@@ -509,9 +496,9 @@
 
                 event = this.name.substring(2);
 
-                locations.push(new t.Location(t.Event, path.slice(0), 1, event, null));
+                bindings.push(new t.Binding(t.Event, path.slice(0), 1, event, null));
 
-                this.value[0].genTemplates(templates, path, splits, [], values);
+                this.value[0].genHtml(path, [], values);
 
             } else if (this.name === 'name') {
                 if (this.value.length == 1 && this.value[0] instanceof AST.CodeEmbed) {
@@ -524,125 +511,101 @@
                     throw new Error("Control binding must be either a single code value or an event specifier followed by a code value");
                 }
 
-                locations.push(new t.Location(t.Control, path.slice(0), 1, event, null));
+                bindings.push(new t.Binding(t.Control, path.slice(0), 1, event, null));
 
-                value.genTemplates(templates, path, splits, [], values);
+                value.genHtml(path, [], values);
 
             } else {
-                valCount = 0;
-                for (i = 0; i < len; i++) {
+                valueCount = 0;
+                for (i = 0; i < this.value.length; i++) {
                     value = this.value[i];
 
                     if (value instanceof AST.HtmlText) {
                         attrValues.push(value.text);
                     } else {
-                        valCount++;
+                        valueCount++;
                         attrValues.push(null);
-                        value.genTemplates(templates, path, splits, [], values);
+                        value.genHtml(path, [], values);
                     }
                 }
 
-                locations.push(new t.Location(t.Attr, path.slice(0), valCount, this.name, attrValues));
+                bindings.push(new t.Binding(t.Attr, path.slice(0), valueCount, this.name, attrValues));
             }
         } else {
-            if (this.value.length > 1)
+            if (this.value.length > 1 || !(this.value[0] instanceof AST.HtmlText))
                 throw new Error("Non-code attributes expected to have a single text value");
 
-            html = this.name + this.eq + (this.quote || "") + this.value[0].text + (this.quote || "");
+            html = this.name + this.eq + (this.quote || "") + (this.value.length ? this.value[0].text : "") + (this.quote || "");
         }
 
         return html;
     };
-    AST.HtmlText.prototype.genTemplates = function () { return this.text; };
-    AST.HtmlComment.prototype.genTemplates = function () { return this.text; };
-    AST.CodeEmbed.prototype.genTemplates = function (templates, path, splits, locations, values) {
-        var code = "", i, len;
+    AST.HtmlText.prototype.genHtml = function () { return this.text; };
+    AST.HtmlComment.prototype.genHtml = function () { return this.text; };
+    AST.CodeEmbed.prototype.genHtml = function (path, bindings, values) {
+        var code = "";
 
-        for (i = 0, len = this.segments.length; i < len; i++) {
-            code += this.segments[i].genCode(templates, code);
+        for (var i = 0; i < this.segments.length; i++) {
+            code += this.segments[i].genCode(code);
         }
 
-        locations.push(new t.Location(t.Node, path.slice(0), 1, null, null));
+        bindings.push(new t.Binding(t.Node, path.slice(0), 1, null, null));
 
         values.push(code);
 
-        return "";
+        return "<!-- code -->";
     };
 
-    function genTemplatesForChildren(children, templates, path, splits, locations, values) {
-        var html = "",
-            split = null,
-            i, len, node;
+    function genHtmlForChildren(children, path, bindings, values) {
+        var html = "";
 
         path.push(0);
 
-        for (i = 0, len = children.length; i < len; i++) {
-            // node is one of: HtmlElement, HtmlComment, HtmlText, CodeEmbed
-            node = children[i];
-
-            html += node.genTemplates(templates, path, splits, locations, values);
-
-            if (split !== null) {
-                if (node instanceof AST.HtmlElement || node instanceof AST.HtmlComment) {
-                    if (split.splits.length > 1) splits.push(split);
-                    split = null;
-                } else if (node instanceof AST.HtmlText) {
-                    split.splits.push(node.text);
-                }
-            } else {
-                if (node instanceof AST.HtmlText) {
-                    split = { path: path.slice(0), splits: [ node.text ]};
-                }
-            }
-
-            if (!(node instanceof AST.CodeEmbed)) path[path.length - 1]++;
+        for (var i = 0; i < children.length; i++, path[path.length - 1]++) {
+            html += children[i].genHtml(path, bindings, values);
         }
 
         path.pop();
 
-        if (split && split.splits.length > 1) splits.push(split);
-
         return html;
     }
 
-    var leadingChars = /(?:\w[^\w]*){1,16}/,
-        nonWord = /[^\w]+/g,
-        templateCount = 1;
+    var templateId = Math.floor(Math.random() * Math.pow(2, 31)),
+        backslashes = /\\/g,
+        newlines = /\n/g,
+        singleQuotes = /'/g;
 
-    function templateName(html) {
-        // get first 20 word characters from html
-        var name = "__tmpl_",
-            match = leadingChars.exec(html),
-            chars = match ? match[0].replace(nonWord, '_') : "",
-            name = "__tmpl_" + chars + templateCount++;
-
-        return name;
-    }
-
-    var indentLength = /[^\n]*$/;
-
-    function templateInvocation(template, values, prevCode) {
+    function templateExpression(html, bindings, values, indent) {
         var code = "",
-            indentMatch = indentLength.exec(prevCode),
-            indent = indentMatch ? new Array(indentMatch[0].length).join(" ") : "        ",
-            i, j, k, len, jlen, klen, loc, value;
+            i, j, k, binding, value;
 
-        code = template.name + "([\n";
+        code = "K.DOM.template.cache(" + templateId++ + ",\n";
 
-        for (i = 0, j = 0, len = template.locations.length, jlen = values.length; i < len; i++) {
-            loc = template.locations[i];
-            for (k = 0, klen = loc.valCount; k < klen; k++, j++) {
+        code += indent + "'" + html.replace(backslashes, "\\\\")
+                                   .replace(singleQuotes, "\\'")
+                                   .replace(newlines, "\\n\\\n") + "',\n";
+
+        code += indent + "[\n";
+
+        for (i = 0; i < bindings.length; i++) {
+            code += indent + "    " + JSON.stringify(bindings[i]);
+            code += bindings.length - i > 1 ? ",\n" : "\n";
+        }
+
+        code += indent + "])([\n";
+
+        for (i = 0, j = 0; i < bindings.length; i++) {
+            binding = bindings[i];
+            for (k = 0; k < binding.valueCount; k++, j++) {
                 value = values[j];
-                if (loc.type === t.Event) {
+                if (binding.type === t.Event) {
                     //code += indent + "    function ($event) { return " + value + "; }" + (jlen - j > 1 ? "," : "") + "\n";
-                    code += indent + "    ($event) => " + value + (jlen - j > 1 ? "," : "") + "\n";
+                    code += indent + "    ($event) => " + value + (values.length - j > 1 ? "," : "") + "\n";
                 } else {
                     //code += indent + "    function () { return " + value + "; }" + (jlen - j > 1 ? "," : "") + "\n";
-                    code += indent + "    () => " + value + (jlen - j > 1 ? "," : "") + "\n";
+                    code += indent + "    () => " + value + (values.length - j > 1 ? "," : "") + "\n";
                 }
             }
-        }
-        for (i = 0, len = values.length; i < len; i++) {
         }
 
         code += indent + "])";
@@ -650,33 +613,10 @@
         return code;
     }
 
-    var backslashes = /\\/g,
-        newlines = /\n/g,
-        singleQuotes = /'/g;
+    var indentLength = /[^\n]*$/;
 
-    function templateDefinition(template) {
-        return "var " + template.name + " = K.DOM.template(\n"
-            + "\t'" + template.html.replace(backslashes, "\\\\")
-                                   .replace(singleQuotes, "\\'")
-                                   .replace(newlines, "\\n' + \n'") + "',\n"
-            + "\t" + JSON.stringify(template.splits, null, '\t') + ",\n"
-            + "\t" + JSON.stringify(template.locations, null, '\t') + ");\n";
-    }
-
-    function compile(ast) {
-        var templates = [],
-            body = ast.genCode(templates),
-            code = "",
-            i, len;
-
-        code += "\"use strict\";\n";
-
-        for (i = 0, len = templates.length; i < len; i++) {
-            code += templateDefinition(templates[i]);
-        }
-
-        code += body;
-
-        return code;
+    function codeIndent(code) {
+        var indentMatch = indentLength.exec(code);
+        return indentMatch ? new Array(indentMatch[0].length + 1).join(" ") : "        ";
     }
 })(K);

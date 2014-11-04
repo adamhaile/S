@@ -3,43 +3,36 @@
 
     K.DOM.template = template;
 
-    template.Split    = Split;
-    template.Location = Location;
+    template.cache = cache;
+    template.Binding  = Binding;
     template.Node     = 'N';
     template.Attr     = 'A';
     template.Control  = 'C';
     template.Event    = 'E';
 
-    function Split(path, splits) {
-        this.path = path;
-        this.splits = splits;
-    }
-
-    function Location(type, path, valCount, name, data) {
+    function Binding(type, path, valueCount, name, data) {
         this.type = type;
         this.path = path;
-        this.valCount = valCount;
+        this.valueCount = valueCount;
         this.name = name;
         this.data = data;
     }
 
-    function template(html, splits, locs) {
+    function template(html, bindings) {
         var container = document.createElement(containerElement(html)),
             frag = document.createDocumentFragment(),
             i;
 
         container.innerHTML = html;
 
-        splitTextNodes(container, splits);
-
         for (i = container.childNodes.length; i; i--) {
             frag.appendChild(container.childNodes[0]);
         }
 
-        return function templateInvocation(vals) {
+        return function templateInvocation(values) {
             var el = frag.cloneNode(true);
 
-            bindLocations(el, locs, vals);
+            bindLocations(el, bindings, values);
 
             return el;
         }
@@ -63,56 +56,41 @@
         return m && containerElements[m[1].toLowerCase()] || "div";
     }
 
-    function splitTextNodes(el, splits) {
-        var i, j, leni, lenj, split, text, parent;
+    function bindLocations(el, bindings, values) {
+        var nodes = [], i, j, binding, value, node;
 
-        for (i = 0, leni = splits.length; i < leni; i++) {
-            split = splits[i];
-            text = getPath(el, split.path);
-            parent = text.parentNode;
-            for (j = 0, lenj = split.splits.length; j < lenj; j++) {
-                parent.insertBefore(document.createTextNode(split.splits[j]), text);
-            }
-            parent.removeChild(text);
-        }
-    }
-
-    function bindLocations(el, locs, vals) {
-        var i, j, len, loc, val, nodes = [], node;
-
-        for (i = 0, len = locs.length; i < len; i++) {
-            loc = locs[i];
-            nodes.push(getPath(el, loc.path));
+        for (i = 0; i < bindings.length; i++) {
+            nodes.push(getPath(el, bindings[i].path));
         }
 
-        for (i = 0, j = 0, len = locs.length; i < len; i++) {
-            loc = locs[i], node = nodes[i], val = vals[j];
+        for (i = 0, j = 0; i < bindings.length; i++) {
+            binding = bindings[i], node = nodes[i], value = values[j];
 
-            if (loc.type === template.Node) {
+            if (binding.type === template.Node) {
 
-                K.DOM.insert(node, val);
+                K.DOM.insert(node, value);
 
-            } else if (loc.type === template.Attr) {
+            } else if (binding.type === template.Attr) {
 
-                K.DOM.attr(node, loc.name, attrValue(loc.data, vals, j));
+                K.DOM.attr(node, binding.name, attrValue(binding.data, values, j));
 
-            } else if (loc.type === template.Control) {
+            } else if (binding.type === template.Control) {
 
-                K.DOM.control(node, val, loc.name);
+                K.DOM.control(node, value, binding.name);
 
-            } else if (loc.type === template.Event)  {
+            } else if (binding.type === template.Event)  {
 
-                K.DOM.event(node, loc.name, val);
+                K.DOM.event(node, binding.name, value);
 
             } else {
-                throw new Error("unrecognized location type: " + loc.type);
+                throw new Error("unrecognized binding type: " + binding.type);
             }
 
-            j += loc.valCount;
+            j += binding.valueCount;
         }
-        
-        if (j !== vals.length)
-            throw new Error("incorrect number of values supplied to template (expected " + j + ", received " + vals.length + ")");
+
+        if (j !== values.length)
+            throw new Error("incorrect number of values supplied to template (expected " + j + ", received " + values.length + ")");
     }
 
     function getPath(el, path) {
@@ -141,5 +119,12 @@
 
             return text;
         }
+    }
+
+    var _cache = {};
+
+    function cache(id, html, bindings) {
+        if (!_cache.hasOwnProperty(id))  _cache[id] = template(html, bindings);
+        return _cache[id];
     }
 })(K);
