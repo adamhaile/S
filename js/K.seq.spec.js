@@ -12,29 +12,16 @@
 
         seq.K = new seqChCombinator(seq);
 
-        // mutations
-        seq.add = add;
-        seq.remove = remove;
+        seq.push    = push;
+        seq.pop     = pop;
+        seq.unshift = unshift;
+        seq.shift   = shift;
+        seq.splice  = splice;
+        seq.remove  = remove;
 
         return seq;
-
-        function add(item) {
-            values.push(item);
-            seq(values);
-            return seq;
-        }
-
-        function remove(item) {
-            for (var i = 0; i < values.length; i++) {
-                if (values[i] === item) {
-                    values.splice(i, 1);
-                    break;
-                }
-            }
-            seq(values);
-            return seq;
-        }
     }
+
 
     function map(comb, enter, exit, move) {
         var items = [],
@@ -296,5 +283,66 @@
     seqChCombinator.prototype.exit   = seqProcCombinator.prototype.exit   = function _K_exit(fn)               { return exit  (this, fn); },
     seqChCombinator.prototype.move   = seqProcCombinator.prototype.move   = function _K_move(fn)               { return move  (this, fn); },
     seqChCombinator.prototype.reduce = seqProcCombinator.prototype.reduce = function _K_reduce(fn, seed)       { return reduce(this, fn, seed); }
+
+    function push(item) {
+        var values = K.peek(this);
+
+        values.push(item);
+        this(values);
+
+        return this;
+    }
+
+    function pop(item) {
+        var values = K.peek(this),
+            value = values.pop();
+
+        this(values);
+
+        return value;
+    }
+
+    function unshift(item) {
+        var values = K.peek(this);
+
+        values.unshift(item);
+        this(values);
+
+        return this;
+    }
+
+    function shift(item) {
+        var values = K.peek(this),
+            value = values.shift();
+
+        this(values);
+
+        return value;
+    }
+
+    function splice(index, count, item) {
+        var values = K.peek(this);
+
+        values.splice(index, count, item);
+        this(values);
+
+        return this;
+    }
+
+    function remove(item) {
+        var values = K.peek(this);
+
+        for (var i = 0; i < values.length; i++) {
+            if (values[i] === item) {
+                values.splice(i, 1);
+                break;
+            }
+        }
+
+        this(values);
+
+        return this;
+    }
+
 
 })(K);

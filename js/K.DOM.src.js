@@ -2,17 +2,22 @@
     "use strict";
 
     K.DOM.src = src;
+    K.DOM.src.add = add;
 
     // DEBUG
     K.DOM.tokenize = tokenize;
     K.DOM.parse = parse;
 
-    var t = K.DOM.template;
+    var t = K.DOM.template,
+        shimmed = false;
 
     function src(str) {
         var toks = tokenize(str),
-            ast = parse(toks),
-            out = ast.genCode();
+            ast = parse(toks);
+
+        if (shimmed) ast.shim();
+
+        var out = ast.genCode();
 
         return out;
     }
@@ -85,7 +90,7 @@
         attributeName = /([a-zA-Z][a-zA-Z0-9\-]*)(\s*)$/,
         escapedEnd = /[^\\](\\\\)*\\$/, // ending in odd number of escape slashes = next char escaped
         ws = /^\s*$/,
-        startsWithOn = /^on/;
+        startsWithOn = /^on/i;
 
     function parse(TOKS) {
         var i = 0,
@@ -494,13 +499,13 @@
                 if (this.value.length > 1)
                     throw new Error("Event binding must be a single code value");
 
-                event = this.name.substring(2);
+                event = this.name.substring(2).toLowerCase();
 
                 bindings.push(new t.Binding(t.Event, path.slice(0), 1, event, null));
 
                 this.value[0].genHtml(path, [], values);
 
-            } else if (this.name === 'name') {
+            } else if (this.name.toLowerCase() === 'value') {
                 if (this.value.length == 1 && this.value[0] instanceof AST.CodeEmbed) {
                     event = null;
                     value = this.value[0];
@@ -515,6 +520,13 @@
 
                 value.genHtml(path, [], values);
 
+            } else if (this.name.toLowerCase() === 'name') {
+                if (this.value.length > 1)
+                    throw new Error("Name binding must be a single code value");
+
+                bindings.push(new t.Binding(t.Element, path.slice(0), 1, null, null));
+
+                this.value[0].genHtml(path, [], values);
             } else {
                 valueCount = 0;
                 for (i = 0; i < this.value.length; i++) {
@@ -599,11 +611,11 @@
             for (k = 0; k < binding.valueCount; k++, j++) {
                 value = values[j];
                 if (binding.type === t.Event) {
-                    //code += indent + "    function ($event) { return " + value + "; }" + (jlen - j > 1 ? "," : "") + "\n";
-                    code += indent + "    ($event) => " + value + (values.length - j > 1 ? "," : "") + "\n";
+                    code += indent + "    function ($event) { return " + value + "; }" + (values.length - j > 1 ? "," : "") + "\n";
+                    //code += indent + "    ($event) => " + value + (values.length - j > 1 ? "," : "") + "\n";
                 } else {
-                    //code += indent + "    function () { return " + value + "; }" + (jlen - j > 1 ? "," : "") + "\n";
-                    code += indent + "    () => " + value + (values.length - j > 1 ? "," : "") + "\n";
+                    code += indent + "    function () { return " + value + "; }" + (values.length - j > 1 ? "," : "") + "\n";
+                    //code += indent + "    () => " + value + (values.length - j > 1 ? "," : "") + "\n";
                 }
             }
         }
@@ -618,5 +630,95 @@
     function codeIndent(code) {
         var indentMatch = indentLength.exec(code);
         return indentMatch ? new Array(indentMatch[0].length + 1).join(" ") : "        ";
+    }
+
+    function add(str) {
+        var src = K.DOM.src(str),
+            script = document.createElement('script');
+
+        script.type = 'text/javascript';
+        script.src  = 'data:text/javascript;charset=utf-8,' + escape(src);
+
+        document.body.appendChild(script);
+    }
+
+    // Browser shims: runs last to override earlier config as needed
+    shimmed = detectBrowserShims();
+
+    function detectBrowserShims() {
+        var shimmed = false;
+
+        // add base shim methods that visit AST
+        AST.CodeTopLevel.prototype.shim = function (ctx) { shimSiblings(this, this.segments, ctx); };
+        AST.HtmlEmbed.prototype.shim    = function (ctx) { shimSiblings(this, this.nodes, ctx); };
+        AST.HtmlElement.prototype.shim  = function (ctx) { shimSiblings(this, this.content, ctx); };
+        AST.HtmlAttr.prototype.shim     = function (ctx) { shimSiblings(this, this.value, ctx); };
+        AST.CodeEmbed.prototype.shim    = function (ctx) { shimSiblings(this, this.segments, ctx) };
+        AST.CodeText.prototype.shim     =
+        AST.HtmlText.prototype.shim     =
+        AST.HtmlComment.prototype.shim  = function (ctx) {};
+
+        if (!browserPreservesWhitespaceTextNodes())
+            addFEFFtoWhitespaceTextNodes();
+
+        if (!browserPreservesInitialComments())
+            insertTextNodeBeforeInitialComments();
+
+        return shimmed;
+
+        // IE <9 will removes text nodes that just contain whitespace in certain situations.
+        // Solution is to add a zero-width non-breaking space (entity &#xfeff) to the nodes.
+        function browserPreservesWhitespaceTextNodes() {
+            var ul = document.createElement("ul");
+            ul.innerHTML = "    <li></li>";
+            return ul.childNodes.length === 2;
+        }
+
+        function addFEFFtoWhitespaceTextNodes() {
+            shim(AST.HtmlText, function (ctx) {
+                if (ws.test(this.text) && !(ctx.parent instanceof AST.HtmlAttr)) {
+                    this.text = '&#xfeff;' + this.text;
+                }
+            });
+        }
+
+        // IE <9 will remove comments when they're the first child of certain elements
+        // Solution is to prepend a non-whitespace text node, using the &#xfeff trick.
+        function browserPreservesInitialComments() {
+            var ul = document.createElement("ul");
+            ul.innerHTML = "<!-- --><li></li>";
+            return ul.childNodes.length === 2;
+        }
+
+        function insertTextNodeBeforeInitialComments() {
+            shim(AST.HtmlComment, function (ctx) {
+                if (ctx.index === 0) {
+                    insertBefore(new AST.HtmlText('&#xfeff;'), ctx);
+                }
+            })
+        }
+
+        function shimSiblings(parent, siblings, prevCtx) {
+            var ctx = { index: 0, parent: parent, sibings: siblings }
+            for (; ctx.index < siblings.length; ctx.index++) {
+                siblings[ctx.index].shim(ctx);
+            }
+        }
+
+        function shim(node, fn) {
+            shimmed = true;
+            var oldShim = node.prototype.shim;
+            node.prototype.shim = function (ctx) { fn.call(this, ctx); oldShim.call(this, ctx); };
+        }
+
+        function insertBefore(node, ctx) {
+            ctx.siblings.splice(ctx.index, 0, node);
+            node.shim(ctx);
+            ctx.index++;
+        }
+
+        function insertAfter(node, ctx) {
+            ctx.siblins.splice(ctx.index + 1, 0, node);
+        }
     }
 })(K);

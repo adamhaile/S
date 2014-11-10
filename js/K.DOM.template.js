@@ -8,7 +8,8 @@
     template.Node     = 'N';
     template.Attr     = 'A';
     template.Control  = 'C';
-    template.Event    = 'E';
+    template.Event    = 'V';
+    template.Element  = 'E';
 
     function Binding(type, path, valueCount, name, data) {
         this.type = type;
@@ -34,7 +35,7 @@
 
             bindLocations(el, bindings, values);
 
-            return el;
+            return el.childNodes.length === 1 ? el.childNodes[0] : el;
         }
     }
 
@@ -81,6 +82,10 @@
             } else if (binding.type === template.Event)  {
 
                 K.DOM.event(node, binding.name, value);
+
+            } else if (binding.type === template.Element)  {
+
+                K.DOM.element(node, value);
 
             } else {
                 throw new Error("unrecognized binding type: " + binding.type);

@@ -3,6 +3,7 @@
 <head>
     <title>K.DOM scratch examples</title>
     <script type="text/javascript" src="../js/K.js"></script>
+    <script type="text/javascript" src="../js/K.rproc.js"></script>
     <script type="text/javascript" src="../js/K.seq.spec.js"></script>
     <script type="text/javascript" src="../js/K.DOM.js"></script>
     <script type="text/javascript" src="../js/K.DOM.template.js"></script>
@@ -12,6 +13,7 @@
     <form id="form" method="get" action="html-bindings.html">
         <input id="text" name="text" type="text" value="text" />
         <input id="radio" name="radio" type="radio" value="radio" />
+        <input id="radio2" name="radio" type="radio" value="radio2" />
         <input id="checkbox" name="checkbox" type="checkbox" value="checkbox" />
         <textarea id="textarea" name="textarea">textarea</textarea>
         <select id="select" name="select">
@@ -30,17 +32,18 @@
         <!-- {{/each}} -->
     </ul>
 
-    <script id="foo" data-param="items" type="text/html">
-        (items) =>
-            <ul>
-                @items().map((item) =>
-                    <li class="item @item.classes">
-                        <input name="@item.name" type="text" />
-                        <button type="button" onclick="@item.remove()"><i class="icon-remove-circle">&times;</i></button>
-                        @item.costs
-                    </li>
-                )
-            </ul>
+    <script id="foo" type="text/html">
+        function foo(items) {
+            return  <ul>
+                        @items().map(function (item) {
+                            return  <li class="item @item.classes">
+                                        <input name="@item.name" type="text" />
+                                        <button type="button" onclick="@item.remove()"><i class="icon-remove-circle">&times;</i></button>
+                                        @item.costs
+                                    </li>;
+                        })
+                    </ul>;
+        }
     </script>
 
     <script type="text/foo">
@@ -111,6 +114,17 @@
            )
        </ul>;
 
+    var view = items =>
+       <ul>
+           @items.map(item =>
+                <li class="item" .class('foo', item.selected())>
+                   <input .bind(item.name)/>
+                   <button type="button" .on('click', item.remove)><i class="icon-remove-circle"></i></button>
+                   @item.costs
+               </li>
+           )
+       </ul>;
+
     "use strict";
     var __tmpl_ul_34 = K.DOM.template(
             '\n' +
@@ -176,6 +190,7 @@
         var form = document.getElementById('form'),
             text = document.getElementById('text'),
             radio = document.getElementById('radio'),
+            radio2 = document.getElementById('radio2'),
             checkbox = document.getElementById('checkbox'),
             textarea = document.getElementById('textarea'),
             select = document.getElementById('select'),

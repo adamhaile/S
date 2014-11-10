@@ -2,11 +2,12 @@
 (function (K) {
 
     K.DOM = {
-        control: control,
-        text   : text,
-        attr   : attr,
-        event  : event,
-        insert : insert
+        control : control,
+        text    : text,
+        attr    : attr,
+        event   : event,
+        insert  : insert,
+        element : element
     };
 
     return;
@@ -35,7 +36,7 @@
             el.value = unwrap(c);
         });
 
-        el.addEventListener(event || 'change', function () {
+        addEvent(el, event || 'change', function () {
             unwrapSet(c, el.value);
             return true;
         }, false);
@@ -48,7 +49,7 @@
             el.checked = !!unwrap(c);
         });
 
-        el.addEventListener(event || 'change', function () {
+        addEvent(el, event || 'change', function () {
             unwrapSet(c, el.checked);
             return true;
         }, false);
@@ -65,7 +66,7 @@
             el.checked = (_v === el.getAttribute('value'));
         });
 
-        el.addEventListener(event || 'change', function () {
+        addEvent(el, event || 'change', function () {
             if (el.checked) unwrapSet(c, el.getAttribute('value'));
             return true;
         }, false);
@@ -80,13 +81,17 @@
     }
 
     function event(el, name, fn) {
-        el.addEventListener(name, fn, false);
+        addEvent(el, name, fn);
     }
 
     function attr(el, name, c) {
         if (el.nodeType !== 1) throw new Error("Argument is not an element");
 
         return K.rproc(function () { el.setAttribute(name, unwrap(c)); });
+    }
+
+    function element(el, c) {
+        return K.rproc(function () { unwrapSet(c, el); });
     }
 
 
@@ -108,7 +113,7 @@
         function insert(el, val) {
             if (val === null || val === undefined) {
                 // nothing to insert
-            } else if (val instanceof Node) {
+            } else if (val.nodeType /* instanceof Node */) {
                 parent.insertBefore(val, el);
             } else if (Array.isArray(val)) {
                 insertArray(el, val);
@@ -142,8 +147,10 @@
                 end = marker(el);
 
             return K.rproc(function () {
-               clear(start, end);
-               insert(end, unwrapOrSeq(fn));
+                // reset parent, as elements may have been re-parented since code last ran
+                parent = el.parentNode;
+                clear(start, end);
+                insert(end, unwrapOrSeq(fn));
             });
         }
 
@@ -186,5 +193,15 @@
     function unwrapOrSeq(c) {
         while (typeof c === 'function' && !(c.K instanceof K.seq.K)) c = c();
         return c;
+    }
+
+    function addEvent(el, event, fn) {
+        if (el.addEventListener) {
+            el.addEventListener(event, fn, false);
+        } else if (el.attachEvent) {
+            el.attachEvent('on' + event, fn);
+        } else {
+            el['on' + event] = fn;
+        }
     }
 })(K);
