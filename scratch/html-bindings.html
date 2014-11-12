@@ -6,7 +6,6 @@
     <script type="text/javascript" src="../js/K.rproc.js"></script>
     <script type="text/javascript" src="../js/K.seq.spec.js"></script>
     <script type="text/javascript" src="../js/K.DOM.js"></script>
-    <script type="text/javascript" src="../js/K.DOM.template.js"></script>
     <script type="text/javascript" src="../js/K.DOM.src.js"></script>
 </head>
 <body>
@@ -114,16 +113,42 @@
            )
        </ul>;
 
-    var view = items =>
-       <ul>
-           @items.map(item =>
-                <li class="item" .class('foo', item.selected())>
-                   <input .bind(item.name)/>
-                   <button type="button" .on('click', item.remove)><i class="icon-remove-circle"></i></button>
-                   @item.costs
-               </li>
-           )
-       </ul>;
+    function view(items) { return (
+        <ul>
+            @items().map(function (item) { return (
+                <li class="item" @class('foo', item.selected())>
+                    <input @bind(item.name)/>
+                    <button type="button" @on('click', item.remove)><i class="icon-remove-circle"></i></button>
+                    @item.costs
+                </li>
+            )})
+        </ul>
+    )}
+
+    function view(items) { return (
+        new K.DOM.Shell(K.DOM.parse.cache(33423434,
+        '<ul>\n\
+            <!-- insert -->\n\
+        </ul>'))
+        .insert(function (__) {
+            __(items().map(function (item) { return (
+                new K.DOM.Shell(K.DOM.parse.cache(33423435,
+                '<li class="item" >\n\
+                    <input />\n\
+                    <button type="button" ><i class="icon-remove-circle"></i></button>\n\
+                    <!-- insert -->\n\
+                </li>'))
+                .class(function (__) { __('foo', item.selected()); })
+                .childNodes([1, 3, 5], function (__) {
+                    __[0].bind(function (__) { __(item.name); });
+                    __[1].on(function (__) { __('click', item.remove); });
+                    __[2].insert(function (__) { __(item.costs); });
+                })
+                .node
+            )}))
+        })
+        .node
+    )}
 
     "use strict";
     var __tmpl_ul_34 = K.DOM.template(

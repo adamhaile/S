@@ -37,6 +37,7 @@ var K = (function () {
             our_region = region;
 
         ch.K = new chCombinator();
+        ch.toString = signalToString;
 
         return ch;
 
@@ -67,6 +68,7 @@ var K = (function () {
             updaters = initUpdaters(update, id, this);
 
         proc.K = new procCombinator(detach);
+        proc.toString = toString;
 
         updaters[updaters.length - 1]();
 
@@ -150,8 +152,11 @@ var K = (function () {
                 source_listeners[i] = undefined;
             }
         }
-    }
 
+        function toString() {
+            return "[proc: " + fn + "]";
+        }
+    }
 
     function pruneStaleSources(gen, source_gens, source_offsets, source_listeners) {
         var i, len, source_gen, listeners, offset;
@@ -202,6 +207,10 @@ var K = (function () {
                 listener();
             }
         }
+    }
+
+    function signalToString() {
+        return "[signal: " + K.peek(this) + "]";
     }
 
     function _region(fn) {

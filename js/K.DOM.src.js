@@ -53,18 +53,19 @@
 
     var AST = {
             CodeTopLevel: function (segments) {
-                this.segments = segments; // [ CodeText | HtmlEmbed ]
+                this.segments = segments; // [ CodeText | HtmlExpression ]
             },
             CodeText: function (text) {
                 this.text = text; // string
             },
-            HtmlEmbed: function(nodes) {
-                this.nodes = nodes; // [ HtmlElement | HtmlComment | HtmlText(ws only) | CodeEmbed ]
+            HtmlExpression: function(nodes) {
+                this.nodes = nodes; // [ HtmlElement | HtmlComment | HtmlText(ws only) | CodeInsert ]
             },
-            HtmlElement: function(beginTag, content, endTag) {
-                this.beginTag = beginTag; // [ HtmlText | HtmlAttr ]
+            HtmlElement: function(beginTag, directives, content, endTag) {
+                this.beginTag = beginTag; // string
+                this.directives = directives; // [ string ]
                 this.content = content; // [ HtmlElement | HtmlComment | HtmlText | CodeEmbed ]
-                this.endTag = endTag; // HtmlText | null
+                this.endTag = endTag; // string | null
             },
             HtmlText: function (text) {
                 this.text = text; // string
@@ -72,15 +73,8 @@
             HtmlComment: function (text) {
                 this.text = text; // string
             },
-            HtmlAttr: function (name, eq, quote, value, hasCode) {
-                this.name = name; // string
-                this.eq = eq; // string
-                this.quote = quote; // string
-                this.value = value; // [ HtmlText | CodeEmbed ]
-                this.hasCode = hasCode;
-            },
-            CodeEmbed: function (segments) {
-                this.segments = segments; // [ CodeText | HtmlEmbed ]
+            CodeInsert: function (segments) {
+                this.segments = segments; // [ CodeText | HtmlExpression ]
             }
         };
 
