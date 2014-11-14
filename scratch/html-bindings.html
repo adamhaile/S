@@ -32,17 +32,17 @@
     </ul>
 
     <script id="foo" type="text/html">
-        function foo(items) {
-            return  <ul>
-                        @items().map(function (item) {
-                            return  <li class="item @item.classes">
-                                        <input name="@item.name" type="text" />
-                                        <button type="button" onclick="@item.remove()"><i class="icon-remove-circle">&times;</i></button>
-                                        @item.costs
-                                    </li>;
-                        })
-                    </ul>;
-        }
+        function view(items) { return (
+            <ul>
+                @items().map(function (item) { return (
+                    <li class="item" @class:foo = item.selected()>
+                        <input @value = item.name/>
+                        <button type="button" @on:click = item.remove><i class="icon-remove-circle"></i></button>
+                        @item.costs
+                    </li>
+                )})
+            </ul>
+        )}
     </script>
 
     <script type="text/foo">

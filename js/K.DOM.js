@@ -67,13 +67,14 @@
                     + "such as <input/>, <textarea/> and <select/>.  Element ``" + node + "'' does \n"
                     + "not have a .value property.  Perhaps you applied it to the wrong node?");
 
-            this.directive(values, function value(s, e) {
+            this.directive(values, function value(e, s) {
+                if (arguments.length < 2) s = e, e = 'change';
+
                 if (typeof s !== 'function')
                     throw new Error("@value binding must receive a function for two-way binding.  \n"
                         + "Perhaps you mistakenly dereferenced it with '()'?");
 
                 signal = s;
-                e = e || 'change';
 
                 K(function () {
                     var update = signal();
@@ -140,10 +141,7 @@
                     + "Element ``" + node + "'' does not. Perhaps you applied it to the wrong node?");
 
             this.directive(values, function classDirective(on, off, flag) {
-                if (arguments.length < 3) {
-                    flag = off;
-                    off = null;
-                }
+                if (arguments.length < 3) flag = off, off = null;
 
                 var hasOn = lib.classListContains(node, on),
                     hasOff = off && lib.classListContains(node, off);
@@ -165,7 +163,9 @@
 
             this.directive(values, function property(name, value) {
                 if (node[name] === undefined)
-                    throw new Error("@property can only set a defined property of a node.  Element ``" + node + "'' has no property ''" + name + "''.  Perhaps you applied it to the wrong node?");
+                    throw new Error("@property can only set a defined property of a node. \n"
+                        + "Element ``" + node + "'' has no property ''" + name + "''.  \n"
+                        + "Perhaps you applied it to the wrong node?");
 
                 node[name] = value;
             });
@@ -179,6 +179,9 @@
                 lastEvent = null;
 
             this.directive(values, function on(event, fn) {
+                if (typeof fn !== 'function')
+                    throw new Error("@on callback must be a function.  Perhaps you called the function instead of passing it?");
+
                 if (node["on" + event] === undefined)
                     throw new Error("@on can only attach a handler to a defined event of a node.  Element ``" + node + "'' has no event ``" + event + "''.  Perhaps you applied it to the wrong node?");
 

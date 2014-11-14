@@ -5,11 +5,10 @@
     K.DOM.src.add = add;
 
     // DEBUG
-    K.DOM.tokenize = tokenize;
-    K.DOM.parse = parse;
+    src.tokenize = tokenize;
+    src.parse = parse;
 
-    var t = K.DOM.template,
-        shimmed = false;
+    var shimmed = false;
 
     function src(str) {
         var toks = tokenize(str),
@@ -31,7 +30,10 @@
     /// -->
     /// )
     /// (
-    /// =
+    /// [
+    /// ]
+    /// {
+    /// }
     /// "
     /// '
     /// //
@@ -39,14 +41,35 @@
     /// @
     /// misc (any string not containing one of the above)
 
-    var matchTokens = /<\/?(?=\w)|\/?>|<!--|-->|\)|\(|=|"|'|\/\/|\n|@|(?:[^<>\/()="'@\n-]|(?!-->)-|\/(?![>/])|(?!<\/?\w|<!--)<\/?)+/g;
+    // pre-compiled regular expressions
+    var rx = {
+        tokens             : /<\/?(?=\w)|\/?>|<!--|-->|\)|\(|\[|\]|\{|\}|"|'|\/\/|\n|@|(?:[^<>\/()[\]{}"'@\n-]|(?!-->)-|\/(?![>/])|(?!<\/?\w|<!--)<\/?)+/g,
+        embeddedCodePrefix : /^[+\-!~]*[a-zA-Z_$][a-zA-Z_$0-9]*/, // prefix unary operators + identifier
+        embeddedCodeInterim: /^(?:\.[a-zA-Z_$][a-zA-Z_$0-9]+)+/, // property chain, like .bar.blech
+        embeddedCodeSuffix : /^\+\+|--/, // suffix unary operators
+        attrStyleDirective : /^[a-zA-Z_$][a-zA-Z_$0-9]*(:[^\s:=]*)*(?=\s*=)/, // like "foo:bar:blech" followed by " = "
+        attrStyleEquals    : /^\s*=\s/, // like " = "
+        directiveName      : /^[a-zA-Z_$][a-zA-Z_$0-9]*/, // identifier for a directive
+        stringEscapedEnd   : /[^\\](\\\\)*\\$/, // ending in odd number of escape slashes = next char of string escaped
+        ws                 : /^\s*$/,
+        finalLine          : /[^\n]*$/,
+        backslashes        : /\\/g,
+        newlines           : /\n/g,
+        singleQuotes       : /'/g
+    };
+
+    var parens = {
+        "(": ")",
+        "[": "]",
+        "{": "}"
+    };
 
     function tokenize(str) {
-        var TOKS = str.match(matchTokens);
+        var TOKS = str.match(rx.tokens);
 
         // DEBUG
-        //if (TOKS.join("").length != str.length)
-        //    throw new Error("missing text from tokens!");
+        if (TOKS.join("") !== str)
+            throw new Error("missing text from tokens!");
 
         return TOKS;
     }
@@ -58,13 +81,16 @@
             CodeText: function (text) {
                 this.text = text; // string
             },
+            EmbeddedCode: function (segments) {
+                this.segments = segments; // [ CodeText | HtmlExpression ]
+            },
             HtmlExpression: function(nodes) {
                 this.nodes = nodes; // [ HtmlElement | HtmlComment | HtmlText(ws only) | CodeInsert ]
             },
             HtmlElement: function(beginTag, directives, content, endTag) {
                 this.beginTag = beginTag; // string
-                this.directives = directives; // [ string ]
-                this.content = content; // [ HtmlElement | HtmlComment | HtmlText | CodeEmbed ]
+                this.directives = directives; // [ Directive | AttrStyleDirective ]
+                this.content = content; // [ HtmlElement | HtmlComment | HtmlText | CodeInsert ]
                 this.endTag = endTag; // string | null
             },
             HtmlText: function (text) {
@@ -73,18 +99,18 @@
             HtmlComment: function (text) {
                 this.text = text; // string
             },
-            CodeInsert: function (segments) {
-                this.segments = segments; // [ CodeText | HtmlExpression ]
+            Directive: function (name, code) {
+                this.name = name; // string
+                this.code = code; // EmbeddedCode
+            },
+            AttrStyleDirective: function (left, code) {
+                this.left = left; // [ string ]
+                this.code = code; // EmbeddedCode
+            },
+            CodeInsert: function (code) {
+                this.code = code; // EmbeddedCode
             }
         };
-
-    // pre-compile some regular expressions used during parsing
-    var propChain = /^[a-zA-Z_$][a-zA-Z_$0-9]*(?:\.[a-zA-Z_$][a-zA-Z_$0-9]+)*/, // like foo.bar.blech
-        propTail = /^(?:\.[a-zA-Z_$][a-zA-Z_$0-9]+)+/, // like .bar.blech
-        attributeName = /([a-zA-Z][a-zA-Z0-9\-]*)(\s*)$/,
-        escapedEnd = /[^\\](\\\\)*\\$/, // ending in odd number of escape slashes = next char escaped
-        ws = /^\s*$/,
-        startsWithOn = /^on/i;
 
     function parse(TOKS) {
         var i = 0,
@@ -101,7 +127,7 @@
                 if (IS('<') || IS('<!--')) {
                     if (text) segments.push(new AST.CodeText(text));
                     text = "";
-                    segments.push(htmlEmbed());
+                    segments.push(htmlExpression());
                 } else if (IS('"') || IS("'")) {
                     text += quotedString();
                 } else if (IS('//')) {
@@ -116,8 +142,8 @@
             return new AST.CodeTopLevel(segments);
         }
 
-        function htmlEmbed() {
-            if (NOT('<') && NOT('<!--')) ERR("not at start of html embed");
+        function htmlExpression() {
+            if (NOT('<') && NOT('<!--')) ERR("not at start of html expression");
 
             var nodes = [],
                 wsText,
@@ -129,7 +155,7 @@
                 } else if (IS('<!--')) {
                     nodes.push(htmlComment());
                 } else if (IS('@')) {
-                    nodes.push(codeEmbed());
+                    nodes.push(codeInsert());
                 } else {
                     mark = MARK();
                     wsText = htmlWhitespaceText();
@@ -143,28 +169,26 @@
                 }
             }
 
-            return new AST.HtmlEmbed(nodes);
+            return new AST.HtmlExpression(nodes);
         }
 
         function htmlElement() {
-            if (NOT('<')) ERR("not at start of element");
+            if (NOT('<')) ERR("not at start of html element");
 
-            var beginTag = [],
+            var beginTag = "",
+                directives = [],
                 content = [],
                 endTag = "",
-                text = "",
                 hasContent = true;
 
-            text += TOK, NEXT();
+            beginTag += TOK, NEXT();
 
             // scan for attributes until end of opening tag
             while (!EOF && NOT('>') && NOT('/>')) {
-                if (IS('=')) {
-                    // don't add text to beginTag here, as htmlAttr needs to munge it to find the attr name
-                    beginTag.push(htmlAttr(beginTag, text));
-                    text = "";
+                if (IS('@')) {
+                    directives.push(directive());
                 } else {
-                    text += TOK, NEXT();
+                    beginTag += TOK, NEXT();
                 }
             }
 
@@ -172,16 +196,14 @@
 
             hasContent = IS('>');
 
-            text += TOK, NEXT();
-
-            beginTag.push(new AST.HtmlText(text));
+            beginTag += TOK, NEXT();
 
             if (hasContent) {
                 while (!EOF && NOT('</')) {
                     if (IS('<')) {
                         content.push(htmlElement());
                     } else if (IS('@')) {
-                        content.push(codeEmbed());
+                        content.push(codeInsert());
                     } else if (IS('<!--')) {
                         content.push(htmlComment());
                     } else {
@@ -200,7 +222,7 @@
                 endTag += TOK, NEXT();
             }
 
-            return new AST.HtmlElement(beginTag, content, endTag);
+            return new AST.HtmlElement(beginTag, directives, content, endTag);
         }
 
         function htmlText() {
@@ -223,63 +245,6 @@
             return new AST.HtmlText(text);
         }
 
-        function htmlAttr(beginTag, text) {
-            if (NOT('=')) ERR("not at equal sign of attribute");
-
-            // parse the attribute name and type
-            var match = text.match(attributeName);
-
-            if (!match) ERR("could not identify attribute name");
-
-            var name = match[1],
-                eq = match[2],
-                quote = "",
-                value = [],
-                hasCode = false;
-
-            // shorten the preceding text by the length of the attribute name match
-            text = text.substr(0, text.length - match[0].length);
-
-            // if there's any previous text left, add it to the begin tag
-            if (text) beginTag.push(new AST.HtmlText(text));
-            text = "";
-
-            // build equals phrase, including any whitespace around '='
-            eq += TOK, NEXT();
-            if (WS()) eq += TOK, NEXT();
-
-            if (IS('"') || IS("'")) {
-                quote = TOK, NEXT();
-
-                while (!EOF && NOT(quote) && NOT('>')) {
-                    if (IS('@')) {
-                        hasCode = true;
-                        if (text) {
-                            value.push(new AST.HtmlText(text));
-                            text = "";
-                        }
-                        value.push(codeEmbed());
-                    } else {
-                        text += TOK, NEXT();
-                    }
-                }
-
-                if (EOF || IS('>')) ERR("unterminated quote in attribute value");
-
-                // skip closing quote
-                NEXT();
-            } else if (IS('@')) {
-                hasCode = true;
-                value.push(codeEmbed());
-            } else {
-                ERR("attribute does not have value");
-            }
-
-            if (text) value.push(new AST.HtmlText(text));
-
-            return new AST.HtmlAttr(name, eq, quote, value, hasCode);
-        }
-
         function htmlComment() {
             if (NOT('<!--')) ERR("not in HTML comment");
 
@@ -296,59 +261,88 @@
             return new AST.HtmlComment(text);
         }
 
-        function codeEmbed() {
-            if (NOT("@")) ERR("not at start of code embed");
+        function codeInsert() {
+            if (NOT('@')) ERR("not at start of code insert");
 
             NEXT();
 
+            return new AST.CodeInsert(embeddedCode());
+        }
+
+        function directive() {
+            if (NOT('@')) ERR("not at start of directive");
+
+            NEXT();
+
+            var name,
+                left,
+                segment,
+                segments;
+
+            if (name = SPLIT(rx.attrStyleDirective)) {
+                left = name.split(":");
+
+                SPLIT(rx.attrStyleEquals);
+
+                return new AST.AttrStyleDirective(left, embeddedCode());
+            } else {
+                name = SPLIT(rx.directiveName);
+
+                if (!name || NOT("(")) {
+                    ERR("unrecognized directive");
+                }
+
+                segments = [];
+                segment = balancedParens(segments, "");
+                if (segment) segments.push(segment);
+
+                return new AST.Directive(name, new AST.EmbeddedCode(segments));
+            }
+        }
+
+        function embeddedCode() {
             var segments = [],
                 text = "",
-                match = null,
-                props = null,
-                ended = false;
+                part;
 
-            // consume any initial property chain (@foo.bar.blech)
-            if (match = MATCHES(propChain)) {
-                props = match[0];
-                if (props.length === TOK.length) {
-                    text += TOK, NEXT();
-                } else {
-                    // split the token
-                    text += props;
-                    TOK = TOK.substring(props.length);
-                    ended = true;
+            // consume any initial operators and identifier (!foo)
+            if (part = SPLIT(rx.embeddedCodePrefix)) {
+                text += part;
+
+                // consume any property chain (.bar.blech)
+                if (part = SPLIT(rx.embeddedCodeInterim)) {
+                    text += part;
                 }
             }
 
-            // consume any sets of ballanced parentheses
-            while (!ended && IS("(")) {
+            // consume any sets of balanced parentheses
+            while (PARENS()) {
                 text = balancedParens(segments, text);
 
-                // consume any terminal or interstitial property chain (@ ... ().blech.gorp)
-                if (match = MATCHES(propTail)) {
-                    props = match[0];
-                    if (props.length === TOK.length) {
-                        text += TOK, NEXT();
-                    } else {
-                        // split the token
-                        text += props;
-                        TOK = TOK.substring(props.length);
-                        ended = true;
-                    }
+                // consume interim property chain (.blech.gorp)
+                if (part = SPLIT(rx.embeddedCodeInterim)) {
+                    text += part;
                 }
+            }
+
+            // consume any operator suffix (++, --)
+            if (part = SPLIT(rx.embeddedCodeSuffix)) {
+                text += part;
             }
 
             if (text) segments.push(new AST.CodeText(text));
 
-            return new AST.CodeEmbed(segments);
+            return new AST.EmbeddedCode(segments);
         }
 
         function balancedParens(segments, text) {
-            if (NOT("(")) ERR("not in parentheses");
+            var end = PARENS();
+
+            if (end === undefined) ERR("not in parentheses");
 
             text += TOK, NEXT();
 
-            while (!EOF && NOT(")")) {
+            while (!EOF && NOT(end)) {
                 if (IS("'") || IS('"')) {
                     text += quotedString();
                 } else if (IS('//')) {
@@ -356,7 +350,7 @@
                 } else if (IS("<") || IS('<!--')) {
                     if (text) segments.push(new AST.CodeText(text));
                     text = "";
-                    segments.push(htmlEmbed());
+                    segments.push(htmlExpression());
                 } else if (IS('(')) {
                     text = balancedParens(segments, text);
                 } else {
@@ -423,16 +417,31 @@
             return TOK !== t;
         }
 
-        function MATCH(m) {
-            return m.test(TOK);
+        function MATCH(rx) {
+            return rx.test(TOK);
         }
 
-        function MATCHES(m) {
-            return m.exec(TOK);
+        function MATCHES(rx) {
+            return rx.exec(TOK);
         }
 
         function WS() {
-            return !!MATCH(ws);
+            return !!MATCH(rx.ws);
+        }
+
+        function PARENS() {
+            return parens[TOK];
+        }
+
+        function SPLIT(rx) {
+            var m = MATCHES(rx);
+            if (m && (m = m[0])) {
+                TOK = TOK.substring(m.length);
+                if (TOK === "") NEXT();
+                return m;
+            } else {
+                return null;
+            }
         }
 
         function MARK() {
@@ -460,7 +469,7 @@
         return code;
     };
     AST.CodeText.prototype.genCode = function (code) { return this.text; };
-    AST.HtmlEmbed.prototype.genCode = function (code) {
+    AST.HtmlExpression.prototype.genCode = function (code) {
         var bindings = [],
             values = [],
             html = genHtmlForChildren(this.nodes, [], bindings, values);
@@ -480,75 +489,9 @@
 
         return html;
     };
-    AST.HtmlAttr.prototype.genHtml = function (path, bindings, values) {
-        var html = "",
-            attrValues = [],
-            i,
-            value,
-            valueCount,
-            event;
-
-        if (this.hasCode) {
-            if (startsWithOn.test(this.name)) {
-                if (this.value.length > 1)
-                    throw new Error("Event binding must be a single code value");
-
-                event = this.name.substring(2).toLowerCase();
-
-                bindings.push(new t.Binding(t.Event, path.slice(0), 1, event, null));
-
-                this.value[0].genHtml(path, [], values);
-
-            } else if (this.name.toLowerCase() === 'value') {
-                if (this.value.length == 1 && this.value[0] instanceof AST.CodeEmbed) {
-                    event = null;
-                    value = this.value[0];
-                } else if (this.value.length == 2 && this.value[0] instanceof AST.HtmlText && this.value[1] instanceof AST.CodeEmbed) {
-                    event = this.value[0].text;
-                    value = this.value[1];
-                } else {
-                    throw new Error("Control binding must be either a single code value or an event specifier followed by a code value");
-                }
-
-                bindings.push(new t.Binding(t.Control, path.slice(0), 1, event, null));
-
-                value.genHtml(path, [], values);
-
-            } else if (this.name.toLowerCase() === 'name') {
-                if (this.value.length > 1)
-                    throw new Error("Name binding must be a single code value");
-
-                bindings.push(new t.Binding(t.Element, path.slice(0), 1, null, null));
-
-                this.value[0].genHtml(path, [], values);
-            } else {
-                valueCount = 0;
-                for (i = 0; i < this.value.length; i++) {
-                    value = this.value[i];
-
-                    if (value instanceof AST.HtmlText) {
-                        attrValues.push(value.text);
-                    } else {
-                        valueCount++;
-                        attrValues.push(null);
-                        value.genHtml(path, [], values);
-                    }
-                }
-
-                bindings.push(new t.Binding(t.Attr, path.slice(0), valueCount, this.name, attrValues));
-            }
-        } else {
-            if (this.value.length > 1 || !(this.value[0] instanceof AST.HtmlText))
-                throw new Error("Non-code attributes expected to have a single text value");
-
-            html = this.name + this.eq + (this.quote || "") + (this.value.length ? this.value[0].text : "") + (this.quote || "");
-        }
-
-        return html;
-    };
     AST.HtmlText.prototype.genHtml = function () { return this.text; };
     AST.HtmlComment.prototype.genHtml = function () { return this.text; };
-    AST.CodeEmbed.prototype.genHtml = function (path, bindings, values) {
+    AST.CodeInsert.prototype.genHtml = function (path, bindings, values) {
         var code = "";
 
         for (var i = 0; i < this.segments.length; i++) {
@@ -576,10 +519,7 @@
         return html;
     }
 
-    var templateId = Math.floor(Math.random() * Math.pow(2, 31)),
-        backslashes = /\\/g,
-        newlines = /\n/g,
-        singleQuotes = /'/g;
+    var templateId = Math.floor(Math.random() * Math.pow(2, 31));
 
     function templateExpression(html, bindings, values, indent) {
         var code = "",
@@ -619,11 +559,9 @@
         return code;
     }
 
-    var indentLength = /[^\n]*$/;
-
     function codeIndent(code) {
-        var indentMatch = indentLength.exec(code);
-        return indentMatch ? new Array(indentMatch[0].length + 1).join(" ") : "        ";
+        var m = rx.finalLine.exec(code);
+        return m ? new Array(m[0].length + 1).join(" ") : "        ";
     }
 
     function add(str) {
@@ -644,10 +582,9 @@
 
         // add base shim methods that visit AST
         AST.CodeTopLevel.prototype.shim = function (ctx) { shimSiblings(this, this.segments, ctx); };
-        AST.HtmlEmbed.prototype.shim    = function (ctx) { shimSiblings(this, this.nodes, ctx); };
+        AST.HtmlExpression.prototype.shim = function (ctx) { shimSiblings(this, this.nodes, ctx); };
         AST.HtmlElement.prototype.shim  = function (ctx) { shimSiblings(this, this.content, ctx); };
-        AST.HtmlAttr.prototype.shim     = function (ctx) { shimSiblings(this, this.value, ctx); };
-        AST.CodeEmbed.prototype.shim    = function (ctx) { shimSiblings(this, this.segments, ctx) };
+        AST.CodeInsert.prototype.shim    = function (ctx) { shimSiblings(this, this.segments, ctx) };
         AST.CodeText.prototype.shim     =
         AST.HtmlText.prototype.shim     =
         AST.HtmlComment.prototype.shim  = function (ctx) {};

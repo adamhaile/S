@@ -112,27 +112,23 @@
                 <li>
                     <input type="text"
                            placeholder="What needs to be done?"
-                           @bind(app.create.title, 'keydown')
-                           onkeydown=app.create.keydown($event)
-                           @on('keydown', e => app.create.keydown(e) />
+                           @value:keydown=app.create.title
+                           @on:keydown=app.create.keydown />
                 </li>
                 @app.filteredTodos().map(function (todo) { return (
                     <li class="todo"
-                        @class("selected", todo.selected())
-                        @class("completed", todo.completed())
-                        @on("dblclick", e => todo.select() >
-                        <input @bind(todo.completed) type="checkbox" />
+                        @class:selected:unselected=todo.selected()
+                        @class:completed:incomplete=todo.completed()
+                        @on:dblclick=todo.select >
+                        <input @checked=todo.completed type="checkbox" />
                         <label>@todo.title</label>
-                        <a @on("click", e => todo.remove())>&times;</a>
+                        <a @on:click=todo.remove >&times;</a>
                         <input type="text"
-                           @show(todo.selected())
-                           hidden = !todo.selected()
-                           @($element.hidden = !todo.selected())
-                           @bind(todo.title, 'keydown')
-                           @focus(todo.selected())
-                           @(todo.selected() && $element.focus())
-                           @on('keydown', e => todo.keydown(e))
-                           @on('blur', e => todo.deselect(true)) />
+                               @hidden=!todo.selected()
+                               @focus=todo.selected()
+                               @on:blur=todo.deselect
+                               @on:keydown=todo.keydown
+                               @value:keydown=todo.title />
                     </li>
                 )})
             </ul>
@@ -142,12 +138,12 @@
                   'no items') left
             </p>
             <p>
-                  <a @on('click', e => app.filter(null))>All</a>
-                | <a @on('click', function (e) { return app.filter(false) })>Active</a>
-                | <a onclick=app.filter(true)>Completed</a>
+                  <a @on:click=_.partial(app.filter, null)>All</a>
+                | <a @on:click=_.partial(app.filter, false)>Active</a>
+                | <a @on:click=_.partial(app.filter, true)>Completed</a>
             </p>
             <p>
-                <a onclick="@app.completeAll()">Complete All</a>
+                <a @on:click=app.completeAll>Complete All</a>
             </p>
         )}
 

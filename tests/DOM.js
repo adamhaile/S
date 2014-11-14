@@ -187,7 +187,7 @@ test("K.DOM.Shell::value", function () {
 
     strictEqual(0, updateCount, "DOM -> js only triggered when value changed");
 
-    sh.value(function (__) { __(value2, "keydown"); });
+    sh.value(function (__) { __("keydown", value2); });
 
     strictEqual(value2(), sh.node.value, "initialization with custom event");
 
