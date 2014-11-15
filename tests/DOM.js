@@ -230,7 +230,7 @@ test("K.DOM.Shell::checked", function () {
     value = K("on");
     change = new Event("change");
 
-    sh.checked(function (__) { __(value, "on"); });
+    sh.checked(function (__) { __("on", value); });
 
     strictEqual(sh.node.checked, true, "initialization with specified 'on' value");
 
@@ -257,7 +257,7 @@ test("K.DOM.Shell::checked", function () {
     value = K("on");
     change = new Event("change");
 
-    sh.checked(function (__) { __(value, "on", "off"); });
+    sh.checked(function (__) { __("on", "off", value); });
 
     strictEqual(sh.node.checked, true, "initialization with specified 'on' and 'off' values");
 

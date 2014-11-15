@@ -203,6 +203,127 @@
         .node)
     )}
 
+        function ToDosView(app) { return (
+            <ul class="todos">
+                <li>
+                    <input type="text"
+                           placeholder="What needs to be done?"
+                           @value:keydown=app.create.title
+                           @on:keydown=app.create.keydown />
+                </li>
+                @app.filteredTodos().map(function (todo) { return (
+                    <li class="todo"
+                        @class:selected:unselected=todo.selected()
+                        @class:completed:incomplete=todo.completed()
+                        @on:dblclick=todo.select >
+                        <input @checked=todo.completed type="checkbox" />
+                        <label>@todo.title()</label>
+                        <a @on:click=todo.remove >&times;</a>
+                        <input type="text"
+                               @hidden=!todo.selected()
+                               @focus=todo.selected()
+                               @on:blur=todo.deselect
+                               @on:keydown=todo.keydown
+                               @value:keydown=todo.title />
+                    </li>
+                )})
+            </ul>
+            <p>
+                @(app.incompleteCount() > 1   ? app.incompleteCount() + " items" :
+                  app.incompleteCount() === 1 ? "1 item" :
+                  'no items') left
+            </p>
+            <p>
+                  <a @on:click=_.partial(app.filter, null)>All</a>
+                | <a @on:click=_.partial(app.filter, false)>Active</a>
+                | <a @on:click=_.partial(app.filter, true)>Completed</a>
+            </p>
+            <p>
+                <a @on:click=app.completeAll>Complete All</a>
+            </p>
+        )}
+
+        function ToDosView(app) { return (
+            <ul class="todos">
+                <li>
+                    <input type = "text"
+                           placeholder = "What needs to be done?"
+                           value.keydown = app.create.title
+                           on.keydown = app.create.keydown />
+                </li>
+                @app.filteredTodos().map(function (todo) { return (
+                    <li class = "todo"
+                        class.selected|unselected = todo.selected()
+                        class.completed|incomplete = todo.completed()
+                        on.dblclick = todo.select >
+                        <input checked = todo.completed type = "checkbox" />
+                        <label>@todo.title()</label>
+                        <a on.click = todo.remove >&times;</a>
+                        <input type="text"
+                               hidden = !todo.selected()
+                               focus = todo.selected()
+                               on.blur = todo.deselect
+                               on.keydown = todo.keydown
+                               value.keydown = todo.title />
+                    </li>
+                )})
+            </ul>
+            <p>
+                @(app.incompleteCount() > 1   ? app.incompleteCount() + " items" :
+                  app.incompleteCount() === 1 ? "1 item" :
+                  'no items') left
+            </p>
+            <p>
+                  <a on.click = _.partial(app.filter, null)>All</a>
+                | <a on.click = _.partial(app.filter, false)>Active</a>
+                | <a on.click = _.partial(app.filter, true)>Completed</a>
+            </p>
+            <p>
+                <a on.click = app.completeAll>Complete All</a>
+            </p>
+        )}
+
+        function ToDosView(app) { return (
+            <ul class="todos">
+                <li>
+                    <input type="text"
+                           placeholder="What needs to be done?"
+                           value.keydown={app.create.title}
+                           on.keydown={app.create.keydown} />
+                </li>
+                @app.filteredTodos().map(function (todo) { return (
+                    <li class="todo"
+                        class:selected:unselected={todo.selected()}
+                        class:completed:incomplete={todo.completed()}
+                        on:dblclick={todo.select} >
+                        <input checked={todo.completed} type="checkbox" />
+                        <label>{todo.title()}</label>
+                        <a on:click={todo.remove} >&times;</a>
+                        <input type="text"
+                               hidden={!todo.selected()}
+                               focus={todo.selected()}
+                               on:blur={todo.deselect}
+                               on:keydown={todo.keydown}
+                               value:keydown={todo.title} />
+                    </li>
+                )})
+            </ul>
+            <p>
+                {app.incompleteCount() > 1   ? app.incompleteCount() + " items" :
+                 app.incompleteCount() === 1 ? "1 item" :
+                 'no items'} left
+            </p>
+            <p>
+                  <a on:click={_.partial(app.filter, null)}>All</a>
+                | <a on:click={_.partial(app.filter, false)}>Active</a>
+                | <a on:click={_.partial(app.filter, true)}>Completed</a>
+            </p>
+            <p>
+                <a on:click={app.completeAll}>Complete All</a>
+            </p>
+        )}
+
+
     "use strict";
     var __tmpl_ul_34 = K.DOM.template(
             '\n' +

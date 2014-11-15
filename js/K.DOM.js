@@ -110,14 +110,17 @@
                     + "``" + node + "'' does not have a .checked property.  Perhaps you applied it \n"
                     + "to the wrong node?");
 
-            this.directive(values, function checked(s, n, f) {
-                if (typeof s !== 'function')
+            this.directive(values, function checked(_on, _off, _signal) {
+                if (arguments.length === 2) _signal = _off, _off = undefined;
+                if (arguments.length === 1) _signal = _on, _on = _off = undefined;
+
+                if (typeof _signal !== 'function')
                     throw new Error("@checked binding must receive a function for two-way binding. \n"
                         + "Perhaps you mistakenly dereferenced it with '()'?");
 
-                signal = s;
-                on = n === undefined ? true : n;
-                off = f === undefined ? (on === true ? false : null) : f;
+                signal = _signal;
+                on = _on === undefined ? true : _on;
+                off = _off === undefined ? (on === true ? false : null) : _off;
 
                 K(function () {
                     var update = signal() === on;
