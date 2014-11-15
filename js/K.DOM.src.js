@@ -48,11 +48,10 @@
         embeddedCodeInterim: /^(?:\.[a-zA-Z_$][a-zA-Z_$0-9]+)+/, // property chain, like .bar.blech
         embeddedCodeSuffix : /^\+\+|--/, // suffix unary operators
         attrStyleDirective : /^[a-zA-Z_$][a-zA-Z_$0-9]*(:[^\s:=]*)*(?=\s*=)/, // like "foo:bar:blech" followed by " = "
-        attrStyleEquals    : /^\s*=\s/, // like " = "
+        attrStyleEquals    : /^\s*=\s*/, // like " = "
         directiveName      : /^[a-zA-Z_$][a-zA-Z_$0-9]*/, // identifier for a directive
         stringEscapedEnd   : /[^\\](\\\\)*\\$/, // ending in odd number of escape slashes = next char of string escaped
         ws                 : /^\s*$/,
-        finalLine          : /[^\n]*$/,
         backslashes        : /\\/g,
         newlines           : /\n/g,
         singleQuotes       : /'/g
@@ -75,47 +74,51 @@
     }
 
     var AST = {
-            CodeTopLevel: function (segments) {
-                this.segments = segments; // [ CodeText | HtmlExpression ]
-            },
-            CodeText: function (text) {
-                this.text = text; // string
-            },
-            EmbeddedCode: function (segments) {
-                this.segments = segments; // [ CodeText | HtmlExpression ]
-            },
-            HtmlExpression: function(nodes) {
-                this.nodes = nodes; // [ HtmlElement | HtmlComment | HtmlText(ws only) | CodeInsert ]
-            },
-            HtmlElement: function(beginTag, directives, content, endTag) {
-                this.beginTag = beginTag; // string
-                this.directives = directives; // [ Directive | AttrStyleDirective ]
-                this.content = content; // [ HtmlElement | HtmlComment | HtmlText | CodeInsert ]
-                this.endTag = endTag; // string | null
-            },
-            HtmlText: function (text) {
-                this.text = text; // string
-            },
-            HtmlComment: function (text) {
-                this.text = text; // string
-            },
-            Directive: function (name, code) {
-                this.name = name; // string
-                this.code = code; // EmbeddedCode
-            },
-            AttrStyleDirective: function (left, code) {
-                this.left = left; // [ string ]
-                this.code = code; // EmbeddedCode
-            },
-            CodeInsert: function (code) {
-                this.code = code; // EmbeddedCode
-            }
-        };
+        CodeTopLevel: function (segments) {
+            this.segments = segments; // [ CodeText | HtmlExpression ]
+        },
+        CodeText: function (text) {
+            this.text = text; // string
+        },
+        EmbeddedCode: function (segments) {
+            this.segments = segments; // [ CodeText | HtmlExpression ]
+        },
+        HtmlExpression: function(col, nodes) {
+            this.col = col; // integer
+            this.nodes = nodes; // [ HtmlElement | HtmlComment | HtmlText(ws only) | HtmlInsert ]
+        },
+        HtmlElement: function(beginTag, directives, content, endTag) {
+            this.beginTag = beginTag; // string
+            this.directives = directives; // [ Directive | AttrStyleDirective ]
+            this.content = content; // [ HtmlElement | HtmlComment | HtmlText | HtmlInsert ]
+            this.endTag = endTag; // string | null
+        },
+        HtmlText: function (text) {
+            this.text = text; // string
+        },
+        HtmlComment: function (text) {
+            this.text = text; // string
+        },
+        HtmlInsert: function (col, code) {
+            this.col = col; // integer
+            this.code = code; // EmbeddedCode
+        },
+        Directive: function (name, code) {
+            this.name = name; // string
+            this.code = code; // EmbeddedCode
+        },
+        AttrStyleDirective: function (left, code) {
+            this.left = left; // [ string ]
+            this.code = code; // EmbeddedCode
+        }
+    };
 
     function parse(TOKS) {
         var i = 0,
             EOF = TOKS.length === 0,
-            TOK = !EOF && TOKS[i];
+            TOK = !EOF && TOKS[i],
+            LINE = 0,
+            COL = 0;
 
         return codeTopLevel();
 
@@ -145,9 +148,10 @@
         function htmlExpression() {
             if (NOT('<') && NOT('<!--')) ERR("not at start of html expression");
 
-            var nodes = [],
-                wsText,
-                mark;
+            var col = COL,
+                nodes = [],
+                mark,
+                wsText;
 
             while (!EOF) {
                 if (IS('<')) {
@@ -155,7 +159,7 @@
                 } else if (IS('<!--')) {
                     nodes.push(htmlComment());
                 } else if (IS('@')) {
-                    nodes.push(codeInsert());
+                    nodes.push(htmlInsert());
                 } else {
                     mark = MARK();
                     wsText = htmlWhitespaceText();
@@ -169,7 +173,7 @@
                 }
             }
 
-            return new AST.HtmlExpression(nodes);
+            return new AST.HtmlExpression(col, nodes);
         }
 
         function htmlElement() {
@@ -203,7 +207,7 @@
                     if (IS('<')) {
                         content.push(htmlElement());
                     } else if (IS('@')) {
-                        content.push(codeInsert());
+                        content.push(htmlInsert());
                     } else if (IS('<!--')) {
                         content.push(htmlComment());
                     } else {
@@ -261,12 +265,14 @@
             return new AST.HtmlComment(text);
         }
 
-        function codeInsert() {
+        function htmlInsert() {
             if (NOT('@')) ERR("not at start of code insert");
+
+            var col = COL;
 
             NEXT();
 
-            return new AST.CodeInsert(embeddedCode());
+            return new AST.HtmlInsert(col, embeddedCode());
         }
 
         function directive() {
@@ -373,7 +379,7 @@
 
             quote = text = TOK, NEXT();
 
-            while (!EOF && (NOT(quote) || escapedEnd.test(text))) {
+            while (!EOF && (NOT(quote) || rx.stringEscapedEnd.test(text))) {
                 text += TOK, NEXT();
             }
 
@@ -401,6 +407,9 @@
 
         // token stream ops
         function NEXT() {
+            if (TOK === "\n") LINE++, COL = 0;
+            else if (TOK) COL += TOK.length;
+
             if (++i >= TOKS.length) EOF = true, TOK = null;
             else TOK = TOKS[i];
         }
@@ -436,6 +445,7 @@
         function SPLIT(rx) {
             var m = MATCHES(rx);
             if (m && (m = m[0])) {
+                COL += m.length;
                 TOK = TOK.substring(m.length);
                 if (TOK === "") NEXT();
                 return m;
@@ -448,7 +458,9 @@
             return {
                 TOK: TOK,
                 i:   i,
-                EOF: EOF
+                EOF: EOF,
+                LINE: LINE,
+                COL: COL
             };
         }
 
@@ -456,112 +468,123 @@
             TOK = mark.TOK;
             i   = mark.i;
             EOF = mark.EOF;
+            LINE = mark.LINE;
+            COL = mark.COL;
         }
     }
 
-    AST.CodeTopLevel.prototype.genCode = function () {
-        var code = "";
+    // genCode
+    AST.CodeTopLevel.prototype.genCode   =
+    AST.EmbeddedCode.prototype.genCode   = function () { return concatResults(this.segments, 'genCode'); };
+    AST.CodeText.prototype.genCode       = function () { return this.text; };
+    var htmlExpressionId = Math.floor(Math.random() * Math.pow(2, 31));
+    AST.HtmlExpression.prototype.genCode = function () {
+        var html = concatResults(this.nodes, 'genHtml'),
+            nl = "\n" + indent(this.col),
+            directives = this.nodes.length > 1 ? genChildDirectives(this.nodes, nl) : this.nodes[0].genDirectives(nl),
+            code = "(K.DOM.parse.cache(" + htmlExpressionId++ + "," + nl + codeStr(html) + "))";
 
-        for (var i = 0; i < this.segments.length; i++) {
-            code += this.segments[i].genCode(code);
-        }
+        if (directives) code = "(new K.DOM.Shell" + code + nl + directives + nl + ".node)";
 
         return code;
     };
-    AST.CodeText.prototype.genCode = function (code) { return this.text; };
-    AST.HtmlExpression.prototype.genCode = function (code) {
-        var bindings = [],
-            values = [],
-            html = genHtmlForChildren(this.nodes, [], bindings, values);
 
-        return templateExpression(html, bindings, values, codeIndent(code));
+    // genHtml
+    AST.HtmlElement.prototype.genHtml = function() {
+        return this.beginTag + concatResults(this.content, 'genHtml') + (this.endTag || "");
     };
-    AST.HtmlElement.prototype.genHtml = function (path, bindings, values) {
-        var html = "";
+    AST.HtmlComment.prototype.genHtml =
+    AST.HtmlText.prototype.genHtml    = function () { return this.text; };
+    AST.HtmlInsert.prototype.genHtml  = function () { return '<!-- insert -->'; };
 
-        for (var i = 0; i < this.beginTag.length; i++) {
-            html += this.beginTag[i].genHtml(path, bindings, values);
-        }
-
-        html += genHtmlForChildren(this.content, path, bindings, values);
-
-        html += this.endTag;
-
-        return html;
+    // genDirectives
+    AST.HtmlElement.prototype.genDirectives = function (nl) {
+        var directives = concatResults(this.directives, 'genDirective', nl),
+            childDirectives = genChildDirectives(this.content, nl);
+        return directives + (directives && childDirectives ? nl : "") + childDirectives;
     };
-    AST.HtmlText.prototype.genHtml = function () { return this.text; };
-    AST.HtmlComment.prototype.genHtml = function () { return this.text; };
-    AST.CodeInsert.prototype.genHtml = function (path, bindings, values) {
-        var code = "";
-
-        for (var i = 0; i < this.segments.length; i++) {
-            code += this.segments[i].genCode(code);
-        }
-
-        bindings.push(new t.Binding(t.Node, path.slice(0), 1, null, null));
-
-        values.push(code);
-
-        return "<!-- code -->";
-    };
-
-    function genHtmlForChildren(children, path, bindings, values) {
-        var html = "";
-
-        path.push(0);
-
-        for (var i = 0; i < children.length; i++, path[path.length - 1]++) {
-            html += children[i].genHtml(path, bindings, values);
-        }
-
-        path.pop();
-
-        return html;
+    AST.HtmlComment.prototype.genDirectives =
+    AST.HtmlText.prototype.genDirectives    = function (nl) { return null; };
+    AST.HtmlInsert.prototype.genDirectives  = function (nl) {
+        return new AST.AttrStyleDirective(['insert'], this.code).genDirective();
     }
 
-    var templateId = Math.floor(Math.random() * Math.pow(2, 31));
+    // genDirective
+    AST.Directive.prototype.genDirective     = function () {
+        return "." + this.name + "(function (__) { __" + this.code.genCode() + "; })";
+    };
+    AST.AttrStyleDirective.prototype.genDirective = function (prev) {
+        var name, args, i, code;
 
-    function templateExpression(html, bindings, values, indent) {
-        var code = "",
-            i, j, k, binding, value;
-
-        code = "K.DOM.template.cache(" + templateId++ + ",\n";
-
-        code += indent + "'" + html.replace(backslashes, "\\\\")
-                                   .replace(singleQuotes, "\\'")
-                                   .replace(newlines, "\\n\\\n") + "',\n";
-
-        code += indent + "[\n";
-
-        for (i = 0; i < bindings.length; i++) {
-            code += indent + "    " + JSON.stringify(bindings[i]);
-            code += bindings.length - i > 1 ? ",\n" : "\n";
+        if (K.DOM.Shell.prototype[this.left[0]]) {
+            name = this.left[0];
+            args = this.left.slice(1);
+        } else {
+            name = "property";
+            args = this.left;
         }
 
-        code += indent + "])([\n";
+        code = "." + name + "(function (__) { __(";
 
-        for (i = 0, j = 0; i < bindings.length; i++) {
-            binding = bindings[i];
-            for (k = 0; k < binding.valueCount; k++, j++) {
-                value = values[j];
-                if (binding.type === t.Event) {
-                    code += indent + "    function ($event) { return " + value + "; }" + (values.length - j > 1 ? "," : "") + "\n";
-                    //code += indent + "    ($event) => " + value + (values.length - j > 1 ? "," : "") + "\n";
-                } else {
-                    code += indent + "    function () { return " + value + "; }" + (values.length - j > 1 ? "," : "") + "\n";
-                    //code += indent + "    () => " + value + (values.length - j > 1 ? "," : "") + "\n";
-                }
+        for (i = 0; i < args.length; i++)
+            code += codeStr(args[i]) + ", ";
+
+        code += this.code.genCode(prev);
+
+        code += "); })";
+
+        return code;
+    };
+
+    function genChildDirectives(childNodes, nl) {
+        var indices = [],
+            directives = [],
+            cnl = nl + "    ",
+            ccnl = cnl + "    ",
+            directive,
+            i,
+            result = "";
+
+        for (i = 0; i < childNodes.length; i++) {
+            directive = childNodes[i].genDirectives(ccnl);
+            if (directive) {
+                indices.push(i);
+                directives.push(directive);
             }
         }
 
-        code += indent + "])";
+        if (indices.length) {
+            result += ".childNodes([" + indices.join(", ") + "], function (__) {" + cnl;
+            for (i = 0; i < directives.length; i++) {
+                if (i) result += cnl;
+                result += "__[" + i + "]" + directives[i] + ";"
+            }
+            result += nl + "})";
+        }
 
-        return code;
+        return result;
     }
 
-    function codeIndent(code) {
-        var m = rx.finalLine.exec(code);
-        return m ? new Array(m[0].length + 1).join(" ") : "        ";
+    function concatResults(children, method, sep) {
+        var result = "", i;
+
+        for (i = 0; i < children.length; i++) {
+            if (i && sep) result += sep;
+            result += children[i][method]();
+        }
+
+        return result;
+    }
+
+    function codeStr(str) {
+        return "'" + str.replace(rx.backslashes, "\\\\")
+                        .replace(rx.singleQuotes, "\\'")
+                        .replace(rx.newlines, "\\\n")
+                   + "'";
+    }
+
+    function indent(col) {
+        return new Array(col + 1).join(" ");
     }
 
     function add(str) {
@@ -584,7 +607,7 @@
         AST.CodeTopLevel.prototype.shim = function (ctx) { shimSiblings(this, this.segments, ctx); };
         AST.HtmlExpression.prototype.shim = function (ctx) { shimSiblings(this, this.nodes, ctx); };
         AST.HtmlElement.prototype.shim  = function (ctx) { shimSiblings(this, this.content, ctx); };
-        AST.CodeInsert.prototype.shim    = function (ctx) { shimSiblings(this, this.segments, ctx) };
+        AST.HtmlInsert.prototype.shim    = function (ctx) { shimSiblings(this, this.segments, ctx) };
         AST.CodeText.prototype.shim     =
         AST.HtmlText.prototype.shim     =
         AST.HtmlComment.prototype.shim  = function (ctx) {};

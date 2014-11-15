@@ -197,6 +197,25 @@
             return this;
         },
 
+        focus: function (values) {
+            var node = this.node;
+
+            this.directive(values, function focus(flag) {
+                flag ? node.focus() : node.blur();
+            });
+
+            return this;
+        },
+
+        style: function (values) {
+            var node = this.node;
+
+            this.directive(values, function style(property, value) {
+                node.style[property] = value;
+            });
+
+            return this;
+        },
 
         insert: function(values) {
             var node = this.node,

@@ -72,13 +72,8 @@
                     completed: todo.completed,
                     title: K(todo.title()),
                     remove: function () { todos.remove(todo); },
-                    select: function () {
-                        app.selected(vm);
-                        if (vm.$.input()) vm.$.input().focus();
-                    },
-                    selected: K(function () {
-                        return app.selected() === vm;
-                    }),
+                    select: function () { app.selected(vm); },
+                    selected: K(function () { return app.selected() === vm; }),
                     deselect: function(commitChanges) {
                         if (commitChanges) {
                             todo.title(vm.title());
@@ -93,19 +88,12 @@
                         } else if ($event.keyCode === 27) { // escape
                             vm.deselect(false);
                         }
-                    },
-                    $: {
-                        input: K(null)
                     }
                 };
 
                 return vm;
             }
         }
-
-        K.DOM.directives.bind(["keydown"], el, val)
-        K.DOM.attribute(["text"], el, val)
-        K.DOM.property(["value"], el, val)
 
         function ToDosView(app) { return (
             <ul class="todos">
@@ -121,7 +109,7 @@
                         @class:completed:incomplete=todo.completed()
                         @on:dblclick=todo.select >
                         <input @checked=todo.completed type="checkbox" />
-                        <label>@todo.title</label>
+                        <label>@todo.title()</label>
                         <a @on:click=todo.remove >&times;</a>
                         <input type="text"
                                @hidden=!todo.selected()
@@ -179,6 +167,7 @@
     <script type="text/javascript" src="../js/K.DOM.js"></script>
     <script type="text/javascript" src="../js/K.DOM.src.js"></script>
     <script type="text/javascript" src="http://cdnjs.cloudflare.com/ajax/libs/es5-shim/4.0.3/es5-shim.min.js"></script>
+    <script type="text/javascript" src="http://cdnjs.cloudflare.com/ajax/libs/underscore.js/1.5.2/underscore-min.js"></script>
 
     <script type="text/javascript">
         var todoEl = document.getElementById('todo');

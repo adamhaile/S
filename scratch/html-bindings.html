@@ -113,12 +113,39 @@
            )
        </ul>;
 
+    function view(items) { return @items.map(item => <p>@item</p>); }
+
+    function view(items) { return (new K.DOM.Shell(K.DOM.parse.cache(44664,
+                                  '<!-- insert -->'))
+                                  .insert(function (__) { __(
+                                  items.map(item => (new K.DOM.Shell(K.DOM.parse(44665,
+                                                     '<p><!-- insert --></p>'))
+                                                     .childNodes([0], function (__) {
+                                                          __[0].insert(function (__) { __(item); });
+                                                     })
+                                                     .node))); })
+                                  .node); }
+
+    function view(items) { return (new K.DOM.Shell(K.DOM.parse('<!-- insert -->'))
+                                  .insert(function (__) { __(items.map(item => (new K.DOM.Shell(K.DOM.parse('<p><!-- insert --></p>'))
+                                                                               .childNodes([0], function (__) {
+                                                                                   __[0].insert(function (__) { __(item); });
+                                                                               })
+                                                                               .node))); })
+                                  .node); }
+
+    function view(items) { return items.map(function (item) { return (new K.DOM.Shell(K.DOM.parse('<p><!-- insert --></p>'))
+                                                                     .childNodes([0], function (__) {
+                                                                         __[0].insert(function (__) { __(item); });
+                                                                     })
+                                                                     .node); }); }
+
     function view(items) { return (
         <ul>
             @items().map(function (item) { return (
-                <li class="item" @class('foo', item.selected())>
-                    <input @bind(item.name)/>
-                    <button type="button" @on('click', item.remove)><i class="icon-remove-circle"></i></button>
+                <li class="item" @class:foo = item.selected()>
+                    <input type="text" @value = item.name/>
+                    <button type="button" @on:click = item.remove><i class="icon-remove-circle"></i></button>
                     @item.costs
                 </li>
             )})
@@ -126,28 +153,54 @@
     )}
 
     function view(items) { return (
-        new K.DOM.Shell(K.DOM.parse.cache(33423434,
+        <ul>
+            {items().map(function (item) { return (
+                <li class="item" class:foo = {item.selected()}>
+                    <input type="text" value = {item.name}/>
+                    <button type="button" on:click = {item.remove}><i class="icon-remove-circle"></i></button>
+                    {item.costs}
+                </li>
+            )})}
+        </ul>
+    )}
+
+    function view(items) { return (
+        <ul>
+            @items().map(function (item) { return (
+                <li class="item" class.foo = item.selected()>
+                    <input type="text" value = item.name/>
+                    <button type="button" on.click = item.remove><i class="icon-remove-circle"></i></button>
+                    @item.costs
+                </li>
+            )})
+        </ul>
+    )}
+
+    function view(items) { return (
+        (new K.DOM.Shell(K.DOM.parse.cache(33423434,
         '<ul>\n\
             <!-- insert -->\n\
         </ul>'))
-        .insert(function (__) {
-            __(items().map(function (item) { return (
-                new K.DOM.Shell(K.DOM.parse.cache(33423435,
+        .childNodes([1], function (__) {
+            __[0].insert(function (__) { __(
+            items().map(function (item) { return (
+                (new K.DOM.Shell(K.DOM.parse.cache(33423435,
                 '<li class="item" >\n\
-                    <input />\n\
+                    <input type="text" />\n\
                     <button type="button" ><i class="icon-remove-circle"></i></button>\n\
                     <!-- insert -->\n\
                 </li>'))
                 .class(function (__) { __('foo', item.selected()); })
                 .childNodes([1, 3, 5], function (__) {
-                    __[0].bind(function (__) { __(item.name); });
+                    __[0].value(function (__) { __(item.name); });
                     __[1].on(function (__) { __('click', item.remove); });
-                    __[2].insert(function (__) { __(item.costs); });
+                    __[2].insert(function (__) { __(
+                    item.costs); });
                 })
-                .node
-            )}))
+                .node)
+            )})); });
         })
-        .node
+        .node)
     )}
 
     "use strict";

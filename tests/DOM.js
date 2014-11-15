@@ -1,4 +1,4 @@
-test("K.DOM.parse - round-tripping html through parse and back results in same html", function () {
+test("K.DOM.parse - round-trip html -> node -> html = identical", function () {
     checkRoundTrip("table", "<table><tbody><tr><td>a</td><td>b</td></tr></tbody></table>");
     checkRoundTrip("table header", "<thead><tr><td>a</td><td>b</td></tr></thead>");
     checkRoundTrip("table body", "<tbody><tr><td>a</td><td>b</td></tr></tbody>");
@@ -38,7 +38,7 @@ test("K.DOM.parse - round-tripping html through parse and back results in same h
     }
 });
 
-test("K.DOM.parse - round-tripping node innerHTML through parse results in equal node", function () {
+test("K.DOM.parse - round-trip node -> html -> node = identical", function () {
     //checkRoundTrip("html", "html");
     //checkRoundTrip("head", "head");
     checkRoundTrip("title", "title");
