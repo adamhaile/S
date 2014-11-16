@@ -135,30 +135,6 @@ test("K.DOM.Shell::class", function () {
     ok(!sh.node.classList.contains("snork"), "single class, dynamic false flag");
 });
 
-test("K.DOM.Shell::on", function () {
-    var sh = new K.DOM.Shell(K.DOM.parse("<a></a>")),
-        clicked = false;
-
-    sh.on(function (__) { __("click", function () { clicked = true; }); });
-
-    ok(!clicked, "handler not run before click");
-
-    sh.node.click();
-
-    ok(clicked, "handler run on click");
-
-    var clicked2 = false;
-    clicked = false;
-
-    sh.on(function (__) { __("click", function () { clicked2 = true; }); });
-
-    ok(!clicked && !clicked2, "2 handlers, neither run before click");
-
-    sh.node.click();
-
-    ok(clicked && clicked2, "2 handlers, both run on click");
-});
-
 test("K.DOM.Shell::value", function () {
     var sh = new K.DOM.Shell(K.DOM.parse("<input type=\"text\"></input>")),
         value = K("foo"),

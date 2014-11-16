@@ -67,24 +67,24 @@
                     + "such as <input/>, <textarea/> and <select/>.  Element ``" + node + "'' does \n"
                     + "not have a .value property.  Perhaps you applied it to the wrong node?");
 
-            this.directive(values, function value(e, s) {
-                if (arguments.length < 2) s = e, e = 'change';
+            this.directive(values, function value(_event, _signal) {
+                if (arguments.length < 2) _signal = _event, _event = 'change';
 
-                if (typeof s !== 'function')
+                if (typeof _signal !== 'function')
                     throw new Error("@value binding must receive a function for two-way binding.  \n"
                         + "Perhaps you mistakenly dereferenced it with '()'?");
 
-                signal = s;
+                signal = _signal;
 
                 K(function () {
                     var update = signal();
                     if (node.value !== update.toString()) node.value = update;
                 });
 
-                if (e !== event) {
+                if (_event !== event) {
                     if (event) lib.removeEventListener(node, event, watcher);
-                    lib.addEventListener(node, e, watcher);
-                    event = e;
+                    lib.addEventListener(node, _event, watcher);
+                    event = _event;
                 }
             });
 
@@ -176,30 +176,6 @@
             return this;
         },
 
-        on: function (values) {
-            var node = this.node,
-                lastFn = null,
-                lastEvent = null;
-
-            this.directive(values, function on(event, fn) {
-                if (typeof fn !== 'function')
-                    throw new Error("@on callback must be a function.  Perhaps you called the function instead of passing it?");
-
-                if (node["on" + event] === undefined)
-                    throw new Error("@on can only attach a handler to a defined event of a node.  Element ``" + node + "'' has no event ``" + event + "''.  Perhaps you applied it to the wrong node?");
-
-                if (fn !== lastFn || event !== lastEvent) {
-                    if (lastFn) {
-                        lib.removeEventListener(node, lastEvent, lastFn);
-                    }
-                    lib.addEventListener(node, event, fn);
-                    lastFn = fn, lastEvent = event;
-                }
-            });
-
-            return this;
-        },
-
         focus: function (values) {
             var node = this.node;
 
@@ -258,10 +234,8 @@
                     parent.insertBefore(value, node);
                 } else if (Array.isArray(value)) {
                     insertArray(value);
-                } else if (typeof value === 'string') {
-                    parent.insertBefore(document.createTextNode(value), node);
                 } else {
-                    throw new Error("Can't insert value ``" + value + "''. Inserted values must be either a node, string, or array of such.")
+                    parent.insertBefore(document.createTextNode(value.toString()), node);
                 }
             }
 

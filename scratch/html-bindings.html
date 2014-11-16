@@ -168,7 +168,7 @@
         <ul>
             @items().map(function (item) { return (
                 <li class="item" class.foo = item.selected()>
-                    <input type="text" value = item.name/>
+                    <input type="text" value: = item.name/>
                     <button type="button" on.click = item.remove><i class="icon-remove-circle"></i></button>
                     @item.costs
                 </li>
@@ -248,23 +248,25 @@
                 <li>
                     <input type = "text"
                            placeholder = "What needs to be done?"
-                           value.keydown = app.create.title
-                           on.keydown = app.create.keydown />
+                           value:keydown = app.create.title
+                           onkeydown = app.create.keydown />
                 </li>
                 @app.filteredTodos().map(function (todo) { return (
                     <li class = "todo"
-                        class.selected|unselected = todo.selected()
-                        class.completed|incomplete = todo.completed()
-                        on.dblclick = todo.select >
-                        <input checked = todo.completed type = "checkbox" />
+                        class:selected = todo.selected()
+                        class:unselected = !todo.selected()
+                        class:completed = todo.completed()
+                        class:incomplete = todo.completed()
+                        ondblclick = todo.select >
+                        <input type = "checkbox" checked = todo.completed />
                         <label>@todo.title()</label>
-                        <a on.click = todo.remove >&times;</a>
+                        <a onclick = todo.remove >&times;</a>
                         <input type="text"
                                hidden = !todo.selected()
                                focus = todo.selected()
-                               on.blur = todo.deselect
-                               on.keydown = todo.keydown
-                               value.keydown = todo.title />
+                               onblur = todo.deselect
+                               onkeydown = todo.keydown
+                               value:keydown = todo.title />
                     </li>
                 )})
             </ul>
@@ -274,12 +276,12 @@
                   'no items') left
             </p>
             <p>
-                  <a on.click = _.partial(app.filter, null)>All</a>
-                | <a on.click = _.partial(app.filter, false)>Active</a>
-                | <a on.click = _.partial(app.filter, true)>Completed</a>
+                  <a onclick = _.partial(app.filter, null)>All</a>
+                | <a onclick = _.partial(app.filter, false)>Active</a>
+                | <a onclick = _.partial(app.filter, true)>Completed</a>
             </p>
             <p>
-                <a on.click = app.completeAll>Complete All</a>
+                <a onclick = app.completeAll>Complete All</a>
             </p>
         )}
 
