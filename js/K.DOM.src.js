@@ -28,6 +28,8 @@
     /// />
     /// <!--
     /// -->
+    /// @
+    /// = (followed by \s*[^"'])
     /// )
     /// (
     /// [
@@ -38,20 +40,20 @@
     /// '
     /// //
     /// \n
-    /// @
     /// misc (any string not containing one of the above)
 
     // pre-compiled regular expressions
     var rx = {
-        tokens             : /<\/?(?=\w)|\/?>|<!--|-->|\)|\(|\[|\]|\{|\}|"|'|\/\/|\n|@|(?:[^<>\/()[\]{}"'@\n-]|(?!-->)-|\/(?![>/])|(?!<\/?\w|<!--)<\/?)+/g,
+        tokens             : /<\/?(?=\w)|\/?>|<!--|-->|@|=|\)|\(|\[|\]|\{|\}|"|'|\/\/|\n|(?:[^<>@=\/@=()[\]{}"'\n-]|(?!-->)-|\/(?![>/])|(?!<\/?\w|<!--)<\/?)+/g,
+        propertyLeftSide   : /\s(\S+)\s*=\s*$/,
         embeddedCodePrefix : /^[+\-!~]*[a-zA-Z_$][a-zA-Z_$0-9]*/, // prefix unary operators + identifier
         embeddedCodeInterim: /^(?:\.[a-zA-Z_$][a-zA-Z_$0-9]+)+/, // property chain, like .bar.blech
         embeddedCodeSuffix : /^\+\+|--/, // suffix unary operators
-        attrStyleDirective : /^[a-zA-Z_$][a-zA-Z_$0-9]*(:[^\s:=]*)*(?=\s*=)/, // like "foo:bar:blech" followed by " = "
-        attrStyleEquals    : /^\s*=\s*/, // like " = "
-        directiveName      : /^[a-zA-Z_$][a-zA-Z_$0-9]*/, // identifier for a directive
+        directiveName      : /^[a-zA-Z_$][a-zA-Z_$0-9]*(:[^\s:=]*)*/, // like "foo:bar:blech"
         stringEscapedEnd   : /[^\\](\\\\)*\\$/, // ending in odd number of escape slashes = next char of string escaped
+        eventProperty      : /^on/,
         ws                 : /^\s*$/,
+        leadingWs          : /^\s+/,
         backslashes        : /\\/g,
         newlines           : /\n/g,
         singleQuotes       : /'/g
@@ -75,20 +77,21 @@
 
     var AST = {
         CodeTopLevel: function (segments) {
-            this.segments = segments; // [ CodeText | HtmlExpression ]
+            this.segments = segments; // [ CodeText | HtmlLiteral ]
         },
         CodeText: function (text) {
             this.text = text; // string
         },
         EmbeddedCode: function (segments) {
-            this.segments = segments; // [ CodeText | HtmlExpression ]
+            this.segments = segments; // [ CodeText | HtmlLiteral ]
         },
-        HtmlExpression: function(col, nodes) {
+        HtmlLiteral: function(col, nodes) {
             this.col = col; // integer
             this.nodes = nodes; // [ HtmlElement | HtmlComment | HtmlText(ws only) | HtmlInsert ]
         },
-        HtmlElement: function(beginTag, directives, content, endTag) {
+        HtmlElement: function(beginTag, properties, directives, content, endTag) {
             this.beginTag = beginTag; // string
+            this.properties = properties; // [ Property ]
             this.directives = directives; // [ Directive | AttrStyleDirective ]
             this.content = content; // [ HtmlElement | HtmlComment | HtmlText | HtmlInsert ]
             this.endTag = endTag; // string | null
@@ -101,6 +104,10 @@
         },
         HtmlInsert: function (col, code) {
             this.col = col; // integer
+            this.code = code; // EmbeddedCode
+        },
+        Property: function (name, code) {
+            this.name = name; // string
             this.code = code; // EmbeddedCode
         },
         Directive: function (name, code) {
@@ -130,7 +137,7 @@
                 if (IS('<') || IS('<!--')) {
                     if (text) segments.push(new AST.CodeText(text));
                     text = "";
-                    segments.push(htmlExpression());
+                    segments.push(htmlLiteral());
                 } else if (IS('"') || IS("'")) {
                     text += quotedString();
                 } else if (IS('//')) {
@@ -145,7 +152,7 @@
             return new AST.CodeTopLevel(segments);
         }
 
-        function htmlExpression() {
+        function htmlLiteral() {
             if (NOT('<') && NOT('<!--')) ERR("not at start of html expression");
 
             var col = COL,
@@ -173,13 +180,14 @@
                 }
             }
 
-            return new AST.HtmlExpression(col, nodes);
+            return new AST.HtmlLiteral(col, nodes);
         }
 
         function htmlElement() {
             if (NOT('<')) ERR("not at start of html element");
 
             var beginTag = "",
+                properties = [],
                 directives = [],
                 content = [],
                 endTag = "",
@@ -191,6 +199,8 @@
             while (!EOF && NOT('>') && NOT('/>')) {
                 if (IS('@')) {
                     directives.push(directive());
+                } else if (IS('=')) {
+                    beginTag = property(beginTag, properties);
                 } else {
                     beginTag += TOK, NEXT();
                 }
@@ -226,7 +236,7 @@
                 endTag += TOK, NEXT();
             }
 
-            return new AST.HtmlElement(beginTag, directives, content, endTag);
+            return new AST.HtmlElement(beginTag, properties, directives, content, endTag);
         }
 
         function htmlText() {
@@ -275,34 +285,57 @@
             return new AST.HtmlInsert(col, embeddedCode());
         }
 
+        function property(beginTag, properties) {
+            if(NOT('=')) ERR("not at equals sign of a property assignment");
+
+            var match,
+                name;
+
+            beginTag += TOK, NEXT();
+
+            if (WS()) beginTag += TOK, NEXT();
+
+            match = rx.propertyLeftSide.exec(beginTag);
+
+            // check if it's an attribute not a property assignment
+            if (match && NOT('"') && NOT("'")) {
+                beginTag = beginTag.substring(0, beginTag.length - match[0].length);
+
+                name = match[1];
+
+                SPLIT(rx.leadingWs);
+
+                properties.push(new AST.Property(name, embeddedCode()));
+            }
+
+            return beginTag;
+        }
+
         function directive() {
             if (NOT('@')) ERR("not at start of directive");
 
             NEXT();
 
-            var name,
-                left,
+            var name = SPLIT(rx.directiveName),
                 segment,
                 segments;
 
-            if (name = SPLIT(rx.attrStyleDirective)) {
-                left = name.split(":");
+            if (!name) ERR("directive must have name");
 
-                SPLIT(rx.attrStyleEquals);
-
-                return new AST.AttrStyleDirective(left, embeddedCode());
-            } else {
-                name = SPLIT(rx.directiveName);
-
-                if (!name || NOT("(")) {
-                    ERR("unrecognized directive");
-                }
-
+            if (IS('(')) {
                 segments = [];
                 segment = balancedParens(segments, "");
                 if (segment) segments.push(segment);
 
                 return new AST.Directive(name, new AST.EmbeddedCode(segments));
+            } else {
+                if (WS()) NEXT();
+
+                if (NOT('=')) ERR("unrecognized directive - must have form like @foo:bar = ... or @foo( ... )");
+
+                NEXT(), SPLIT(rx.leadingWs);
+
+                return new AST.AttrStyleDirective(name.split(":"), embeddedCode());
             }
         }
 
@@ -338,6 +371,8 @@
 
             if (text) segments.push(new AST.CodeText(text));
 
+            if (segments.length === 0) ERR("not in embedded code");
+
             return new AST.EmbeddedCode(segments);
         }
 
@@ -356,7 +391,7 @@
                 } else if (IS("<") || IS('<!--')) {
                     if (text) segments.push(new AST.CodeText(text));
                     text = "";
-                    segments.push(htmlExpression());
+                    segments.push(htmlLiteral());
                 } else if (IS('(')) {
                     text = balancedParens(segments, text);
                 } else {
@@ -477,12 +512,12 @@
     AST.CodeTopLevel.prototype.genCode   =
     AST.EmbeddedCode.prototype.genCode   = function () { return concatResults(this.segments, 'genCode'); };
     AST.CodeText.prototype.genCode       = function () { return this.text; };
-    var htmlExpressionId = Math.floor(Math.random() * Math.pow(2, 31));
-    AST.HtmlExpression.prototype.genCode = function () {
+    var htmlLiteralId = Math.floor(Math.random() * Math.pow(2, 31));
+    AST.HtmlLiteral.prototype.genCode = function () {
         var html = concatResults(this.nodes, 'genHtml'),
             nl = "\n" + indent(this.col),
             directives = this.nodes.length > 1 ? genChildDirectives(this.nodes, nl) : this.nodes[0].genDirectives(nl),
-            code = "(K.DOM.parse.cache(" + htmlExpressionId++ + "," + nl + codeStr(html) + "))";
+            code = "(K.DOM.parse.cache(" + htmlLiteralId++ + "," + nl + codeStr(html) + "))";
 
         if (directives) code = "(new K.DOM.Shell" + code + nl + directives + nl + ".node)";
 
@@ -499,9 +534,13 @@
 
     // genDirectives
     AST.HtmlElement.prototype.genDirectives = function (nl) {
-        var directives = concatResults(this.directives, 'genDirective', nl),
-            childDirectives = genChildDirectives(this.content, nl);
-        return directives + (directives && childDirectives ? nl : "") + childDirectives;
+        var childDirectives = genChildDirectives(this.content, nl),
+            properties = concatResults(this.properties, 'genDirective', nl),
+            directives = concatResults(this.directives, 'genDirective', nl);
+
+        return childDirectives + (childDirectives && (properties || directives) ? nl : "")
+            + properties + (properties && directives ? nl : "")
+            + directives;
     };
     AST.HtmlComment.prototype.genDirectives =
     AST.HtmlText.prototype.genDirectives    = function (nl) { return null; };
@@ -510,6 +549,11 @@
     }
 
     // genDirective
+    AST.Property.prototype.genDirective      = function () {
+        var code = this.code.genCode();
+        if (rx.eventProperty.test(this.name)) code = "function (__) { " + code + "; }";
+        return ".run(function (__) { __." + this.name + " = " + code + "; })";
+    };
     AST.Directive.prototype.genDirective     = function () {
         return "." + this.name + "(function (__) { __" + this.code.genCode() + "; })";
     };
@@ -605,9 +649,9 @@
 
         // add base shim methods that visit AST
         AST.CodeTopLevel.prototype.shim = function (ctx) { shimSiblings(this, this.segments, ctx); };
-        AST.HtmlExpression.prototype.shim = function (ctx) { shimSiblings(this, this.nodes, ctx); };
+        AST.HtmlLiteral.prototype.shim  = function (ctx) { shimSiblings(this, this.nodes, ctx); };
         AST.HtmlElement.prototype.shim  = function (ctx) { shimSiblings(this, this.content, ctx); };
-        AST.HtmlInsert.prototype.shim    = function (ctx) { shimSiblings(this, this.segments, ctx) };
+        AST.HtmlInsert.prototype.shim   = function (ctx) { shimSiblings(this, this.segments, ctx) };
         AST.CodeText.prototype.shim     =
         AST.HtmlText.prototype.shim     =
         AST.HtmlComment.prototype.shim  = function (ctx) {};

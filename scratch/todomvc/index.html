@@ -119,7 +119,7 @@
                     </span>
     				<ul id="filters">
     					<li>
-    						<a @class:selected=(app.filter() === null) @onclick=_.partial(app.filter, null)>All</a>
+                            <a @class:selected=(app.filter() === null) @onclick=_.partial(app.filter, null)>All</a>
     					</li>
     					<li>
                             <a @class:selected=(app.filter() === false) @onclick=_.partial(app.filter, false)>Active</a>

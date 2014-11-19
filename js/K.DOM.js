@@ -57,7 +57,7 @@
             return this;
         },
 
-        value: function (values) {
+        signal: function (values) {
             var node = this.node,
                 signal = null,
                 event = null;
@@ -78,7 +78,8 @@
 
                 K(function () {
                     var update = signal();
-                    if (node.value !== update.toString()) node.value = update;
+                    update = update === null || update === undefined ? "" : update.toString();
+                    if (node.value !== update) node.value = update;
                 });
 
                 if (_event !== event) {

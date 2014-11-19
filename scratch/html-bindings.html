@@ -19,6 +19,13 @@
             <option>one</option>
             <option>two</option>
         </select>
+        <select id="multiselect" name="multiselect" multiple>
+            <option>one</option>
+            <option>two</option>
+            <option>three</option>
+            <option>four</option>
+            <option>five</option>
+        </select>
         <input id="button" type="submit" name="submit" value="Submit" />
     </form>
 
@@ -36,9 +43,9 @@
             <ul>
                 @items().map(function (item) { return (
                     <li class="item" @class:foo = item.selected()>
-                        <input @value = item.name/>
-                        <button type="button" @on:click = item.remove><i class="icon-remove-circle"></i></button>
-                        @item.costs
+                        <input type="text" @signal:keydown = item.name/>
+                        <button type="button" onclick = item.remove()><i class="icon-remove-circle"></i></button>
+                        @item.costs()
                     </li>
                 )})
             </ul>
@@ -167,9 +174,21 @@
     function view(items) { return (
         <ul>
             @items().map(function (item) { return (
-                <li class="item" class.foo = item.selected()>
-                    <input type="text" value: = item.name/>
-                    <button type="button" on.click = item.remove><i class="icon-remove-circle"></i></button>
+                <li class="item" .class('foo', item.selected())>
+                    <input type="text" .value(item.name)/>
+                    <button type="button" onclick = item.remove><i class="icon-remove-circle"></i></button>
+                    @item.costs
+                </li>
+            )})
+        </ul>
+    )}
+
+    function view(items) { return (
+        <ul>
+            @items().map(function (item) { return (
+                <li class="item" class:foo = item.selected()>
+                    <input type="text" value = item.name/>
+                    <button type="button" on:click = item.remove><i class="icon-remove-circle"></i></button>
                     @item.costs
                 </li>
             )})
@@ -257,16 +276,16 @@
                         class:unselected = !todo.selected()
                         class:completed = todo.completed()
                         class:incomplete = todo.completed()
-                        ondblclick = todo.select >
-                        <input type = "checkbox" checked = todo.completed />
+                        ondblclick = todo.select() >
+                        <input type = "checkbox" bind(todo.completed) />
                         <label>@todo.title()</label>
                         <a onclick = todo.remove >&times;</a>
                         <input type="text"
                                hidden = !todo.selected()
-                               focus = todo.selected()
                                onblur = todo.deselect
                                onkeydown = todo.keydown
-                               value:keydown = todo.title />
+                               focus(todo.selected())
+                               bind(todo.title, 'keydown') />
                     </li>
                 )})
             </ul>
@@ -325,6 +344,109 @@
             </p>
         )}
 
+        function ToDosView(app) { return (
+            <ul class="todos">
+                <li>
+                    <input type = "text"
+                           placeholder = "What needs to be done?"
+                           @onkeydown:enter = app.create.add()
+                           @onkeydown:escape = app.create.title('')
+                           @bind:keydown = app.create.title />
+                </li>
+                @app.filteredTodos().map(function (todo) { return (
+                    <li class = "todo"
+                        ondblclick = todo.startEditing()
+                        @class:editing = todo.editing()
+                        @class:completed = todo.completed() >
+                        <input type="checkbox" @bind = todo.completed />
+                        <label>@todo.title()</label>
+                        <a onclick=todo.remove() >&times;</a>
+                        <input type = "text"
+                               hidden = !todo.editing()
+                               onblur = todo.stopEditing(true)
+                               @onkeydown:enter = todo.stopEditing(true)
+                               @onkeydown:escape = todo.stopEditing(false)
+                               @focus = todo.selected()
+                               @bind:keydown = todo.title />
+                    </li>
+                )})
+            </ul>
+            <p>
+                @(app.incompleteCount() > 1   ? app.incompleteCount() + " items" :
+                  app.incompleteCount() === 1 ? "1 item" :
+                  'no items') left
+            </p>
+            <p>
+                  <a @class:selected = (app.filter() === null)  onclick = app.filter(null) >All</a>
+                | <a @class('selected', app.filter() === false) onclick = app.filter(false)>Active</a>
+                | <a @class('selected', app.filter() === true)  onclick = app.filter(true) >Completed</a>
+            </p>
+            <p>
+                <a onclick = app.completeAll() >Complete All</a>
+            </p>
+        )}
+
+        function ToDosView(app) { return (
+            <section id="todoapp">
+                <header id="header">
+                    <h1>todos</h1>
+                    <input id="new-todo"
+                           placeholder="What needs to be done?"
+                           autofocus
+                           @key:enter=app.create.add()
+                           @key:escape=(app.create.title(''), __.blur())
+                           @signal:keydown=app.create.title />
+                </header>
+                <section id="main" hidden=(app.all().length === 0)>
+                    <input id="toggle-all" type="checkbox" onchecked=app.completeAll() />
+                    <label for="toggle-all">Mark all as complete</label>
+                    <ul id="todo-list">
+                        @app.filtered().map(function (todo) { return (
+                            <li @class:completed=todo.completed()
+                                @class:editing=todo.selected() >
+                                <div class="view">
+                                    <input class="toggle" type="checkbox" @signal=todo.completed />
+                                    <label ondblclick=todo.select()>@todo.title()</label>
+                                    <button class="destroy" onclick=todo.remove()></button>
+                                </div>
+                                <input class="edit"
+                                       onblur=todo.stopEditing(true)
+                                       @focus=todo.editing()
+                                       @key:enter=todo.stopEditing(true)
+                                       @key:escape=todo.stopEditing(false)
+                                       @signal:keydown=todo.title />
+                            </li>
+                        )})
+                    </ul>
+                </section>
+                <footer id="footer" hidden = !app.all().length >
+                    <span id="todo-count">
+                        <strong>@app.remaining().length</strong>
+                        @(app.remaining().length === 1 ? "item" : "items")
+                        left
+                    </span>
+                    <ul id="filters">
+                        <li>
+                            <a @class:selected = (app.filter() === null) onclick = app.filter(null)>All</a>
+                        </li>
+                        <li>
+                            <a @class:selected = (app.filter() === false) onclick = app.filter(false)>Active</a>
+                        </li>
+                        <li>
+                            <a @class:selected = (app.filter() === true) onclick = app.filter(true)>Completed</a>
+                        </li>
+                    </ul>
+                    <button id="clear-completed" hidden = (app.completed().length === 0) onclick = app.clearCompleted() >
+                        Clear completed (@app.completed().length)
+                    </button>
+                </footer>
+            </section>
+            <footer id="info">
+                <p>Double-click to edit a todo</p>
+                <p>Written by <a href="https://github.com/curveship">Adam Haile</a></p>
+                <p>Inspired by <a href="http://todomvc.com">TodoMVC</a></p>
+            </footer>
+        )}
 
     "use strict";
     var __tmpl_ul_34 = K.DOM.template(
@@ -395,6 +517,7 @@
             checkbox = document.getElementById('checkbox'),
             textarea = document.getElementById('textarea'),
             select = document.getElementById('select'),
+            multiselect = document.getElementById('multiselect'),
             submit = document.getElementById('button'),
             tmpl = document.getElementById('foo').innerText,
             tmpl64k = tmpl;
