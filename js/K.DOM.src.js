@@ -114,8 +114,9 @@
             this.name = name; // string
             this.code = code; // EmbeddedCode
         },
-        AttrStyleDirective: function (left, code) {
-            this.left = left; // [ string ]
+        AttrStyleDirective: function (name, params, code) {
+            this.name = name; // string
+            this.params = params; // [ string ]
             this.code = code; // EmbeddedCode
         }
     };
@@ -335,7 +336,9 @@
 
                 NEXT(), SPLIT(rx.leadingWs);
 
-                return new AST.AttrStyleDirective(name.split(":"), embeddedCode());
+                name = name.split(":");
+
+                return new AST.AttrStyleDirective(name[0], name.slice(1), embeddedCode());
             }
         }
 
@@ -545,35 +548,32 @@
     AST.HtmlComment.prototype.genDirectives =
     AST.HtmlText.prototype.genDirectives    = function (nl) { return null; };
     AST.HtmlInsert.prototype.genDirectives  = function (nl) {
-        return new AST.AttrStyleDirective(['insert'], this.code).genDirective();
+        return new AST.AttrStyleDirective('insert', [], this.code).genDirective();
     }
 
     // genDirective
-    AST.Property.prototype.genDirective      = function () {
+    AST.Property.prototype.genDirective = function () {
         var code = this.code.genCode();
         if (rx.eventProperty.test(this.name)) code = "function (__) { " + code + "; }";
-        return ".run(function (__) { __." + this.name + " = " + code + "; })";
+        return ".property(" + codeStr(this.name) + ", function (__) { return __." + this.name + " = " + code + "; })";
     };
-    AST.Directive.prototype.genDirective     = function () {
+    AST.Directive.prototype.genDirective = function () {
+        if (K.DOM.Shell.prototype[this.name] === undefined)
+            throw new Error("Unrecognized directive @" + this.name);
         return "." + this.name + "(function (__) { __" + this.code.genCode() + "; })";
     };
-    AST.AttrStyleDirective.prototype.genDirective = function (prev) {
-        var name, args, i, code;
+    AST.AttrStyleDirective.prototype.genDirective = function () {
+        var directive = K.DOM.Shell.prototype[this.name];
+        if (directive === undefined)
+            throw new Error("Unrecognized directive @" + this.name);
 
-        if (K.DOM.Shell.prototype[this.left[0]]) {
-            name = this.left[0];
-            args = this.left.slice(1);
-        } else {
-            name = "property";
-            args = this.left;
-        }
+        var code = "." + this.name + "(function (__) { __(";
 
-        code = "." + name + "(function (__) { __(";
+        for (var i = 0; i < this.params.length; i++)
+            code += codeStr(this.params[i]) + ", ";
 
-        for (i = 0; i < args.length; i++)
-            code += codeStr(args[i]) + ", ";
-
-        code += this.code.genCode(prev);
+        code += directive.wrapCallback ? 'function (__) { ' + this.code.genCode() + '; }' :
+                this.code.genCode();
 
         code += "); })";
 

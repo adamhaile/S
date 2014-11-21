@@ -1,4 +1,6 @@
 test("K.DOM.parse - round-trip html -> node -> html = identical", function () {
+    "use strict";
+
     checkRoundTrip("table", "<table><tbody><tr><td>a</td><td>b</td></tr></tbody></table>");
     checkRoundTrip("table header", "<thead><tr><td>a</td><td>b</td></tr></thead>");
     checkRoundTrip("table body", "<tbody><tr><td>a</td><td>b</td></tr></tbody>");
@@ -39,6 +41,7 @@ test("K.DOM.parse - round-trip html -> node -> html = identical", function () {
 });
 
 test("K.DOM.parse - round-trip node -> html -> node = identical", function () {
+    "use strict";
     //checkRoundTrip("html", "html");
     //checkRoundTrip("head", "head");
     checkRoundTrip("title", "title");
@@ -66,6 +69,7 @@ test("K.DOM.parse - round-trip node -> html -> node = identical", function () {
 });
 
 test("K.DOM.Shell navigation", function () {
+    "use strict";
     var sh = new K.DOM.Shell(K.DOM.parse(
         "<div>\
             <span></span>\
@@ -86,6 +90,7 @@ test("K.DOM.Shell navigation", function () {
 });
 
 test("K.DOM.Shell::property", function () {
+    "use strict";
     var sh = new K.DOM.Shell(K.DOM.parse("<input></input>"));
 
     // static property value
@@ -106,6 +111,7 @@ test("K.DOM.Shell::property", function () {
 });
 
 test("K.DOM.Shell::class", function () {
+    "use strict";
     var sh = new K.DOM.Shell(K.DOM.parse("<input></input>"));
 
     sh.class(function (__) { __("foo", true); });
@@ -135,7 +141,8 @@ test("K.DOM.Shell::class", function () {
     ok(!sh.node.classList.contains("snork"), "single class, dynamic false flag");
 });
 
-test("K.DOM.Shell::value", function () {
+test("K.DOM.Shell::signal - <input type=\"text\"/>", function () {
+    "use strict";
     var sh = new K.DOM.Shell(K.DOM.parse("<input type=\"text\"></input>")),
         value = K("foo"),
         updateCount = 0,
@@ -144,9 +151,9 @@ test("K.DOM.Shell::value", function () {
         change = new Event("change"),
         keydown = new KeyboardEvent("keydown");
 
-    sh.value(function (__) { __(value); });
+    sh.signal(function (__) { __(value); });
 
-    strictEqual("foo", sh.node.value, "initialization");
+    strictEqual(sh.node.value, "foo", "initialization");
 
     value("bar");
     strictEqual("bar", sh.node.value, "js -> DOM");
@@ -163,7 +170,7 @@ test("K.DOM.Shell::value", function () {
 
     strictEqual(0, updateCount, "DOM -> js only triggered when value changed");
 
-    sh.value(function (__) { __("keydown", value2); });
+    sh.signal(function (__) { __("keydown", value2); });
 
     strictEqual(value2(), sh.node.value, "initialization with custom event");
 
@@ -174,12 +181,13 @@ test("K.DOM.Shell::value", function () {
     strictEqual(0, updateCount, "custom event doesn't trigger default update");
 });
 
-test("K.DOM.Shell::checked", function () {
+test("K.DOM.Shell::signal - <input type=\"checkbox\"/>", function () {
+    "use strict";
     var sh = new K.DOM.Shell(K.DOM.parse("<input type=\"checkbox\"></input>")),
         value = K(true),
         change = new Event("change");
 
-    sh.checked(function (__) { __(value); });
+    sh.signal(function (__) { __(value); });
 
     strictEqual(sh.node.checked, true, "initialization");
 
@@ -200,13 +208,15 @@ test("K.DOM.Shell::checked", function () {
     sh.node.dispatchEvent(change);
 
     strictEqual(value(), false, "DOM -> js unchecked");
+});
 
-    // test with specified 'on' value
-    sh = new K.DOM.Shell(K.DOM.parse("<input type=\"checkbox\"></input>"));
-    value = K("on");
-    change = new Event("change");
+test("K.DOM.Shell::signal - <input type=\"checkbox\"/> with 'on' value", function () {
+    "use strict";
+    var sh = new K.DOM.Shell(K.DOM.parse("<input type=\"checkbox\"></input>")),
+        value = K("on"),
+        change = new Event("change");
 
-    sh.checked(function (__) { __("on", value); });
+    sh.signal(function (__) { __(value, "on"); });
 
     strictEqual(sh.node.checked, true, "initialization with specified 'on' value");
 
@@ -227,13 +237,15 @@ test("K.DOM.Shell::checked", function () {
     sh.node.dispatchEvent(change);
 
     strictEqual(value(), null, "DOM -> js unchecked with specified 'on' value");
+});
 
-    // test with specified 'on' and 'off' values
-    sh = new K.DOM.Shell(K.DOM.parse("<input type=\"checkbox\"></input>"));
-    value = K("on");
-    change = new Event("change");
+test("K.DOM.Shell::signal - <input type=\"checkbox\"/> with 'on' and 'off' values", function () {
+    "use strict";
+    var sh = new K.DOM.Shell(K.DOM.parse("<input type=\"checkbox\"></input>")),
+        value = K("on"),
+        change = new Event("change");
 
-    sh.checked(function (__) { __("on", "off", value); });
+    sh.signal(function (__) { __(value, "on", "off"); });
 
     strictEqual(sh.node.checked, true, "initialization with specified 'on' and 'off' values");
 

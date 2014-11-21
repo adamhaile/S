@@ -51,7 +51,7 @@
             return this;
         },
 
-        directive: function (values, action) {
+        directive: function directive(values, action) {
             K.rproc(function () { values(action); });
 
             return this;
@@ -60,81 +60,97 @@
         signal: function (values) {
             var node = this.node,
                 signal = null,
-                event = null;
+                tag = node.nodeName,
+                type = node.type && node.type.toUpperCase(),
+                handler =
+                    tag === 'INPUT'         ? (
+                        type === 'TEXT'     ? valueSignal    :
+                        type === 'RADIO'    ? radioSignal    :
+                        type === 'CHECKBOX' ? checkboxSignal :
+                        null) :
+                    tag === 'TEXTAREA'      ? valueSignal    :
+                    tag === 'SELECT'        ? valueSignal    :
+                    null;
 
-            if (node.value === undefined)
-                throw new Error("@value can only be applied to an element with a .value property, \n"
-                    + "such as <input/>, <textarea/> and <select/>.  Element ``" + node + "'' does \n"
-                    + "not have a .value property.  Perhaps you applied it to the wrong node?");
+            if (!handler)
+                throw new Error("@signal can only be applied to a form control element, \n"
+                    + "such as <input/>, <textarea/> or <select/>.  Element ``" + node + "'' is \n"
+                    + "not a recognized control.  Perhaps you applied it to the wrong node?");
 
-            this.directive(values, function value(_event, _signal) {
-                if (arguments.length < 2) _signal = _event, _event = 'change';
+            return this.directive(values, handler());
 
-                if (typeof _signal !== 'function')
-                    throw new Error("@value binding must receive a function for two-way binding.  \n"
-                        + "Perhaps you mistakenly dereferenced it with '()'?");
+            function valueSignal() {
+                var event = null;
 
-                signal = _signal;
+                return function valueSignal(_event, _signal) {
+                    if (arguments.length < 2) _signal = _event, _event = 'change';
+                    setSignal(_signal);
 
-                K(function () {
-                    var update = signal();
-                    update = update === null || update === undefined ? "" : update.toString();
-                    if (node.value !== update) node.value = update;
-                });
+                    K(function () {
+                        node.value = signal();
+                    });
 
-                if (_event !== event) {
-                    if (event) lib.removeEventListener(node, event, watcher);
-                    lib.addEventListener(node, _event, watcher);
-                    event = _event;
+                    if (_event !== event) {
+                        if (event) lib.removeEventListener(node, event, valueListener);
+                        lib.addEventListener(node, _event, valueListener);
+                        event = _event;
+                    }
+                };
+
+                function valueListener() {
+                    var cur = K.peek(signal),
+                        update = node.value;
+                    if (cur.toString() !== update) signal(update);
+                    return true;
                 }
-            });
-
-            return this;
-
-            function watcher() {
-                var cur = K.peek(signal),
-                    update = node.value;
-                if (cur.toString() !== update) signal(update);
-                return true;
             }
-        },
 
-        checked: function (values) {
-            var node = this.node,
-                signal = null,
-                on = true,
-                off = false;
+            function checkboxSignal() {
+                var on = true,
+                    off = false;
 
-            if (node.checked === undefined)
-                throw new Error("@checked can only be applied to an element with a .checked property, \n"
-                    + "such as <input type=\"radio\"/> and <input type=\"checkbox\"/>.  Element \n"
-                    + "``" + node + "'' does not have a .checked property.  Perhaps you applied it \n"
-                    + "to the wrong node?");
-
-            this.directive(values, function checked(_on, _off, _signal) {
-                if (arguments.length === 2) _signal = _off, _off = undefined;
-                if (arguments.length === 1) _signal = _on, _on = _off = undefined;
-
-                if (typeof _signal !== 'function')
-                    throw new Error("@checked binding must receive a function for two-way binding. \n"
-                        + "Perhaps you mistakenly dereferenced it with '()'?");
-
-                signal = _signal;
-                on = _on === undefined ? true : _on;
-                off = _off === undefined ? (on === true ? false : null) : _off;
-
-                K(function () {
-                    var update = signal() === on;
-                    if (node.checked != update) node.checked = update;
+                lib.addEventListener(node, "change", function checkboxListener() {
+                    signal(node.checked ? on : off);
+                    return true;
                 });
-            });
 
-            lib.addEventListener(node, "change", function () {
-                signal(node.checked ? on : off);
-                return true;
-            });
+                return function checkboxSignal(_signal, _on, _off) {
+                    setSignal(_signal);
 
-            return this;
+                    on = _on === undefined ? true : _on;
+                    off = _off === undefined ? (on === true ? false : null) : _off;
+
+                    K(function () {
+                        node.checked = (signal() === on);
+                    });
+                };
+            }
+
+            function radioSignal(values) {
+                var on = true;
+
+                lib.addEventListener(node, "change", function radioListener() {
+                    if (node.checked) signal(on);
+                    return true;
+                });
+
+                return function radioSignal(_signal, _on) {
+                    setSignal(_signal);
+
+                    on = _on === undefined ? true : _on;
+
+                    K(function () {
+                        node.checked = (signal() === on);
+                    });
+                };
+            }
+
+            function setSignal(s) {
+                if (typeof s !== 'function')
+                    throw new Error("@signal must receive a function for two-way binding.  \n"
+                        + "Perhaps you mistakenly dereferenced it with '()'?");
+                signal = s;
+            }
         },
 
         class: function (values) {
@@ -144,7 +160,7 @@
                 throw new Error("@class can only be applied to an element that accepts class names. \n"
                     + "Element ``" + node + "'' does not. Perhaps you applied it to the wrong node?");
 
-            this.directive(values, function classDirective(on, off, flag) {
+            return this.directive(values, function classDirective(on, off, flag) {
                 if (arguments.length < 3) flag = off, off = null;
 
                 var hasOn = lib.classListContains(node, on),
@@ -158,43 +174,46 @@
                     if (off && !hasOff) lib.classListAdd(node, off);
                 }
             });
-
-            return this;
-        },
-
-        property: function (values) {
-            var node = this.node;
-
-            this.directive(values, function property(name, value) {
-                if (node[name] === undefined)
-                    throw new Error("@property can only set a defined property of a node. \n"
-                        + "Element ``" + node + "'' has no property ''" + name + "''.  \n"
-                        + "Perhaps you applied it to the wrong node?");
-
-                node[name] = value;
-            });
-
-            return this;
         },
 
         focus: function (values) {
             var node = this.node;
 
-            this.directive(values, function focus(flag) {
+            return this.directive(values, function focus(flag) {
                 flag ? node.focus() : node.blur();
             });
-
-            return this;
         },
 
-        style: function (values) {
-            var node = this.node;
+        key: function (values) {
+            var node = this.node,
+                keyCode,
+                event,
+                fn;
 
-            this.directive(values, function style(property, value) {
-                node.style[property] = value;
+            return this.directive(values, function key(_key, _event, _fn) {
+                if (arguments.length < 3) _fn = _event, _event = 'down';
+
+                keyCode = keyCodes[_key.toLowerCase()];
+                fn = _fn;
+
+                if (keyCode === undefined)
+                    throw new Error("@key: unrecognized key identifier '" + _key + "'");
+
+                if (typeof fn !== 'function')
+                    throw new Error("@key: must supply a function to call when the key is entered");
+
+                _event = 'key' + _event;
+                if (_event !== event) {
+                    if (event) lib.removeEventListener(node, event, keyListener);
+                    lib.addEventListener(node, _event, keyListener);
+                    event = _event;
+                }
             });
 
-            return this;
+            function keyListener(e) {
+                if (e.keyCode === keyCode) fn();
+                return true;
+            }
         },
 
         insert: function(values) {
@@ -202,7 +221,7 @@
                 parent,
                 start;
 
-            this.directive(values, function (value) {
+            return this.directive(values, function (value) {
                 parent = node.parentNode;
 
                 if (!parent)
@@ -219,8 +238,6 @@
                 } else start = marker(node);
 
                 insert(value);
-
-                return this;
             });
 
             // value ::
@@ -269,9 +286,104 @@
             }
         },
 
-        run: function (fn) {
+        property: function property(name, fn) {
             return this.directive(fn, this.node);
         }
+    };
+
+    Shell.prototype.key.wrapCallback = true;
+
+    var keyCodes = {
+        backspace:  8,
+        tab:        9,
+        enter:      13,
+        shift:      16,
+        ctrl:       17,
+        alt:        18,
+        pause:      19,
+        break:      19,
+        capslock:   20,
+        esc:        27,
+        space:      32,
+        pageup:     33,
+        pagedown:   34,
+        end:        35,
+        home:       36,
+        leftarrow:  37,
+        uparrow:    38,
+        rightarrow: 39,
+        downarrow:  40,
+        prntscrn:   44,
+        insert:     45,
+        delete:     46,
+        "0":        48,
+        "1":        49,
+        "2":        50,
+        "3":        51,
+        "4":        52,
+        "5":        53,
+        "6":        54,
+        "7":        55,
+        "8":        56,
+        "9":        57,
+        a:          65,
+        b:          66,
+        c:          67,
+        d:          68,
+        e:          69,
+        f:          70,
+        g:          71,
+        h:          72,
+        i:          73,
+        j:          74,
+        k:          75,
+        l:          76,
+        m:          77,
+        n:          78,
+        o:          79,
+        p:          80,
+        q:          81,
+        r:          82,
+        s:          83,
+        t:          84,
+        u:          85,
+        v:          86,
+        w:          87,
+        x:          88,
+        y:          89,
+        z:          90,
+        winkey:     91,
+        winmenu:    93,
+        f1:         112,
+        f2:         113,
+        f3:         114,
+        f4:         115,
+        f5:         116,
+        f6:         117,
+        f7:         118,
+        f8:         119,
+        f9:         120,
+        f10:        121,
+        f11:        122,
+        f12:        123,
+        numlock:    144,
+        scrolllock: 145,
+        ",":        188,
+        "<":        188,
+        ".":        190,
+        ">":        190,
+        "/":        191,
+        "?":        191,
+        "`":        192,
+        "~":        192,
+        "[":        219,
+        "{":        219,
+        "\\":       220,
+        "|":        220,
+        "]":        221,
+        "}":        221,
+        "'":        222,
+        "\"":       222
     };
 
     function parse(html) {

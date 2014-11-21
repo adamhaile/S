@@ -394,7 +394,7 @@
                            placeholder="What needs to be done?"
                            autofocus
                            @key:enter=app.create.add()
-                           @key:escape=(app.create.title(''), __.blur())
+                           @key:escape=app.create.title('')
                            @signal:keydown=app.create.title />
                 </header>
                 <section id="main" hidden=(app.all().length === 0)>

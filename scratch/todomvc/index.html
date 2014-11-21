@@ -8,6 +8,8 @@
 	<body>
 
     <script id="todo" type="text/kjs">
+        "use strict";
+
         function ToDo(title, completed) {
             this.title = K(title);
             this.completed = K(completed);
@@ -30,19 +32,16 @@
                 completed: completed,
                 remaining: remaining,
                 filtered: filtered,
-                selected: K(null),
+                editing: K(null),
                 completeAll: function (t) { if (t) remaining().forEach(function (t) { t.completed(true); })},
                 clearCompleted: function () { todos(todos().filter(function (t) { return !t.completed(); })); },
-                create: {
+                template: {
                     title: K(""),
-                    keydown: function (e) {
-                        if (e.keyCode === ESCAPE_KEY) {
-                            app.create.title("");
-                        } else if (e.keyCode === NEWLINE_KEY || e.keyCode === ENTER_KEY) {
-                            if (app.create.title()) {
-                                todos.unshift(new ToDo(app.create.title(), false));
-                                app.create.title("");
-                            }
+                    create: function () {
+                        var title = app.template.title().trim();
+                        if (title) {
+                            todos.unshift(new ToDo(title, false));
+                            app.template.title("");
                         }
                     }
                 }
@@ -55,22 +54,12 @@
                     completed: todo.completed,
                     title: K(todo.title()),
                     remove: function () { todos.remove(todo); },
-                    select: function () { app.selected(vm); },
-                    selected: K(function () { return app.selected() === vm; }),
-                    deselect: function(commitChanges) {
-                        if (commitChanges) {
-                            todo.title(vm.title());
-                        } else {
-                            vm.title(todo.title());
-                        }
-                        if (vm.selected()) app.selected(null);
-                    },
-                    keydown: function ($event) {
-                        if ($event.keyCode === 10 || $event.keyCode === 13) { // newline or return
-                            vm.deselect(true);
-                        } else if ($event.keyCode === 27) { // escape
-                            vm.deselect(false);
-                        }
+                    startEditing: function () { app.editing(vm); },
+                    editing: K(function () { return app.editing() === vm; }),
+                    endEditing: function(commit) {
+                        if (commit) todo.title(vm.title());
+                        else vm.title(todo.title());
+                        if (vm.editing()) app.editing(null);
                     }
                 };
 
@@ -82,36 +71,38 @@
     		<section id="todoapp">
     			<header id="header">
     				<h1>todos</h1>
-    				<input id="new-todo"
-                           @value:keydown=app.create.title
-                           @onkeydown=app.create.keydown
-                           placeholder="What needs to be done?"
-                           autofocus />
+    				<input id = "new-todo"
+                           placeholder = "What needs to be done?"
+                           autofocus
+                           @signal:keydown = app.template.title
+                           @key:enter = app.template.create()
+                           @key:esc = app.template.title('') />
     			</header>
-    			<section id="main" @hidden=(app.all().length === 0)>
-    				<input id="toggle-all" type="checkbox" @checked=app.completeAll />
+    			<section id="main" hidden=(app.all().length === 0)>
+    				<input id="toggle-all" type="checkbox" onchange=app.completeAll() />
     				<label for="toggle-all">Mark all as complete</label>
     				<ul id="todo-list">
                         @app.filtered().map(function (todo) { return (
         					<li @class:completed=todo.completed()
-                                @class:editing=todo.selected()>
+                                @class:editing=todo.editing()>
         						<div class="view">
-        							<input class="toggle"
-                                           type="checkbox"
-                                           @checked=todo.completed />
-        							<label @ondblclick=todo.select>@todo.title()</label>
-        							<button class="destroy" @onclick=todo.remove></button>
+        							<input class = "toggle"
+                                           type = "checkbox"
+                                           @signal = todo.completed />
+        							<label ondblclick = todo.startEditing()>@todo.title()</label>
+        							<button class="destroy" onclick=todo.remove()></button>
         						</div>
-                                <input class="edit"
-                                       @focus=todo.selected()
-                                       @onblur=todo.deselect
-                                       @onkeydown=todo.keydown
-                                       @value:keydown=todo.title />
+                                <input class = "edit"
+                                       onblur = todo.endEditing(true)
+                                       @signal:keydown = todo.title
+                                       @key:enter = todo.endEditing(true)
+                                       @key:esc = todo.endEditing(false)
+                                       @focus = todo.editing() />
         					</li>
                         )})
     				</ul>
     			</section>
-    			<footer id="footer" @hidden=!app.all().length>
+    			<footer id="footer" hidden=!app.all().length>
     				<span id="todo-count">
                         <strong>@app.remaining().length</strong>
                         @(app.remaining().length === 1 ? "item" : "items")
@@ -119,16 +110,16 @@
                     </span>
     				<ul id="filters">
     					<li>
-                            <a @class:selected=(app.filter() === null) @onclick=_.partial(app.filter, null)>All</a>
+                            <a @class:selected=(app.filter() === null) onclick=app.filter(null)>All</a>
     					</li>
     					<li>
-                            <a @class:selected=(app.filter() === false) @onclick=_.partial(app.filter, false)>Active</a>
+                            <a @class:selected=(app.filter() === false) onclick=app.filter(false)>Active</a>
     					</li>
     					<li>
-                            <a @class:selected=(app.filter() === true) @onclick=_.partial(app.filter, true)>Completed</a>
+                            <a @class:selected=(app.filter() === true) onclick=app.filter(true)>Completed</a>
     					</li>
     				</ul>
-    				<button id="clear-completed" @hidden=!app.completed().length @onclick=app.clearCompleted>
+    				<button id="clear-completed" hidden=(app.completed().length === 0) onclick=app.clearCompleted()>
     					Clear completed (@app.completed().length)
     				</button>
     			</footer>
