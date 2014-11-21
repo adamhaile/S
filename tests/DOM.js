@@ -94,20 +94,20 @@ test("K.DOM.Shell::property", function () {
     var sh = new K.DOM.Shell(K.DOM.parse("<input></input>"));
 
     // static property value
-    sh.property(function (__) { __("type", "text"); });
+    sh.property("type", function (__) { __.type = "text"; });
 
-    strictEqual("text", sh.node.type, "static property value");
+    strictEqual(sh.node.type, "text", "static property value");
 
     // dynamic property value
     var name = K("foo");
 
-    sh.property(function (__) { __("name", name()); });
+    sh.property("name", function (__) { __.name = name(); });
 
-    strictEqual("foo", sh.node.name, "dynamic property value initialized");
+    strictEqual(sh.node.name, "foo", "dynamic property value initialized");
 
     name("bar");
 
-    strictEqual("bar", sh.node.name, "dynamic property value reflects change");
+    strictEqual(sh.node.name, "bar", "dynamic property value reflects change");
 });
 
 test("K.DOM.Shell::class", function () {
