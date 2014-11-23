@@ -54,6 +54,8 @@
         eventProperty      : /^on/,
         ws                 : /^\s*$/,
         leadingWs          : /^\s+/,
+        tagTrailingWs      : /\s+(?=\/?>$)/,
+        emptyLines         : /\n\s+(?=\n)/g,
         backslashes        : /\\/g,
         newlines           : /\n/g,
         singleQuotes       : /'/g
@@ -212,6 +214,9 @@
             hasContent = IS('>');
 
             beginTag += TOK, NEXT();
+
+            // clean up extra whitespace now that directives have been removed
+            beginTag = beginTag.replace(rx.tagTrailingWs, "").replace(rx.emptyLines, "");
 
             if (hasContent) {
                 while (!EOF && NOT('</')) {
