@@ -1,48 +1,49 @@
-var K = (function () {
-    "use strict";
-
+var S = (function () {
     var count = 1,
         listener = undefined,
         region = [],
         deferred = [];
 
     // initializer
-    K.lift     = lift;
+    S.lift     = lift;
 
-    K.ch     = ch;
-    K.proc   = proc;
-    K.region = _region;
-    K.peek   = peek;
-    K.defer  = defer;
+    S.data    = data;
+    S.formula = formula;
+    S.region  = _region;
+    S.peek    = peek;
+    S.defer   = defer;
 
-    K.ch.K = chCombinator;
-    procCombinator.prototype = new chCombinator();
-    K.proc.K = procCombinator;
+    S.data.S = dataCombinator;
+    formulaCombinator.prototype = new dataCombinator();
+    S.formula.S = formulaCombinator;
 
-    return K;
+    return S;
 
-    function K(arg1, arg2) {
-        return K.lift(arg1, arg2);
+    function S(arg1, arg2) {
+        return S.lift(arg1, arg2);
     }
 
     function lift(arg1, arg2) {
-        return typeof arg1 === 'function' ? proc(arg1, arg2)
-            : arg1 instanceof Array ? K.seq(arg1)
-            : ch(arg1);
+        return typeof arg1 === 'function' ? formula(arg1, arg2)
+            : arg1 instanceof Array ? S.seq(arg1)
+            : data(arg1);
     }
 
-    function ch(msg) {
+    function data(msg) {
+        if (msg === undefined) throw new Error("S.data can't be initialized with undefined.  In S, undefined is reserved for namespace lookup failures.");
+
         var id = count++,
             listeners = [],
             our_region = region;
 
-        ch.K = new chCombinator();
-        ch.toString = signalToString;
+        data.S = new dataCombinator();
+        data.toString = signalToString;
 
-        return ch;
+        return data;
 
-        function ch(new_msg) {
+        function data(new_msg) {
             if (arguments.length > 0) {
+                if (new_msg === undefined) throw new Error("S.data can't be set to undefined.  In S, undefined is reserved for namespace lookup failures.");
                 msg = new_msg;
                 propagate(listeners);
                 if (!listener) runDeferred();
@@ -53,7 +54,7 @@ var K = (function () {
         }
     }
 
-    function proc(fn) {
+    function formula(fn) {
         var id = count++,
             gen = 1,
             updating = false,
@@ -67,14 +68,14 @@ var K = (function () {
             our_region = region,
             updaters = initUpdaters(update, id, this);
 
-        proc.K = new procCombinator(detach);
-        proc.toString = toString;
+        formula.S = new formulaCombinator(detach);
+        formula.toString = toString;
 
         updaters[updaters.length - 1]();
 
-        return proc;
+        return formula;
 
-        function proc() {
+        function formula() {
             if (listener) listener(id, our_region, listeners);
             return msg;
         }
@@ -154,7 +155,7 @@ var K = (function () {
         }
 
         function toString() {
-            return "[proc: " + fn + "]";
+            return "[formula: " + fn + "]";
         }
     }
 
@@ -188,9 +189,9 @@ var K = (function () {
         return updaters;
     }
 
-    function chCombinator() { }
+    function dataCombinator() { }
 
-    function procCombinator(detach) {
+    function formulaCombinator(detach) {
         this.detach = detach;
     }
 
@@ -210,7 +211,7 @@ var K = (function () {
     }
 
     function signalToString() {
-        return "[signal: " + K.peek(this) + "]";
+        return "[signal: " + S.peek(this) + "]";
     }
 
     function _region(fn) {
@@ -233,7 +234,7 @@ var K = (function () {
         }
 
         return {
-            K: new regionCombinator(detach)
+            S: new regionCombinator(detach)
         }
 
         function detach() {
@@ -273,4 +274,5 @@ var K = (function () {
             deferred.shift()();
         }
     }
-}());
+})();
+export default S;

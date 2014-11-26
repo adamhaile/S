@@ -1,5 +1,5 @@
-(function (K) {
-    K.Chainable = Chainable;
+(function (S) {
+    S.Chainable = Chainable;
 
     return;
 
@@ -12,4 +12,4 @@
         return function(x) { return f(g(x)); };
     }
 
-})(K);
+})(S);

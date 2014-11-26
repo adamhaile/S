@@ -1,33 +1,31 @@
-﻿(function (K) {
-    "use strict";
-
-    K.defer          = Chainable.prototype.defer          = chainableDefer;
-    K.delay          = Chainable.prototype.delay          = chainableDelay;
-    K.debounce       = Chainable.prototype.debounce       = chainableDebounce;
-    K.throttle       = Chainable.prototype.throttle       = chainableThrottle;
-    K.pause          = Chainable.prototype.pause          = chainablePause;
-    K.throttledPause = Chainable.prototype.throttledPause = chainableThrottledPause;
+(function (S) {
+    S.deferMod       = S.Chainable.prototype.defer          = chainableDefer;
+    S.delay          = S.Chainable.prototype.delay          = chainableDelay;
+    S.debounce       = S.Chainable.prototype.debounce       = chainableDebounce;
+    S.throttle       = S.Chainable.prototype.throttle       = chainableThrottle;
+    S.pause          = S.Chainable.prototype.pause          = chainablePause;
+    S.throttledPause = S.Chainable.prototype.throttledPause = chainableThrottledPause;
 
     return;
 
-    function chainableDefer()     { return new Chainable(defer,       this); }
-    function chainableDelay(t)    { return new Chainable(delay(t),    this); }
-    function chainableDebounce(t) { return new Chainable(debounce(t), this); }
-    function chainableThrottle(t) { return new Chainable(throttle(t), this); }
-    function chainablePause(s)    { return new Chainable(pause(s),    this); }
-    function chainableThrottledPause(s) { return new Chainable(throttledPause(s), this); }
+    function chainableDefer()     { return new S.Chainable(defer,       this); }
+    function chainableDelay(t)    { return new S.Chainable(delay(t),    this); }
+    function chainableDebounce(t) { return new S.Chainable(debounce(t), this); }
+    function chainableThrottle(t) { return new S.Chainable(throttle(t), this); }
+    function chainablePause(s)    { return new S.Chainable(pause(s),    this); }
+    function chainableThrottledPause(s) { return new S.Chainable(throttledPause(s), this); }
 
-    function defer(fn) {
+    function defer() {
         var scheduled = false;
 
-        return function (x) {
+        return function (fn) {
             if (scheduled) return;
 
             scheduled = true;
 
-            K.defer(function deferred() {
+            S.defer(function deferred() {
                 scheduled = false;
-                fn(x);
+                fn();
             });
         };
     }
@@ -127,4 +125,4 @@
             }
         }
     }
-}(K));
+})(S);

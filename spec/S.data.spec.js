@@ -1,145 +1,44 @@
-﻿test("K.ch basics", function () {
-    var c = K();
+﻿describe("S.data", function () {
+    describe("creation", function () {
+        it("throws if no initial value is passed", function () {
+            expect(function () { S.data(); }).toThrow();
+        });
 
-    ok(c, "can be created without 'new' keyword");
+        it("throws if initial value is undefined", function () {
+            expect(function () { S.data(undefined); }).toThrow();
+        });
 
-    ok(typeof c === 'function', "is a function");
+        it("generates a function", function () {
+            expect(S.data(1)).toEqual(jasmine.any(Function));
+        });
 
-    strictEqual(c(), undefined, "unassigned ch has value of undefined");
+        it("returns initial value", function () {
+            expect(S.data(1)()).toBe(1);
+        });
+    });
 
-    c(1);
+    describe("update", function () {
+        var d;
 
-    strictEqual(c(), 1, "returns stored value");
-    strictEqual(c(2), 2, "returns value when stored");
+        beforeEach(function () {
+            d = S.data(1);
+            d(2);
+        });
 
-    c = K("test");
+        it("changes returned value", function () {
+            expect(d()).toBe(2);
+        });
 
-    strictEqual(c(), "test", "can be created with initial values");
+        it("cannot be set to undefined", function () {
+            expect(function () { d(undefined); }).toThrow();
+        });
 
-    c = new K();
-
-    ok(typeof c === 'function', "can be created with 'new' keyword");
+        it("returns value being updated", function () {
+            expect(d(3)).toBe(3);
+        });
+    });
 });
-
-test("K.proc basics", function () {
-    var p, v;
-
-    throws(function () { K.proc(); }, "throws if no fn defined");
-    throws(function () { K.proc(1); }, "throws if arg is not a function");
-
-    p = K(function () { return 1; });
-
-    ok(typeof p === 'function', "is a function");
-
-    strictEqual(p(), 1, "returns value of getter function");
-
-    v = 5;
-    p = K(function () { return v; });
-
-    strictEqual(p(), 5, "returns value of getter function, when getter references non-tracked values");
-
-    v = 6;
-    strictEqual(p(), 5, "does not re-calculate when non-tracked values change, even if they would change the value returned by the getter");
-});
-
-test("K.proc to K.ch dependencies", function () {
-    var c = K(1),
-        p_evals = 0,
-        p = K(function () { p_evals++; return c(); });
-
-    strictEqual(p_evals, 1, "evaluates once on definition");
-    strictEqual(p(), 1, "reflects value of source");
-
-    c(2);
-
-    strictEqual(p(), 2, "reflects changes to source");
-
-    p_evals = 0;
-    p();
-    c();
-    strictEqual(p_evals, 0, "uses memoized value");
-
-    p_evals = 0;
-    c(5);
-    strictEqual(p_evals, 1, "re-evaluates when source changes");
-});
-
-test("K.proc to K.ch creation dependencies", function () {
-    var c = null,
-        p_evals = 0,
-        p = K(function () { p_evals++; c = K(1); });
-
-    strictEqual(p_evals, 1, "evaluates once on definition");
-
-    p_evals = 0;
-    c(2);
-
-    strictEqual(p_evals, 0, "does not re-evaluate when internally created ch changes");
-});
-
-test("K.proc to K.ch dynamic dependencies", function () {
-    var pred = K(true), t = K("t"), f = K("f"),
-        p_evals = 0,
-        p = K(function () { p_evals++; return pred() ? t() : f(); });
-
-    strictEqual(p(), "t", "reflects value of complex source");
-
-    p_evals = 0;
-    f("F");
-    strictEqual(p_evals, 0, "does not re-evaluate when irrelevant channel changes");
-
-    p_evals = 0;
-    pred(false);
-
-    strictEqual(p_evals, 1, "re-evaluates when relevant channel changes");
-    strictEqual(p(), "F", "reflects value of changed complex source");
-
-    p_evals = 0;
-    t("T");
-    strictEqual(p_evals, 0, "does not re-evaluate when now-irrelevant channel changes");
-
-    p_evals = 0;
-    f("f");
-    strictEqual(p_evals, 1, "does re-evalute when now-relevant channel changes");
-    strictEqual(p(), "f", "reflects value of chamged complex source");
-});
-
-test("K.proc to K.proc dependencies", function () {
-    var c = K(1),
-        p1 = K(function () { return c(); }),
-        p2 = K(function () { return p1(); });
-
-    c(2);
-
-    strictEqual(p2(), 2, "changes propagate through procs");
-});
-
-test("K.proc to K.proc creation dependencies", function () {
-    var v = K(1),
-        p1 = null,
-        p2_evals = 0,
-        p2 = K(function () { p2_evals++; p1 = K(function () { return v(); }); });
-
-    strictEqual(p2_evals, 1, "external proc evaluates once on definition");
-
-    p2_evals = 0;
-    v(2);
-
-    strictEqual(p1(), v(), "internal proc updates when dependency updates");
-    strictEqual(p2_evals, 0, "external proc does not update when internal proc is re-evaluated");
-});
-
-test("K.proc detach", function () {
-    var c = K(1),
-        p = K(function () { return c(); });
-
-    p.K.detach();
-
-    c(2);
-
-    strictEqual(p(), 1, "detached proc does not update");
-});
-
+/*
 test("K.region creation and detach", function () {
     var a = K(1),
         b,
@@ -458,3 +357,4 @@ function procCreateSpeed(count) {
         K.proc(function () { });
     }
 }
+*/
