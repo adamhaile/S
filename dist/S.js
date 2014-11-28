@@ -39,7 +39,7 @@
               our_region = region;
 
           data.S = new dataCombinator();
-          data.toString = signalToString;
+          data.toString = dataToString;
 
           return data;
 
@@ -48,7 +48,7 @@
                   if (new_msg === undefined) throw new Error("S.data can't be set to undefined.  In S, undefined is reserved for namespace lookup failures.");
                   msg = new_msg;
                   propagate(listeners);
-                  if (!listener) runDeferred();
+                  runDeferred();
               } else {
                   if (listener) listener(id, our_region, listeners);
               }
@@ -105,7 +105,6 @@
                       updating = false;
                       listener = prev_listener;
                       region = prev_region;
-                      if (!listener) runDeferred();
                   }
 
                   pruneStaleSources(gen, source_gens, source_offsets, source_listeners);
@@ -179,7 +178,7 @@
       function initUpdaters(update, id, mod) {
           var i, updaters = [];
 
-          if (mod && mod.mod) update = mod.mod(update, id);
+          if (mod && mod.fn) update = mod.fn(update, id);
 
           updaters[region.length] = update;
 
@@ -212,8 +211,8 @@
           }
       }
 
-      function signalToString() {
-          return "[signal: " + S.peek(this) + "]";
+      function dataToString() {
+          return "[data: " + S.peek(this) + "]";
       }
 
       function _region(fn) {
@@ -272,11 +271,13 @@
       }
 
       function runDeferred() {
-          while (deferred.length) {
+          if (listener) return;
+          while (deferred.length !== 0) {
               deferred.shift()();
           }
       }
   })();
+
   __exports__.S = S;
 
   (function (S) {
@@ -285,51 +286,65 @@
       return;
 
       function Chainable(fn, prev, head) {
-          this.head = head !== undefined ? head : (prev && prev.hasOwnProperty('head')) ? prev.head : null;
-          this.fn = (prev && prev.hasOwnProperty('fn')) ? compose(fn, prev.fn) : fn;
+          this.head = head !== undefined ? head : (prev && prev.head !== undefined) ? prev.head : null;
+          this.fn = (prev && prev.fn !== undefined) ? compose(prev.fn, fn) : fn;
       }
 
       function compose(f, g) {
-          return function(x) { return f(g(x)); };
+          return function compose(x) { return f(g(x)); };
       }
 
   })(S);
 
   (function (S) {
-      S.deferMod       = S.Chainable.prototype.defer          = chainableDefer;
-      S.delay          = S.Chainable.prototype.delay          = chainableDelay;
-      S.debounce       = S.Chainable.prototype.debounce       = chainableDebounce;
-      S.throttle       = S.Chainable.prototype.throttle       = chainableThrottle;
-      S.pause          = S.Chainable.prototype.pause          = chainablePause;
-      S.throttledPause = S.Chainable.prototype.throttledPause = chainableThrottledPause;
+
+      var _S_defer = S.defer;
+
+      ChainableMod.prototype = new S.Chainable();
+      ChainableMod.prototype.S = S.formula;
+
+      S.defer          = ChainableMod.prototype.defer          = chainableDefer;
+      S.delay          = ChainableMod.prototype.delay          = chainableDelay;
+      S.debounce       = ChainableMod.prototype.debounce       = chainableDebounce;
+      S.throttle       = ChainableMod.prototype.throttle       = chainableThrottle;
+      S.pause          = ChainableMod.prototype.pause          = chainablePause;
+      S.throttledPause = ChainableMod.prototype.throttledPause = chainableThrottledPause;
 
       return;
 
-      function chainableDefer()     { return new S.Chainable(defer,       this); }
-      function chainableDelay(t)    { return new S.Chainable(delay(t),    this); }
-      function chainableDebounce(t) { return new S.Chainable(debounce(t), this); }
-      function chainableThrottle(t) { return new S.Chainable(throttle(t), this); }
-      function chainablePause(s)    { return new S.Chainable(pause(s),    this); }
-      function chainableThrottledPause(s) { return new S.Chainable(throttledPause(s), this); }
+      function ChainableMod(fn, prev) {
+          S.Chainable.call(this, fn, prev);
+      }
 
-      function defer() {
-          var scheduled = false;
+      function chainableDefer()     { return new ChainableMod(defer(),     this); }
+      function chainableDelay(t)    { return new ChainableMod(delay(t),    this); }
+      function chainableDebounce(t) { return new ChainableMod(debounce(t), this); }
+      function chainableThrottle(t) { return new ChainableMod(throttle(t), this); }
+      function chainablePause(s)    { return new ChainableMod(pause(s),    this); }
+      function chainableThrottledPause(s) { return new ChainableMod(throttledPause(s), this); }
 
-          return function (fn) {
-              if (scheduled) return;
+      function defer(fn) {
+          if (fn !== undefined) return _S_defer(fn);
 
-              scheduled = true;
+          return function (update, id) {
+              var scheduled = false;
 
-              S.defer(function deferred() {
-                  scheduled = false;
-                  fn();
-              });
+              return function deferred() {
+                  if (scheduled) return;
+
+                  scheduled = true;
+
+                  _S_defer(function deferred() {
+                      scheduled = false;
+                      update();
+                  });
+              }
           };
       }
 
       function delay(t) {
-          return function (fn) {
-              return function delayed() { setTimeout(fn, t); }
+          return function (update, id) {
+              return function delayed() { setTimeout(update, t); }
           }
       }
 
@@ -338,7 +353,7 @@
               var last = 0,
                   scheduled = false;
 
-              return function (x) {
+              return function () {
                   if (scheduled) return;
 
                   var now = Date.now();
@@ -351,7 +366,7 @@
                       setTimeout(function throttled() {
                           last = Date.now();
                           scheduled = false;
-                          fn(x);
+                          fn();
                       }, t - (now - last));
                   }
               };
@@ -362,12 +377,10 @@
           return function (fn) {
               var tout = 0;
 
-              return function (x) {
+              return function () {
                   if (tout) clearTimeout(tout);
 
-                  tout = setTimeout(function debounced() {
-                      fn(x);
-                  }, t);
+                  tout = setTimeout(fn, t);
               };
           };
       }
@@ -375,19 +388,19 @@
       function pause(signal) {
           var fns = [];
 
-          signal.go = go;
+          S.formula(function resume() {
+              if (!signal()) return;
+
+              for (var i = 0; i < fns.length; i++) {
+                  fns[i]();
+              }
+
+              fns = [];
+          });
 
           return function (fn) {
-              return function (x) {
-                  fns.push(function paused() { fn(x); });
-              }
-          }
-
-          function go() {
-              var i;
-
-              for (i = 0; i < fns.length; i++) {
-                  fns[i]();
+              return function () {
+                  fns.push(fn);
               }
           }
       }
@@ -396,12 +409,20 @@
       function throttledPause(signal) {
           var fns = [];
 
-          signal.go = go;
+          S.formula(function resume() {
+              if (!signal()) return;
+
+              for (var i = 0; i < fns.length; i++) {
+                  fns[i]();
+              }
+
+              fns = [];
+          });
 
           return function (fn) {
               var scheduled = false;
 
-              return function (x) {
+              return function () {
                   if (scheduled) return;
 
                   scheduled = true;
@@ -409,18 +430,10 @@
                   fns.push(function paused() {
                       scheduled = false;
 
-                      fn(x);
+                      fn();
                   });
               }
-          }
-
-          function go() {
-              var i;
-
-              for (i = 0; i < fns.length; i++) {
-                  fns[i]();
-              }
-          }
+          };
       }
   })(S);
 

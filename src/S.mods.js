@@ -1,38 +1,52 @@
 (function (S) {
-    S.deferMod       = S.Chainable.prototype.defer          = chainableDefer;
-    S.delay          = S.Chainable.prototype.delay          = chainableDelay;
-    S.debounce       = S.Chainable.prototype.debounce       = chainableDebounce;
-    S.throttle       = S.Chainable.prototype.throttle       = chainableThrottle;
-    S.pause          = S.Chainable.prototype.pause          = chainablePause;
-    S.throttledPause = S.Chainable.prototype.throttledPause = chainableThrottledPause;
+
+    var _S_defer = S.defer;
+
+    ChainableMod.prototype = new S.Chainable();
+    ChainableMod.prototype.S = S.formula;
+
+    S.defer          = ChainableMod.prototype.defer          = chainableDefer;
+    S.delay          = ChainableMod.prototype.delay          = chainableDelay;
+    S.debounce       = ChainableMod.prototype.debounce       = chainableDebounce;
+    S.throttle       = ChainableMod.prototype.throttle       = chainableThrottle;
+    S.pause          = ChainableMod.prototype.pause          = chainablePause;
+    S.throttledPause = ChainableMod.prototype.throttledPause = chainableThrottledPause;
 
     return;
 
-    function chainableDefer()     { return new S.Chainable(defer,       this); }
-    function chainableDelay(t)    { return new S.Chainable(delay(t),    this); }
-    function chainableDebounce(t) { return new S.Chainable(debounce(t), this); }
-    function chainableThrottle(t) { return new S.Chainable(throttle(t), this); }
-    function chainablePause(s)    { return new S.Chainable(pause(s),    this); }
-    function chainableThrottledPause(s) { return new S.Chainable(throttledPause(s), this); }
+    function ChainableMod(fn, prev) {
+        S.Chainable.call(this, fn, prev);
+    }
 
-    function defer() {
-        var scheduled = false;
+    function chainableDefer()     { return new ChainableMod(defer(),     this); }
+    function chainableDelay(t)    { return new ChainableMod(delay(t),    this); }
+    function chainableDebounce(t) { return new ChainableMod(debounce(t), this); }
+    function chainableThrottle(t) { return new ChainableMod(throttle(t), this); }
+    function chainablePause(s)    { return new ChainableMod(pause(s),    this); }
+    function chainableThrottledPause(s) { return new ChainableMod(throttledPause(s), this); }
 
-        return function (fn) {
-            if (scheduled) return;
+    function defer(fn) {
+        if (fn !== undefined) return _S_defer(fn);
 
-            scheduled = true;
+        return function (update, id) {
+            var scheduled = false;
 
-            S.defer(function deferred() {
-                scheduled = false;
-                fn();
-            });
+            return function deferred() {
+                if (scheduled) return;
+
+                scheduled = true;
+
+                _S_defer(function deferred() {
+                    scheduled = false;
+                    update();
+                });
+            }
         };
     }
 
     function delay(t) {
-        return function (fn) {
-            return function delayed() { setTimeout(fn, t); }
+        return function (update, id) {
+            return function delayed() { setTimeout(update, t); }
         }
     }
 
@@ -41,7 +55,7 @@
             var last = 0,
                 scheduled = false;
 
-            return function (x) {
+            return function () {
                 if (scheduled) return;
 
                 var now = Date.now();
@@ -54,7 +68,7 @@
                     setTimeout(function throttled() {
                         last = Date.now();
                         scheduled = false;
-                        fn(x);
+                        fn();
                     }, t - (now - last));
                 }
             };
@@ -65,12 +79,10 @@
         return function (fn) {
             var tout = 0;
 
-            return function (x) {
+            return function () {
                 if (tout) clearTimeout(tout);
 
-                tout = setTimeout(function debounced() {
-                    fn(x);
-                }, t);
+                tout = setTimeout(fn, t);
             };
         };
     }
@@ -78,19 +90,19 @@
     function pause(signal) {
         var fns = [];
 
-        signal.go = go;
+        S.formula(function resume() {
+            if (!signal()) return;
+
+            for (var i = 0; i < fns.length; i++) {
+                fns[i]();
+            }
+
+            fns = [];
+        });
 
         return function (fn) {
-            return function (x) {
-                fns.push(function paused() { fn(x); });
-            }
-        }
-
-        function go() {
-            var i;
-
-            for (i = 0; i < fns.length; i++) {
-                fns[i]();
+            return function () {
+                fns.push(fn);
             }
         }
     }
@@ -99,12 +111,20 @@
     function throttledPause(signal) {
         var fns = [];
 
-        signal.go = go;
+        S.formula(function resume() {
+            if (!signal()) return;
+
+            for (var i = 0; i < fns.length; i++) {
+                fns[i]();
+            }
+
+            fns = [];
+        });
 
         return function (fn) {
             var scheduled = false;
 
-            return function (x) {
+            return function () {
                 if (scheduled) return;
 
                 scheduled = true;
@@ -112,17 +132,9 @@
                 fns.push(function paused() {
                     scheduled = false;
 
-                    fn(x);
+                    fn();
                 });
             }
-        }
-
-        function go() {
-            var i;
-
-            for (i = 0; i < fns.length; i++) {
-                fns[i]();
-            }
-        }
+        };
     }
 })(S);

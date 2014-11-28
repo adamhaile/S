@@ -1,5 +1,7 @@
 var gulp = require('gulp'),
     concat = require('gulp-concat'),
+    uglify = require('gulp-uglify'),
+    rename = require('gulp-rename'),
     es6ModuleTranspiler = require("gulp-es6-module-transpiler");
 
 gulp.task('dist', function() {
@@ -11,6 +13,9 @@ gulp.task('dist', function() {
     .pipe(es6ModuleTranspiler({
         type: "bundle"
     }))
+    .pipe(gulp.dest("dist"))
+    .pipe(rename("S.min.js"))
+    .pipe(uglify())
     .pipe(gulp.dest("dist"));
 });
 

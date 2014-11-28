@@ -37,7 +37,7 @@ var S = (function () {
             our_region = region;
 
         data.S = new dataCombinator();
-        data.toString = signalToString;
+        data.toString = dataToString;
 
         return data;
 
@@ -46,7 +46,7 @@ var S = (function () {
                 if (new_msg === undefined) throw new Error("S.data can't be set to undefined.  In S, undefined is reserved for namespace lookup failures.");
                 msg = new_msg;
                 propagate(listeners);
-                if (!listener) runDeferred();
+                runDeferred();
             } else {
                 if (listener) listener(id, our_region, listeners);
             }
@@ -103,7 +103,6 @@ var S = (function () {
                     updating = false;
                     listener = prev_listener;
                     region = prev_region;
-                    if (!listener) runDeferred();
                 }
 
                 pruneStaleSources(gen, source_gens, source_offsets, source_listeners);
@@ -177,7 +176,7 @@ var S = (function () {
     function initUpdaters(update, id, mod) {
         var i, updaters = [];
 
-        if (mod && mod.mod) update = mod.mod(update, id);
+        if (mod && mod.fn) update = mod.fn(update, id);
 
         updaters[region.length] = update;
 
@@ -210,8 +209,8 @@ var S = (function () {
         }
     }
 
-    function signalToString() {
-        return "[signal: " + S.peek(this) + "]";
+    function dataToString() {
+        return "[data: " + S.peek(this) + "]";
     }
 
     function _region(fn) {
@@ -270,9 +269,11 @@ var S = (function () {
     }
 
     function runDeferred() {
-        while (deferred.length) {
+        if (listener) return;
+        while (deferred.length !== 0) {
             deferred.shift()();
         }
     }
 })();
+
 export default S;
