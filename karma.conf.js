@@ -16,7 +16,9 @@ module.exports = function(config) {
     // list of files / patterns to load in the browser
     files: [
       'dist/S.js',
-      'spec/*.js'
+      'spec/*.js',
+      'node_modules/benchmark/benchmark.js',
+      'spec/bm/*.js'
     ],
 
 

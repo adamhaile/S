@@ -2,8 +2,7 @@
   "use strict";
   var S = (function () {
       var count = 1,
-          listener = undefined,
-          region = [],
+          path = [],
           deferred = [];
 
       // initializer
@@ -11,7 +10,6 @@
 
       S.data    = data;
       S.formula = formula;
-      S.region  = _region;
       S.peek    = peek;
       S.defer   = defer;
 
@@ -36,7 +34,7 @@
 
           var id = count++,
               listeners = [],
-              our_region = region;
+              our_path = path;
 
           data.S = new dataCombinator();
           data.toString = dataToString;
@@ -50,7 +48,7 @@
                   propagate(listeners);
                   runDeferred();
               } else {
-                  if (listener) listener(id, our_region, listeners);
+                  if (path.length) path[path.length - 1].listener(id, our_path, listeners);
               }
               return msg;
           }
@@ -67,30 +65,43 @@
               source_offsets = [],
               source_listeners = [],
               listeners = [],
-              our_region = region,
-              updaters = initUpdaters(update, id, this);
+              our = { listener: our_listener, mod: (this && this.fn) || null, children: [] },
+              our_path = path.slice(0),
+              updaters;
+
+          if (path.length) path[path.length - 1].children.push(detach);
+
+          our_path.push(our);
+
+          updaters = initUpdaters(our_path, update, id);
 
           formula.S = new formulaCombinator(detach);
           formula.toString = toString;
 
           updaters[updaters.length - 1]();
 
+          runDeferred();
+
           return formula;
 
           function formula() {
-              if (listener) listener(id, our_region, listeners);
+              if (path.length) path[path.length - 1].listener(id, our_path, listeners);
               return msg;
           }
 
           function update() {
-              var new_msg,
-                  prev_listener,
-                  prev_region;
+              var i,
+                  new_msg,
+                  prev_path;
 
               if (!updating) {
                   updating = true;
-                  prev_listener = listener, listener = our_listener;
-                  prev_region = region, region = our_region;
+                  prev_path = path, path = our_path;
+
+                  for (i = 0; i < our.children.length; i++) {
+                      our.children[i]();
+                  }
+                  our.children = [];
 
                   gen++;
 
@@ -103,15 +114,14 @@
                       }
                   } finally {
                       updating = false;
-                      listener = prev_listener;
-                      region = prev_region;
+                      path = prev_path;
                   }
 
                   pruneStaleSources(gen, source_gens, source_offsets, source_listeners);
               }
           }
 
-          function our_listener(sid, source_region, listeners) {
+          function our_listener(sid, source_path, listeners) {
               var i, j, len, offset;
 
               for (i = 0, len = source_ids.length; i < len; i++) {
@@ -133,17 +143,12 @@
               source_offsets.push(offset);
               source_listeners.push(listeners);
 
-              // set i to the point where the region paths diverge
-              for (i = 0, len = Math.min(our_region.length, source_region.length);
-                   i < len && our_region[i] === source_region[i];
+              // set i to the point where the paths diverge
+              for (i = 0, len = Math.min(our_path.length, source_path.length);
+                   i < len && our_path[i] === source_path[i];
                    i++);
 
               listeners.push(updaters[i]);
-
-              for (len = our_region.length; i < len; i++) {
-                  our_region[i].offsets.push(offset);
-                  our_region[i].listeners.push(listeners);
-              }
           }
 
           function detach() {
@@ -152,6 +157,10 @@
               for (i = 0, len = source_offsets.length; i < len; i++) {
                   source_listeners[i][source_offsets[i]] = undefined;
                   source_listeners[i] = undefined;
+              }
+
+              for (i = 0; i < our.children.length; i++) {
+                  our.children[i]();
               }
           }
 
@@ -175,15 +184,12 @@
           }
       }
 
-      function initUpdaters(update, id, mod) {
-          var i, updaters = [];
+      function initUpdaters(path, update, id) {
+          var i, p, updaters = [];
 
-          if (mod && mod.fn) update = mod.fn(update, id);
-
-          updaters[region.length] = update;
-
-          for (i = region.length - 1; i >= 0; i--) {
-              if (region.mod) update = region.mod(update, id);
+          for (i = path.length - 1; i >= 0; i--) {
+              p = path[i];
+              if (p.mod) update = p.mod(update, id);
               updaters[i] = update;
           }
 
@@ -193,10 +199,6 @@
       function dataCombinator() { }
 
       function formulaCombinator(detach) {
-          this.detach = detach;
-      }
-
-      function regionCombinator(detach) {
           this.detach = detach;
       }
 
@@ -215,51 +217,19 @@
           return "[data: " + S.peek(this) + "]";
       }
 
-      function _region(fn) {
-          var prev_region = region,
-              offsets = [],
-              listeners = [];
-
-          region = region.slice();
-
-          region.push({
-              mod: this && this.mod ? this.mod : null,
-              offsets: offsets,
-              listeners: listeners
-          });
-
-          try {
-              fn();
-          } finally {
-              region = prev_region;
-          }
-
-          return {
-              S: new regionCombinator(detach)
-          }
-
-          function detach() {
-              var i, len;
-
-              for (i = 0, len = listeners.length; i < len; i++) {
-                  listeners[i][offsets[i]] = undefined;
-              }
-          }
-      }
-
       function peek(fn) {
-          var prev_listener,
+          var prev_path,
               val;
 
-          if (!listener) {
+          if (!path.length) {
               val = fn();
           } else {
-              prev_listener = listener, listener = undefined;
+              prev_path = path, path = [];
 
               try {
                   val = fn();
               } finally {
-                  listener = prev_listener;
+                  path = prev_path;
               }
           }
 
@@ -267,11 +237,15 @@
       }
 
       function defer(fn) {
-          deferred.push(fn);
+          if (path.length) {
+              deferred.push(fn);
+          } else {
+              fn();
+          }
       }
 
       function runDeferred() {
-          if (listener) return;
+          if (path.length) return;
           while (deferred.length !== 0) {
               deferred.shift()();
           }

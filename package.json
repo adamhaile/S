@@ -5,6 +5,7 @@
   "main": "S",
   "dependencies": {},
   "devDependencies": {
+    "benchmark": "^1.0.0",
     "gulp": "^3.8.10",
     "gulp-concat": "^2.4.2",
     "gulp-es6-module-transpiler": "^0.1.3",

@@ -367,6 +367,75 @@ describe("S.formula", function () {
         });
     });
 
+    describe("with child", function () {
+        var d, e, fspy, f, gspy, g, h;
+
+        beforeEach(function () {
+            d = S(1);
+            e = S(2);
+            fspy = jasmine.createSpy("fspy");
+            gspy = jasmine.createSpy("gspy");
+            f = S(function () {
+                fspy();
+                d();
+                g = S(function () {
+                    gspy();
+                    return e();
+                });
+            });
+            h = g;
+        });
+
+        it("creates child on initialization", function () {
+            expect(h).toEqual(jasmine.any(Function));
+            expect(h()).toBe(2);
+        });
+
+        it("does not depend on child's dependencies", function () {
+            e(3);
+            expect(fspy.calls.count()).toBe(1);
+            expect(gspy.calls.count()).toBe(2);
+        });
+
+        it("deactives old child when updated", function () {
+            // re-evalue parent, thereby detaching stale g, which we've stored at h
+            d(2);
+            // change e, triggering an update of any watchers of it, which should only be the new g
+            e(3);
+            // new g was updated
+            expect(g()).toBe(3);
+            // but old g (stored as h) was not
+            expect(h()).toBe(2);
+        });
+
+        it("detaches child when it is detached", function () {
+            f.S.detach();
+            e(3);
+            expect(g()).toBe(2);
+        });
+    });
+
+    describe("with child and flow modifier", function () {
+        var d, f, g;
+
+        beforeEach(function () {
+            d = S.data(1);
+            f = S.defer().S(function () {
+                g = S.formula(function () {
+                    return d();
+                });
+            });
+        });
+
+        it("applies flow modifer to child", function () {
+            S.formula(function () {
+                d(2);
+                expect(S.peek(g)).toBe(1);
+            });
+            expect(g()).toBe(2);
+        });
+    });
+
     describe("detach", function () {
         var d, f, spy;
 
