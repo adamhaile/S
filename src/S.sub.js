@@ -1,11 +1,5 @@
-﻿(function (S) {
-    "use strict";
-
-    S.sub = sub;
-
-    return;
-
-    function sub(/* arg1, arg2, ... argn, fn */) {
+define('S.sub', ['S'], function (S) {
+    S.sub = function sub(/* arg1, arg2, ... argn, fn */) {
         var args = Array.prototype.slice.call(arguments),
             fn = function () { },
             realFn = args.pop(),
@@ -25,4 +19,4 @@
 
         return sub;
     }
-}(S));
+});

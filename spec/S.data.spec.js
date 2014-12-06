@@ -322,9 +322,12 @@ function enterSpeed() {
 
     return c;
 }
+*/
 
 function propagateSpeed(nary, depth) {
-    var root = K.ch(0), c = 0, i;
+    console.time("propagateSpeed");
+
+    var root = S(0), c = 0, i;
 
     tree(root, nary, depth);
 
@@ -332,29 +335,38 @@ function propagateSpeed(nary, depth) {
         root(i);
     }
 
+    console.timeEnd("propagateSpeed");
+
     return c;
 
     function tree(node, nary, depth) {
         if (depth <= 0) return;
         for (var i = 0; i < nary; i++) {
-            tree(K(function () { c++; return node() + 1; }), nary, depth - 1);
+            tree(S(function () { c++; return node() + 1; }), nary, depth - 1);
         }
     }
 }
 
-function chCreateSpeed(count) {
+function dataCreateSpeed(count) {
+    console.time("dataCreateSpeed");
+
     var i;
 
     for (i = 0; i < count; i++) {
-        K.ch(i);
+        S.data(i);
     }
+
+    console.timeEnd("dataCreateSpeed");
 }
 
-function procCreateSpeed(count) {
+function formulaCreateSpeed(count) {
+    console.time("formulaCreateSpeed");
+
     var i;
 
     for (i = 0; i < count; i++) {
-        K.proc(function () { });
+        S.formula(function () { });
     }
+
+    console.timeEnd("formulaCreateSpeed");
 }
-*/

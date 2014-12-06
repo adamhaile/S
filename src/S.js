@@ -1,4 +1,4 @@
-var S = (function () {
+define('S', [], function () {
     var count = 1,
         path = [],
         deferred = [];
@@ -248,6 +248,4 @@ var S = (function () {
             deferred.shift()();
         }
     }
-})();
-
-export default S;
+});

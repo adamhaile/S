@@ -1,8 +1,8 @@
-(function (S) {
+define('S.mods', ['S', 'Chainable'], function (S, Chainable) {
 
     var _S_defer = S.defer;
 
-    ChainableMod.prototype = new S.Chainable();
+    ChainableMod.prototype = new Chainable();
     ChainableMod.prototype.S = S.formula;
 
     S.defer          = ChainableMod.prototype.defer          = chainableDefer;
@@ -15,7 +15,7 @@
     return;
 
     function ChainableMod(fn, prev) {
-        S.Chainable.call(this, fn, prev);
+        Chainable.call(this, fn, prev);
     }
 
     function chainableDefer()     { return new ChainableMod(defer(),     this); }
@@ -137,4 +137,4 @@
             }
         };
     }
-})(S);
+});

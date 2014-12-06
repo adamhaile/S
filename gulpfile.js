@@ -1,18 +1,17 @@
 var gulp = require('gulp'),
     concat = require('gulp-concat'),
     uglify = require('gulp-uglify'),
-    rename = require('gulp-rename'),
-    es6ModuleTranspiler = require("gulp-es6-module-transpiler");
+    rename = require('gulp-rename');
 
 gulp.task('dist', function() {
     gulp.src([
+        "src/_preamble.js",
         "src/S.js",
-        "src/S.*.js"
+        "src/Chainable.js",
+        "src/S.*.js",
+        "src/_postamble.js"
     ])
     .pipe(concat("S.js"))
-    .pipe(es6ModuleTranspiler({
-        type: "bundle"
-    }))
     .pipe(gulp.dest("dist"))
     .pipe(rename("S.min.js"))
     .pipe(uglify())
