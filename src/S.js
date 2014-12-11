@@ -42,6 +42,7 @@ define('S', [], function () {
         function data(new_msg) {
             if (arguments.length > 0) {
                 if (new_msg === undefined) throw new Error("S.data can't be set to undefined.  In S, undefined is reserved for namespace lookup failures.");
+                //console.log("[S.data: " + JSON.stringify(msg) + " -> " + JSON.stringify(new_msg) + "]");
                 msg = new_msg;
                 propagate(listeners);
                 runDeferred();
@@ -76,7 +77,8 @@ define('S', [], function () {
         formula.S = new formulaCombinator(detach);
         formula.toString = toString;
 
-        updaters[updaters.length - 1]();
+        //updaters[updaters.length - 1]();
+        update();
 
         runDeferred();
 
@@ -105,6 +107,8 @@ define('S', [], function () {
 
                 try {
                     new_msg = fn();
+
+                    //console.log("[S.formula: " + JSON.stringify(msg) + " -> " + JSON.stringify(new_msg) + " - " + fn.toString().replace(/\s+/g, " ").substr(0, 60) + "]");
 
                     if (new_msg !== undefined) {
                         msg = new_msg;

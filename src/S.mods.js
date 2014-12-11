@@ -60,7 +60,7 @@ define('S.mods', ['S', 'Chainable'], function (S, Chainable) {
 
                 var now = Date.now();
 
-                if ((now - last) >= t) {
+                if ((now - last) > t) {
                     last = now;
                     fn();
                 } else {
@@ -77,12 +77,18 @@ define('S.mods', ['S', 'Chainable'], function (S, Chainable) {
 
     function debounce(t) {
         return function (fn) {
-            var tout = 0;
+            var last = 0,
+                tout = 0;
 
             return function () {
-                if (tout) clearTimeout(tout);
+                var now = Date.now();
 
-                tout = setTimeout(fn, t);
+                if (now > last) {
+                    last = now;
+                    if (tout) clearTimeout(tout);
+
+                    tout = setTimeout(fn, t);
+                }
             };
         };
     }

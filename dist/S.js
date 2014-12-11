@@ -1,21 +1,21 @@
-(function () {
+(function (package) {
     // nano-implementation of require.js-like define(name, deps, impl) for internal use
-    (function (package) {
-        var definitions = {};
+    var definitions = {};
 
-        package(function define(name, deps, fn) {
-            if (definitions.hasOwnProperty(name)) throw new Error("define: cannot redefine module " + name);
-            definitions[name] = fn.apply(null, deps.map(function (dep) {
-                if (!definitions.hasOwnProperty(dep)) throw new Error("define: module " + dep + " required by " + name + " has not been defined.");
-                return definitions[dep];
-            }));
-        });
+    package(function define(name, deps, fn) {
+        if (definitions.hasOwnProperty(name)) throw new Error("define: cannot redefine module " + name);
+        definitions[name] = fn.apply(null, deps.map(function (dep) {
+            if (!definitions.hasOwnProperty(dep)) throw new Error("define: module " + dep + " required by " + name + " has not been defined.");
+            return definitions[dep];
+        }));
+    });
 
-        if (typeof module === 'object' && typeof module.exports === 'object') module.exports = definitions.S; // CommonJS
-        else if (typeof define === 'function') define([], function () { return definitions.S; }); // AMD
-        else this.S = definitions.S; // fallback to global object
+    if (typeof module === 'object' && typeof module.exports === 'object') module.exports = definitions.S; // CommonJS
+    else if (typeof define === 'function') define([], function () { return definitions.S; }); // AMD
+    else this.S = definitions.S; // fallback to global object
 
-    })(function (define) {
+})(function (define) {
+    "use strict";
 
 define('S', [], function () {
     var count = 1,
@@ -61,6 +61,7 @@ define('S', [], function () {
         function data(new_msg) {
             if (arguments.length > 0) {
                 if (new_msg === undefined) throw new Error("S.data can't be set to undefined.  In S, undefined is reserved for namespace lookup failures.");
+                //console.log("[S.data: " + JSON.stringify(msg) + " -> " + JSON.stringify(new_msg) + "]");
                 msg = new_msg;
                 propagate(listeners);
                 runDeferred();
@@ -95,7 +96,8 @@ define('S', [], function () {
         formula.S = new formulaCombinator(detach);
         formula.toString = toString;
 
-        updaters[updaters.length - 1]();
+        //updaters[updaters.length - 1]();
+        update();
 
         runDeferred();
 
@@ -124,6 +126,8 @@ define('S', [], function () {
 
                 try {
                     new_msg = fn();
+
+                    //console.log("[S.formula: " + JSON.stringify(msg) + " -> " + JSON.stringify(new_msg) + " - " + fn.toString().replace(/\s+/g, " ").substr(0, 60) + "]");
 
                     if (new_msg !== undefined) {
                         msg = new_msg;
@@ -344,7 +348,7 @@ define('S.mods', ['S', 'Chainable'], function (S, Chainable) {
 
                 var now = Date.now();
 
-                if ((now - last) >= t) {
+                if ((now - last) > t) {
                     last = now;
                     fn();
                 } else {
@@ -361,12 +365,18 @@ define('S.mods', ['S', 'Chainable'], function (S, Chainable) {
 
     function debounce(t) {
         return function (fn) {
-            var tout = 0;
+            var last = 0,
+                tout = 0;
 
             return function () {
-                if (tout) clearTimeout(tout);
+                var now = Date.now();
 
-                tout = setTimeout(fn, t);
+                if (now > last) {
+                    last = now;
+                    if (tout) clearTimeout(tout);
+
+                    tout = setTimeout(fn, t);
+                }
             };
         };
     }
@@ -454,5 +464,4 @@ define('S.toJSON', ['S'], function (S) {
     };
 });
 
-    });
-})();
+});
