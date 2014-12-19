@@ -239,18 +239,20 @@ define('S', [], function () {
     }
 
     function peek(fn) {
-        var prev_path,
+        var cur,
+            prev_listener,
             val;
 
         if (!path.length) {
             val = fn();
         } else {
-            prev_path = path, path = [];
+            cur = path[path.length - 1];
+            prev_listener = cur.listener, cur.listener = function () {};
 
             try {
                 val = fn();
             } finally {
-                path = prev_path;
+                cur.listener = prev_listener;
             }
         }
 
@@ -286,12 +288,36 @@ define('Chainable', [], function () {
 
 });
 
+define('S.sub', ['S'], function (S) {
+    S.sub = function sub(/* arg1, arg2, ... argn, fn */) {
+        var args = Array.prototype.slice.call(arguments),
+            fn = function () { },
+            realFn = args.pop(),
+            len = args.length,
+            values = new Array(len),
+            sub = this.S(function () {
+                for (var i = 0; i < len; i++) {
+                    values[i] = args[i]();
+                }
+
+                return S.peek(function () {
+                    return fn.apply(undefined, values);
+                });
+            });
+
+        fn = realFn;
+
+        return sub;
+    }
+});
+
 define('S.mods', ['S', 'Chainable'], function (S, Chainable) {
 
     var _S_defer = S.defer;
 
     ChainableMod.prototype = new Chainable();
     ChainableMod.prototype.S = S.formula;
+    ChainableMod.prototype.sub = S.sub;
 
     S.defer          = ChainableMod.prototype.defer          = chainableDefer;
     S.delay          = ChainableMod.prototype.delay          = chainableDelay;
@@ -430,29 +456,6 @@ define('S.mods', ['S', 'Chainable'], function (S, Chainable) {
                 });
             }
         };
-    }
-});
-
-define('S.sub', ['S'], function (S) {
-    S.sub = function sub(/* arg1, arg2, ... argn, fn */) {
-        var args = Array.prototype.slice.call(arguments),
-            fn = function () { },
-            realFn = args.pop(),
-            len = args.length,
-            values = new Array(len),
-            sub = S(function () {
-                for (var i = 0; i < len; i++) {
-                    values[i] = args[i]();
-                }
-
-                return S.peek(function () {
-                    return fn.apply(undefined, values);
-                });
-            });
-
-        fn = realFn;
-
-        return sub;
     }
 });
 

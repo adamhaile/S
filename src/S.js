@@ -220,18 +220,20 @@ define('S', [], function () {
     }
 
     function peek(fn) {
-        var prev_path,
+        var cur,
+            prev_listener,
             val;
 
         if (!path.length) {
             val = fn();
         } else {
-            prev_path = path, path = [];
+            cur = path[path.length - 1];
+            prev_listener = cur.listener, cur.listener = function () {};
 
             try {
                 val = fn();
             } finally {
-                path = prev_path;
+                cur.listener = prev_listener;
             }
         }
 

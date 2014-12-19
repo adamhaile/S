@@ -5,7 +5,7 @@ define('S.sub', ['S'], function (S) {
             realFn = args.pop(),
             len = args.length,
             values = new Array(len),
-            sub = S(function () {
+            sub = this.S(function () {
                 for (var i = 0; i < len; i++) {
                     values[i] = args[i]();
                 }

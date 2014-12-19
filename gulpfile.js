@@ -8,7 +8,9 @@ gulp.task('dist', function() {
         "src/_preamble.js",
         "src/S.js",
         "src/Chainable.js",
-        "src/S.*.js",
+        "src/S.sub.js",
+        "src/S.mods.js",
+        "src/S.toJSON.js",
         "src/_postamble.js"
     ])
     .pipe(concat("S.js"))

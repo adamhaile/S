@@ -4,6 +4,7 @@ define('S.mods', ['S', 'Chainable'], function (S, Chainable) {
 
     ChainableMod.prototype = new Chainable();
     ChainableMod.prototype.S = S.formula;
+    ChainableMod.prototype.sub = S.sub;
 
     S.defer          = ChainableMod.prototype.defer          = chainableDefer;
     S.delay          = ChainableMod.prototype.delay          = chainableDelay;
