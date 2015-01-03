@@ -10,6 +10,8 @@ define('S', [], function () {
     S.formula = formula;
     S.peek    = peek;
     S.defer   = defer;
+    S.cleanup = cleanup;
+    S.finalize = finalize;
 
     S.data.S = dataCombinator;
     formulaCombinator.prototype = new dataCombinator();
@@ -253,5 +255,13 @@ define('S', [], function () {
         while (deferred.length !== 0) {
             deferred.shift()();
         }
+    }
+
+    function cleanup() {
+        // TODO
+    }
+
+    function finalize() {
+        // TODO
     }
 });

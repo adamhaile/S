@@ -29,6 +29,8 @@ define('S', [], function () {
     S.formula = formula;
     S.peek    = peek;
     S.defer   = defer;
+    S.cleanup = cleanup;
+    S.finalize = finalize;
 
     S.data.S = dataCombinator;
     formulaCombinator.prototype = new dataCombinator();
@@ -273,6 +275,14 @@ define('S', [], function () {
             deferred.shift()();
         }
     }
+
+    function cleanup() {
+        // TODO
+    }
+
+    function finalize() {
+        // TODO
+    }
 });
 
 define('Chainable', [], function () {
@@ -319,6 +329,8 @@ define('S.mods', ['S', 'Chainable'], function (S, Chainable) {
     ChainableMod.prototype.S = S.formula;
     ChainableMod.prototype.sub = S.sub;
 
+    S.on             = ChainableMod.prototype.on             = chainableOn;
+    S.once           = ChainableMod.prototype.once           = chainableOnce;
     S.defer          = ChainableMod.prototype.defer          = chainableDefer;
     S.delay          = ChainableMod.prototype.delay          = chainableDelay;
     S.debounce       = ChainableMod.prototype.debounce       = chainableDebounce;
@@ -332,12 +344,14 @@ define('S.mods', ['S', 'Chainable'], function (S, Chainable) {
         Chainable.call(this, fn, prev);
     }
 
-    function chainableDefer()     { return new ChainableMod(defer(),     this); }
-    function chainableDelay(t)    { return new ChainableMod(delay(t),    this); }
-    function chainableDebounce(t) { return new ChainableMod(debounce(t), this); }
-    function chainableThrottle(t) { return new ChainableMod(throttle(t), this); }
-    function chainablePause(s)    { return new ChainableMod(pause(s),    this); }
-    function chainableThrottledPause(s) { return new ChainableMod(throttledPause(s), this); }
+    function chainableOn(/* signals */) { return new ChainableMod(on(arguments.slice(0)), this); }
+    function chainableOnce()            { return new ChainableMod(on([]),                 this); }
+    function chainableDefer()           { return new ChainableMod(defer(),                this); }
+    function chainableDelay(t)          { return new ChainableMod(delay(t),               this); }
+    function chainableDebounce(t)       { return new ChainableMod(debounce(t),            this); }
+    function chainableThrottle(t)       { return new ChainableMod(throttle(t),            this); }
+    function chainablePause(s)          { return new ChainableMod(pause(s),               this); }
+    function chainableThrottledPause(s) { return new ChainableMod(throttledPause(s),      this); }
 
     function defer(fn) {
         if (fn !== undefined) return _S_defer(fn);
@@ -456,6 +470,13 @@ define('S.mods', ['S', 'Chainable'], function (S, Chainable) {
                 });
             }
         };
+    }
+
+    function on(/* signals */) {
+        return function (fn) {
+            // TODO
+            return fn;
+        }
     }
 });
 
