@@ -16,7 +16,7 @@ define('S.mods', ['S', 'Chainable'], function (S, Chainable) {
     return;
 
     function ChainableMod(fn, prev) {
-        Chainable.call(this, fn, prev);
+        Chainable.call(this, fn, 'mod', prev);
     }
 
     function chainableDefer()     { return new ChainableMod(defer(),     this); }
