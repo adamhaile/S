@@ -1,8 +1,8 @@
 define('Chainable', [], function () {
 
-    return function Chainable(fn, prev, head) {
+    return function Chainable(fn, key, prev, head) {
         this.head = head !== undefined ? head : (prev && prev.head !== undefined) ? prev.head : null;
-        this.fn = (prev && prev.fn !== undefined) ? compose(fn, prev.fn) : fn;
+        this[key] = (prev && prev[key] !== undefined) ? compose(fn, prev[key]) : fn;
     }
 
     function compose(f, g) {

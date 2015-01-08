@@ -1,4 +1,4 @@
-﻿describe("S.data", function () {
+describe("S.data", function () {
     describe("creation", function () {
         it("throws if no initial value is passed", function () {
             expect(function () { S.data(); }).toThrow();
@@ -60,6 +60,33 @@ function propagateSpeed(nary, depth) {
             tree(S(function () { c++; return node() + 1; }), nary, depth - 1);
         }
     }
+}
+
+function propagateSpeed2(nary) {
+    console.time("propagateSpeed");
+
+    var sources = [], c = 0, i, j;
+
+    for (i = 0; i < nary; i++) {
+        sources.push(S(i));
+    }
+
+    var f = S(function () {
+        c++;
+        for (var i = 0; i < sources.length; i++) {
+            sources[i]();
+        }
+    })
+
+    for (i = 1; i <= 10000; i++) {
+        for (j = 0; j < sources.length; j++) {
+            sources[j](j);
+        }
+    }
+
+    console.timeEnd("propagateSpeed");
+
+    return c;
 }
 
 function dataCreateSpeed(count) {

@@ -18,7 +18,7 @@ define('S.mods', ['S', 'Chainable'], function (S, Chainable) {
     return;
 
     function ChainableMod(fn, prev) {
-        Chainable.call(this, fn, prev);
+        Chainable.call(this, fn, 'mod', prev);
     }
 
     function chainableOn(/* signals */) { return new ChainableMod(on(arguments.slice(0)), this); }

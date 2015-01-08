@@ -1,7 +1,5 @@
 define('S', [], function () {
-    var count = 1,
-        path = [],
-        deferred = [];
+    var ctxMgr = new ContextManager();
 
     // initializer
     S.lift     = lift;
@@ -13,11 +11,10 @@ define('S', [], function () {
     S.cleanup = cleanup;
     S.finalize = finalize;
 
-    S.data.S = dataCombinator;
-    formulaCombinator.prototype = new dataCombinator();
-    S.formula.S = formulaCombinator;
+    S.data.S = DataCombinator;
+    S.formula.S = FormulaCombinator;
 
-    return S;
+    FormulaCombinator.prototype = new DataCombinator();
 
     function S(arg1, arg2) {
         return S.lift(arg1, arg2);
@@ -29,143 +26,67 @@ define('S', [], function () {
             : data(arg1);
     }
 
-    function data(msg) {
-        if (msg === undefined) throw new Error("S.data can't be initialized with undefined.  In S, undefined is reserved for namespace lookup failures.");
+    function data(value) {
+        if (value === undefined) throw new Error("S.data can't be initialized with undefined.  In S, undefined is reserved for namespace lookup failures.");
 
-        var id = count++,
-            listeners = [],
-            our_path = path;
+        var src = new Source(ctxMgr);
 
-        data.S = new dataCombinator();
+        data.S = new DataCombinator();
         data.toString = dataToString;
 
         return data;
 
-        function data(new_msg) {
+        function data(newValue) {
             if (arguments.length > 0) {
-                if (new_msg === undefined) throw new Error("S.data can't be set to undefined.  In S, undefined is reserved for namespace lookup failures.");
-                //console.log("[S.data: " + JSON.stringify(msg) + " -> " + JSON.stringify(new_msg) + "]");
-                msg = new_msg;
-                propagate(listeners);
-                runDeferred();
+                if (newValue === undefined) throw new Error("S.data can't be set to undefined.  In S, undefined is reserved for namespace lookup failures.");
+                value = newValue;
+                src.propagate();
+                ctxMgr.runDeferred();
             } else {
-                if (path.length) path[path.length - 1].listener(id, our_path, listeners);
+                if (ctxMgr.ctx) ctxMgr.ctx.addSource(src);
             }
-            return msg;
+            return value;
         }
     }
 
     function formula(fn) {
-        var id = count++,
-            gen = 1,
-            updating = false,
-            msg,
-            // for sources, use parallel arrays instead of array of objects so that we can scan ids and gens fast
-            source_ids = [],
-            source_gens = [],
-            source_offsets = [],
-            source_listeners = [],
-            listeners = [],
-            our = { listener: our_listener, mod: (this && this.fn) || null, children: [] },
-            our_path = path.slice(0),
-            updaters;
+        var src = new Source(ctxMgr),
+            ctx = new Context(update, this || {}, ctxMgr),
+            value;
 
-        if (path.length) path[path.length - 1].children.push(detach);
+        if (ctxMgr.ctx) ctxMgr.ctx.addChild(dispose);
 
-        our_path.push(our);
-
-        updaters = initUpdaters(our_path, update, id);
-
-        formula.S = new formulaCombinator(detach);
+        formula.S = new FormulaCombinator(dispose);
+        formula.dispose = dispose;
         formula.toString = toString;
 
-        //updaters[updaters.length - 1]();
         update();
 
-        runDeferred();
+        ctxMgr.runDeferred();
 
         return formula;
 
         function formula() {
-            if (path.length) path[path.length - 1].listener(id, our_path, listeners);
-            return msg;
+            if (ctxMgr.ctx) ctxMgr.ctx.addSource(src);
+            return value;
         }
 
         function update() {
-            var i,
-                new_msg,
-                prev_path;
+            ctxMgr.runInContext(_update, ctx);
+        }
 
-            if (!updating) {
-                updating = true;
-                prev_path = path, path = our_path;
+        function _update() {
+            var newValue = fn();
 
-                for (i = 0; i < our.children.length; i++) {
-                    our.children[i]();
-                }
-                our.children = [];
-
-                gen++;
-
-                try {
-                    new_msg = fn();
-
-                    //console.log("[S.formula: " + JSON.stringify(msg) + " -> " + JSON.stringify(new_msg) + " - " + fn.toString().replace(/\s+/g, " ").substr(0, 60) + "]");
-
-                    if (new_msg !== undefined) {
-                        msg = new_msg;
-                        propagate(listeners);
-                    }
-                } finally {
-                    updating = false;
-                    path = prev_path;
-                }
-
-                pruneStaleSources(gen, source_gens, source_offsets, source_listeners);
+            if (newValue !== undefined) {
+                value = newValue;
+                src.propagate();
             }
         }
 
-        function our_listener(sid, source_path, listeners) {
-            var i, j, len, offset;
-
-            for (i = 0, len = source_ids.length; i < len; i++) {
-                if (sid === source_ids[i]) {
-                    offset = source_offsets[i];
-                    if (listeners[offset] === null) {
-                        listeners[offset] = source_listeners[i];
-                        source_listeners[i] = listeners;
-                    }
-                    source_gens[i] = gen;
-                    return;
-                }
-            }
-
-            offset = listeners.length;
-
-            source_ids.push(sid);
-            source_gens.push(gen);
-            source_offsets.push(offset);
-            source_listeners.push(listeners);
-
-            // set i to the point where the paths diverge
-            for (i = 0, len = Math.min(our_path.length, source_path.length);
-                 i < len && our_path[i] === source_path[i];
-                 i++);
-
-            listeners.push(updaters[i]);
-        }
-
-        function detach() {
-            var i, len;
-
-            for (i = 0, len = source_offsets.length; i < len; i++) {
-                source_listeners[i][source_offsets[i]] = undefined;
-                source_listeners[i] = undefined;
-            }
-
-            for (i = 0; i < our.children.length; i++) {
-                our.children[i]();
-            }
+        function dispose() {
+            ctx.cleanup();
+            ctx.dispose();
         }
 
         function toString() {
@@ -173,48 +94,178 @@ define('S', [], function () {
         }
     }
 
-    function pruneStaleSources(gen, source_gens, source_offsets, source_listeners) {
-        var i, len, source_gen, listeners, offset;
+    function ContextManager() {
+        this.count = 1;
+        this.ctx = null;
+        this.deferred = [];
+    }
 
-        for (i = 0, len = source_gens.length; i < len; i++) {
-            source_gen = source_gens[i];
-            if (source_gen !== 0 && source_gen < gen) {
-                listeners = source_listeners[i];
-                offset = source_offsets[i];
-                source_listeners[i] = listeners[offset];
-                listeners[offset] = null;
-                source_gens[i] = 0;
+    ContextManager.prototype.runInContext = function runInContext(fn, ctx) {
+        if (ctx.updating) return;
+
+        var oldCtx;
+
+        oldCtx = this.ctx, this.ctx = ctx;
+
+        ctx.beginUpdate();
+
+        try {
+            return fn();
+        } finally {
+            ctx.endUpdate();
+            this.ctx = oldCtx;
+        }
+    };
+    ContextManager.prototype.runWithoutListening = function runWithoutListening(fn) {
+        var oldListening;
+
+        if (this.ctx) oldListening = this.ctx.listening, this.ctx.listening = false;
+
+        try {
+            return fn();
+        } finally {
+            if (this.ctx) this.ctx.listening = oldListening;
+        }
+    };
+    ContextManager.prototype.runDeferred = function runDeferred() {
+        if (this.ctx) return;
+        while (this.deferred.length !== 0) {
+            this.deferred.shift()();
+        }
+    };
+
+    function Source(ctxMgr) {
+        this.id = ctxMgr.count++;
+        this.lineage = ctxMgr.ctx ? ctxMgr.ctx.lineage : [];
+
+        this.updates = [];
+    }
+
+    Source.prototype.propagate = function propagate() {
+        var i, u, us = this.updates;
+
+        for (i = 0; i < us.length; i++) {
+            u = us[i];
+            if (u) u();
+        }
+    };
+
+    function Context(update, options, ctxMgr) {
+        var i, l;
+
+        this.lineage = ctxMgr.ctx ? ctxMgr.ctx.lineage.slice(0) : [];
+        this.lineage.push(this);
+        this.mod = options.mod;
+        this.updaters = [];
+
+        for (i = this.lineage.length - 1; i >= 0; i--) {
+            l = this.lineage[i];
+            if (l.mod) update = l.mod(update);
+            this.updaters[i] = update;
+        }
+
+        this.updating = false;
+        this.gen = 1;
+        this.registrations = [];
+        this.registrationIndex = {};
+        this.cleanups = [];
+        this.finalizers = [];
+
+        this.listening = !options.sources;
+
+        if (options.sources) {
+            for (var i = 0; i < options.sources.length; i++) {
+                new Registration(this, options.sources[i]);
             }
         }
     }
 
-    function initUpdaters(path, update, id) {
-        var i, p, updaters = [];
+    Context.prototype.beginUpdate = function beginUpdate() {
+        this.cleanup();
+        this.gen++;
+        this.updating = true;
+    };
+    Context.prototype.endUpdate = function endUpdate() {
+        this.updating = false;
 
-        for (i = path.length - 1; i >= 0; i--) {
-            p = path[i];
-            if (p.mod) update = p.mod(update, id);
-            updaters[i] = update;
+        if (!this.listening) return;
+
+        var i, reg;
+
+        for (i = 0; i < this.registrations.length; i++) {
+            reg = this.registrations[i];
+            if (reg.active && reg.gen < this.gen) {
+                reg.deactivate();
+            }
         }
+    };
+    Context.prototype.addSource = function addSource(src) {
+        if (!this.listening) return;
 
-        return updaters;
+        var reg = this.registrationIndex[src.id];
+
+        if (reg) {
+            reg.activate(this.gen);
+        } else {
+            new Registration(this, src);
+        }
+    };
+    Context.prototype.addChild = function addChild(fn) {
+        this.cleanups.push(fn);
+    };
+    Context.prototype.cleanup = function cleanup() {
+        for (var i = 0; i < this.cleanups.length; i++) {
+            this.cleanups[i]();
+        }
+        this.cleanups = [];
+    };
+    Context.prototype.dispose = function dispose() {
+        var i;
+
+        for (i = 0; i < this.finalizers.length; i++) {
+            this.finalizers[i]();
+        }
+        for (i = this.registrations.length - 1; i >= 0; i--) {
+            this.registrations[i].deactivate();
+        }
+    };
+
+    function Registration(ctx, src) {
+        this.active = true;
+        this.gen = ctx.gen;
+        this.updates = src.updates;
+        this.offset = src.updates.length;
+
+        // set i to the point where the lineages diverge
+        for (var i = 0, len = Math.min(ctx.lineage.length, src.lineage.length);
+            i < len && ctx.lineage[i] === src.lineage[i];
+            i++);
+
+        this.update = ctx.updaters[i];
+        this.updates.push(this.update);
+
+        ctx.registrations.push(this);
+        ctx.registrationIndex[src.id] = this;
     }
 
-    function dataCombinator() { }
+    Registration.prototype.activate = function active(gen) {
+        if (!this.active) {
+            this.active = true;
+            this.updates[this.offset] = this.update;
+        }
+        this.gen = gen;
+    };
+    Registration.prototype.deactivate = function deactivate() {
+        if (this.active) {
+            this.updates[this.offset] = null;
+        }
+        this.active = false;
+    };
 
-    function formulaCombinator(detach) {
+    function DataCombinator() { }
+
+    function FormulaCombinator(detach) {
         this.detach = detach;
-    }
-
-    function propagate(listeners) {
-        var i, len, listener;
-
-        for (i = 0, len = listeners.length; i < len; i++) {
-            listener = listeners[i];
-            if (listener) {
-                listener();
-            }
-        }
     }
 
     function dataToString() {
@@ -222,46 +273,32 @@ define('S', [], function () {
     }
 
     function peek(fn) {
-        var cur,
-            prev_listener,
-            val;
-
-        if (!path.length) {
-            val = fn();
-        } else {
-            cur = path[path.length - 1];
-            prev_listener = cur.listener, cur.listener = function () {};
-
-            try {
-                val = fn();
-            } finally {
-                cur.listener = prev_listener;
-            }
-        }
-
-        return val;
+        return ctxMgr.runWithoutListening(fn);
     }
 
     function defer(fn) {
-        if (path.length) {
-            deferred.push(fn);
+        if (ctxMgr.ctx) {
+            ctxMgr.deferred.push(fn);
         } else {
             fn();
         }
     }
 
-    function runDeferred() {
-        if (path.length) return;
-        while (deferred.length !== 0) {
-            deferred.shift()();
+    function cleanup(fn) {
+        if (ctxMgr.ctx) {
+            ctxMgr.ctx.cleanups.push(fn);
+        } else {
+            throw new Error("S.cleanup() must be called from within an S.formula.  Cannot call it at toplevel.");
         }
     }
 
-    function cleanup() {
-        // TODO
+    function finalize(fn) {
+        if (ctxMgr.ctx) {
+            ctxMgr.ctx.finalizers.push(fn);
+        } else {
+            throw new Error("S.finalize() must be called from within an S.formula.  Cannot call it at toplevel.");
+        }
     }
 
-    function finalize() {
-        // TODO
-    }
+    return S;
 });
