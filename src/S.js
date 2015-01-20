@@ -34,7 +34,7 @@ define('S', ['Environment', 'Source', 'Context'], function (Environment, Source,
 
         var src = new Source(env);
 
-        data.S = new DataCombinator();
+        data.S = new DataCombinator(data);
         data.toString = dataToString;
 
         return data;
@@ -61,8 +61,7 @@ define('S', ['Environment', 'Source', 'Context'], function (Environment, Source,
 
         if (env.ctx) env.ctx.addChild(dispose);
 
-        formula.S = new FormulaCombinator(dispose);
-        formula.dispose = dispose;
+        formula.S = new FormulaCombinator(formula, dispose);
         formula.toString = toString;
 
         if (!options.skipFirst) update();
@@ -99,10 +98,13 @@ define('S', ['Environment', 'Source', 'Context'], function (Environment, Source,
         }
     }
 
-    function DataCombinator() { }
+    function DataCombinator(signal) {
+        this.signal = signal;
+    }
 
-    function FormulaCombinator(detach) {
-        this.detach = detach;
+    function FormulaCombinator(formula, dispose) {
+        DataCombinator.call(this, formula);
+        this.dispose = dispose;
     }
 
     function dataToString() {

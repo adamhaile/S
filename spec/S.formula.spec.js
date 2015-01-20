@@ -351,19 +351,21 @@ describe("S.formula", function () {
 
             f1 = S.formula(function () { return d(); });
             f2 = S.formula(function () { return d(); });
+            f3 = S.formula(function () { return d(); });
 
-            g1 = S.formula(function () { return f1() + f2(); });
-            g2 = S.formula(function () { return f1() + f2(); });
+            g1 = S.formula(function () { return f1() + f2() + f3(); });
+            g2 = S.formula(function () { return f1() + f2() + f3(); });
+            g3 = S.formula(function () { return f1() + f2() + f3(); });
 
             spy = jasmine.createSpy("callCounter");
-            h  = S.formula(function () { spy(); return g1() + g2(); });
+            h  = S.formula(function () { spy(); return g1() + g2() + g3(); });
         });
 
         it("can produce exponential propagation", function () {
             spy.calls.reset();
             d(0);
-            // two layers of 2 nodes each = 2 x 2 = 4
-            expect(spy.calls.count()).toBe(4);
+            // two layers of 3 nodes each = 3 x 3 = 9
+            expect(spy.calls.count()).toBe(9);
         });
     });
 
@@ -398,7 +400,7 @@ describe("S.formula", function () {
         });
 
         it("deactives old child when updated", function () {
-            // re-evalue parent, thereby detaching stale g, which we've stored at h
+            // re-evalue parent, thereby disposing stale g, which we've stored at h
             d(2);
             // change e, triggering an update of any watchers of it, which should only be the new g
             e(3);
@@ -408,8 +410,8 @@ describe("S.formula", function () {
             expect(h()).toBe(2);
         });
 
-        it("detaches child when it is detached", function () {
-            f.S.detach();
+        it("disposes child when it is disposed", function () {
+            f.S.dispose();
             e(3);
             expect(g()).toBe(2);
         });
@@ -436,7 +438,7 @@ describe("S.formula", function () {
         });
     });
 
-    describe("detach", function () {
+    describe("dispose", function () {
         var d, f, spy;
 
         beforeEach(function () {
@@ -449,7 +451,7 @@ describe("S.formula", function () {
             spy.calls.reset();
             d(2);
             expect(spy.calls.count()).toBe(1);
-            f.S.detach();
+            f.S.dispose();
             spy.calls.reset();
             d(3);
             expect(spy.calls.count()).toBe(0);

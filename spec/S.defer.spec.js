@@ -1,56 +1,46 @@
 describe("S.defer", function () {
-    describe("with S.data dependency", function () {
-        var d, f;
-
-        beforeEach(function () {
-            d = S.data(1);
+    it("delays updates until reaching top level", function () {
+        var d = S.data(1),
             f = S.defer().S(function () {
                 return d();
             });
+
+        S.formula(function () {
+            d(2);
+            expect(S.peek(f)).toBe(1); // need to .peek, or we register a dependency to f, which causes a circular dependency
         });
 
-        it("doesn't update until reaching top level", function () {
-            S.formula(function () {
-                d(2);
-                expect(S.peek(f)).toBe(1);
-            });
-            expect(f()).toBe(2);
-        });
+        expect(f()).toBe(2);
     });
 
-    describe("with diamond dependencies", function () {
-        var d, f1, f2, f3, f4, f5;
+    it("can avoid duplicated updates", function () {
+        //     d
+        //     |
+        // +---+---+
+        // v   v   v
+        // f1  f2  f3
+        // |   |   |
+        // +---+---+
+        //     |
+        //  (defer)
+        //     |
+        //     v
+        //     g
+        var d = S(0),
+            f1 = S.formula(function () { return d(); }),
+            f2 = S.formula(function () { return d(); }),
+            f3 = S.formula(function () { return d(); }),
+            eagerSpy = jasmine.createSpy(""),
+            deferredSpy = jasmine.createSpy(""),
+            eager = S(function () { eagerSpy(); f1(); f2(); f3(); });
+            deferred = S.defer().S(function () { deferredSpy(); f1(); f2(); f3(); });
 
-        beforeEach(function () {
-            //         d
-            //         |
-            // +---+---+---+---+
-            // v   v   v   v   v
-            // f1  f2  f3  f4  f5
-            // |   |   |   |   |
-            // +---+---+---+---+
-            //         |
-            //      (defer)
-            //         |
-            //         v
-            //         g
-            d = S(0);
+        eagerSpy.calls.reset();
+        deferredSpy.calls.reset();
 
-            f1 = S.formula(function () { return d(); });
-            f2 = S.formula(function () { return d(); });
-            f3 = S.formula(function () { return d(); });
-            f4 = S.formula(function () { return d(); });
-            f5 = S.formula(function () { return d(); });
+        d(0);
 
-            spy = jasmine.createSpy("callCounter");
-
-            g = S.defer().S(function () { spy(); f1(); f2(); f3(); f4(); f5(); });
-        });
-
-        it("can avoid duplicated updates", function () {
-            spy.calls.reset();
-            d(0);
-            expect(spy.calls.count()).toBe(1);
-        });
+        expect(eagerSpy.calls.count()).toBe(3);
+        expect(deferredSpy.calls.count()).toBe(1);
     });
 });
