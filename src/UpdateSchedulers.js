@@ -1,34 +1,15 @@
-define('S.mods', ['S', 'Chainable'], function (S, Chainable) {
+define('schedulers', ['S'], function (S) {
 
     var _S_defer = S.defer;
 
-    ChainableMod.prototype = new Chainable();
-    ChainableMod.prototype.S = S.formula;
-    ChainableMod.prototype.sub = S.sub;
-
-    S.on             = ChainableMod.prototype.on             = chainableOn;
-    S.once           = ChainableMod.prototype.once           = chainableOnce;
-    S.defer          = ChainableMod.prototype.defer          = chainableDefer;
-    S.delay          = ChainableMod.prototype.delay          = chainableDelay;
-    S.debounce       = ChainableMod.prototype.debounce       = chainableDebounce;
-    S.throttle       = ChainableMod.prototype.throttle       = chainableThrottle;
-    S.pause          = ChainableMod.prototype.pause          = chainablePause;
-    S.throttledPause = ChainableMod.prototype.throttledPause = chainableThrottledPause;
-
-    return;
-
-    function ChainableMod(fn, prev) {
-        Chainable.call(this, fn, 'mod', prev);
-    }
-
-    function chainableOn(/* signals */) { return new ChainableMod(on(arguments.slice(0)), this); }
-    function chainableOnce()            { return new ChainableMod(on([]),                 this); }
-    function chainableDefer()           { return new ChainableMod(defer(),                this); }
-    function chainableDelay(t)          { return new ChainableMod(delay(t),               this); }
-    function chainableDebounce(t)       { return new ChainableMod(debounce(t),            this); }
-    function chainableThrottle(t)       { return new ChainableMod(throttle(t),            this); }
-    function chainablePause(s)          { return new ChainableMod(pause(s),               this); }
-    function chainableThrottledPause(s) { return new ChainableMod(throttledPause(s),      this); }
+    return {
+        defer: defer,
+        delay: delay,
+        throttle: throttle,
+        debounce: debounce,
+        pause: pause,
+        throttledPause: throttledPause
+    };
 
     function defer(fn) {
         if (fn !== undefined) return _S_defer(fn);
@@ -58,7 +39,7 @@ define('S.mods', ['S', 'Chainable'], function (S, Chainable) {
     function throttle(t) {
         return function throttle(fn) {
             var last = 0,
-                scheduled = false;
+            scheduled = false;
 
             return function () {
                 if (scheduled) return;
@@ -83,7 +64,7 @@ define('S.mods', ['S', 'Chainable'], function (S, Chainable) {
     function debounce(t) {
         return function (fn) {
             var last = 0,
-                tout = 0;
+            tout = 0;
 
             return function () {
                 var now = Date.now();
@@ -118,7 +99,6 @@ define('S.mods', ['S', 'Chainable'], function (S, Chainable) {
         }
     }
 
-
     function throttledPause(signal) {
         var fns = [];
 
@@ -147,12 +127,5 @@ define('S.mods', ['S', 'Chainable'], function (S, Chainable) {
                 });
             }
         };
-    }
-
-    function on(/* signals */) {
-        return function (fn) {
-            // TODO
-            return fn;
-        }
     }
 });

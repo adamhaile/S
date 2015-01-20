@@ -17,8 +17,205 @@
 })(function (define) {
     "use strict";
 
-define('S', [], function () {
-    var ctxMgr = new ContextManager();
+define('Source', [], function () {
+    function Source(env) {
+        this.id = env.count++;
+        this.lineage = env.ctx ? env.ctx.lineage : [];
+
+        this.updates = [];
+    }
+
+    Source.prototype = {
+        propagate: function propagate() {
+            var i, u, us = this.updates;
+
+            for (i = 0; i < us.length; i++) {
+                u = us[i];
+                if (u) u();
+            }
+        }
+    };
+
+    return Source;
+});
+
+define('Dependency', [], function () {
+
+    function Dependency(ctx, src) {
+        this.active = true;
+        this.gen = ctx.gen;
+        this.updates = src.updates;
+        this.offset = src.updates.length;
+
+        // set i to the point where the lineages diverge
+        for (var i = 0, len = Math.min(ctx.lineage.length, src.lineage.length);
+            i < len && ctx.lineage[i] === src.lineage[i];
+            i++);
+
+        this.update = ctx.updaters[i];
+        this.updates.push(this.update);
+
+        ctx.dependencies.push(this);
+        ctx.dependenciesIndex[src.id] = this;
+    }
+
+    Dependency.prototype = {
+        activate: function activate(gen) {
+            if (!this.active) {
+                this.active = true;
+                this.updates[this.offset] = this.update;
+            }
+            this.gen = gen;
+        },
+        deactivate: function deactivate() {
+            if (this.active) {
+                this.updates[this.offset] = null;
+            }
+            this.active = false;
+        }
+    };
+
+    return Dependency;
+});
+
+define('Context', ['Dependency'], function (Dependency) {
+
+    function Context(update, options, env) {
+        var i, l;
+
+        this.lineage = env.ctx ? env.ctx.lineage.slice(0) : [];
+        this.lineage.push(this);
+        this.mod = options.update;
+        this.updaters = [];
+
+        for (i = this.lineage.length - 1; i >= 0; i--) {
+            l = this.lineage[i];
+            if (l.mod) update = l.mod(update);
+            this.updaters[i] = update;
+        }
+
+        this.updating = false;
+        this.listening = true;
+        this.gen = 1;
+        this.dependencies = [];
+        this.dependenciesIndex = {};
+        this.cleanups = [];
+        this.finalizers = [];
+
+        if (options.sources) {
+            env.runInContext(function () {
+                for (var i = 0; i < options.sources.length; i++)
+                    options.sources[i]();
+            }, this);
+
+            this.listening = false;
+        }
+    }
+
+    Context.prototype = {
+        beginUpdate: function beginUpdate() {
+            this.cleanup();
+            this.gen++;
+            this.updating = true;
+        },
+        endUpdate: function endUpdate() {
+            this.updating = false;
+
+            if (!this.listening) return;
+
+            var i, dep;
+
+            for (i = 0; i < this.dependencies.length; i++) {
+                dep = this.dependencies[i];
+                if (dep.active && dep.gen < this.gen) {
+                    dep.deactivate();
+                }
+            }
+        },
+        addSource: function addSource(src) {
+            if (!this.listening) return;
+
+            var dep = this.dependenciesIndex[src.id];
+
+            if (dep) {
+                dep.activate(this.gen);
+            } else {
+                new Dependency(this, src);
+            }
+        },
+        addChild: function addChild(fn) {
+            this.cleanups.push(fn);
+        },
+        cleanup: function cleanup() {
+            for (var i = 0; i < this.cleanups.length; i++) {
+                this.cleanups[i]();
+            }
+            this.cleanups = [];
+        },
+        dispose: function dispose() {
+            var i;
+
+            for (i = 0; i < this.finalizers.length; i++) {
+                this.finalizers[i]();
+            }
+            for (i = this.dependencies.length - 1; i >= 0; i--) {
+                this.dependencies[i].deactivate();
+            }
+        }
+    };
+
+    return Context;
+});
+
+define('Environment', [], function () {
+
+    function Environment() {
+        this.count = 1;
+        this.ctx = null;
+        this.deferred = [];
+    }
+
+    Environment.prototype = {
+        runInContext: function runInContext(fn, ctx) {
+            if (ctx.updating) return;
+
+            var oldCtx;
+
+            oldCtx = this.ctx, this.ctx = ctx;
+
+            ctx.beginUpdate();
+
+            try {
+                return fn();
+            } finally {
+                ctx.endUpdate();
+                this.ctx = oldCtx;
+            }
+        },
+        runWithoutListening: function runWithoutListening(fn) {
+            var oldListening;
+
+            if (this.ctx) oldListening = this.ctx.listening, this.ctx.listening = false;
+
+            try {
+                return fn();
+            } finally {
+                if (this.ctx) this.ctx.listening = oldListening;
+            }
+        },
+        runDeferred: function runDeferred() {
+            if (this.ctx) return;
+            while (this.deferred.length !== 0) {
+                this.deferred.shift()();
+            }
+        }
+    };
+
+    return Environment;
+});
+
+define('S', ['Environment', 'Source', 'Context'], function (Environment, Source, Context) {
+    var env = new Environment();
 
     // initializer
     S.lift     = lift;
@@ -29,11 +226,14 @@ define('S', [], function () {
     S.defer   = defer;
     S.cleanup = cleanup;
     S.finalize = finalize;
+    S.toJSON   = toJSON;
 
     S.data.S = DataCombinator;
     S.formula.S = FormulaCombinator;
 
     FormulaCombinator.prototype = new DataCombinator();
+
+    return S;
 
     function S(arg1, arg2) {
         return S.lift(arg1, arg2);
@@ -48,7 +248,7 @@ define('S', [], function () {
     function data(value) {
         if (value === undefined) throw new Error("S.data can't be initialized with undefined.  In S, undefined is reserved for namespace lookup failures.");
 
-        var src = new Source(ctxMgr);
+        var src = new Source(env);
 
         data.S = new DataCombinator();
         data.toString = dataToString;
@@ -60,38 +260,40 @@ define('S', [], function () {
                 if (newValue === undefined) throw new Error("S.data can't be set to undefined.  In S, undefined is reserved for namespace lookup failures.");
                 value = newValue;
                 src.propagate();
-                ctxMgr.runDeferred();
+                env.runDeferred();
             } else {
-                if (ctxMgr.ctx) ctxMgr.ctx.addSource(src);
+                if (env.ctx) env.ctx.addSource(src);
             }
             return value;
         }
     }
 
-    function formula(fn) {
-        var src = new Source(ctxMgr),
-            ctx = new Context(update, this || {}, ctxMgr),
+    function formula(fn, options) {
+        options = options || {};
+
+        var src = new Source(env),
+            ctx = new Context(update, options, env),
             value;
 
-        if (ctxMgr.ctx) ctxMgr.ctx.addChild(dispose);
+        if (env.ctx) env.ctx.addChild(dispose);
 
         formula.S = new FormulaCombinator(dispose);
         formula.dispose = dispose;
         formula.toString = toString;
 
-        update();
+        if (!options.skipFirst) update();
 
-        ctxMgr.runDeferred();
+        env.runDeferred();
 
         return formula;
 
         function formula() {
-            if (ctxMgr.ctx) ctxMgr.ctx.addSource(src);
+            if (env.ctx) env.ctx.addSource(src);
             return value;
         }
 
         function update() {
-            ctxMgr.runInContext(_update, ctx);
+            env.runInContext(_update, ctx);
         }
 
         function _update() {
@@ -109,177 +311,9 @@ define('S', [], function () {
         }
 
         function toString() {
-            return "[formula: " + fn + "]";
+            return "[formula: " + (value !== undefined ? value + " - " : "")+ fn + "]";
         }
     }
-
-    function ContextManager() {
-        this.count = 1;
-        this.ctx = null;
-        this.deferred = [];
-    }
-
-    ContextManager.prototype.runInContext = function runInContext(fn, ctx) {
-        if (ctx.updating) return;
-
-        var oldCtx;
-
-        oldCtx = this.ctx, this.ctx = ctx;
-
-        ctx.beginUpdate();
-
-        try {
-            return fn();
-        } finally {
-            ctx.endUpdate();
-            this.ctx = oldCtx;
-        }
-    };
-    ContextManager.prototype.runWithoutListening = function runWithoutListening(fn) {
-        var oldListening;
-
-        if (this.ctx) oldListening = this.ctx.listening, this.ctx.listening = false;
-
-        try {
-            return fn();
-        } finally {
-            if (this.ctx) this.ctx.listening = oldListening;
-        }
-    };
-    ContextManager.prototype.runDeferred = function runDeferred() {
-        if (this.ctx) return;
-        while (this.deferred.length !== 0) {
-            this.deferred.shift()();
-        }
-    };
-
-    function Source(ctxMgr) {
-        this.id = ctxMgr.count++;
-        this.lineage = ctxMgr.ctx ? ctxMgr.ctx.lineage : [];
-
-        this.updates = [];
-    }
-
-    Source.prototype.propagate = function propagate() {
-        var i, u, us = this.updates;
-
-        for (i = 0; i < us.length; i++) {
-            u = us[i];
-            if (u) u();
-        }
-    };
-
-    function Context(update, options, ctxMgr) {
-        var i, l;
-
-        this.lineage = ctxMgr.ctx ? ctxMgr.ctx.lineage.slice(0) : [];
-        this.lineage.push(this);
-        this.mod = options.mod;
-        this.updaters = [];
-
-        for (i = this.lineage.length - 1; i >= 0; i--) {
-            l = this.lineage[i];
-            if (l.mod) update = l.mod(update);
-            this.updaters[i] = update;
-        }
-
-        this.updating = false;
-        this.gen = 1;
-        this.registrations = [];
-        this.registrationIndex = {};
-        this.cleanups = [];
-        this.finalizers = [];
-
-        this.listening = !options.sources;
-
-        if (options.sources) {
-            for (var i = 0; i < options.sources.length; i++) {
-                new Registration(this, options.sources[i]);
-            }
-        }
-    }
-
-    Context.prototype.beginUpdate = function beginUpdate() {
-        this.cleanup();
-        this.gen++;
-        this.updating = true;
-    };
-    Context.prototype.endUpdate = function endUpdate() {
-        this.updating = false;
-
-        if (!this.listening) return;
-
-        var i, reg;
-
-        for (i = 0; i < this.registrations.length; i++) {
-            reg = this.registrations[i];
-            if (reg.active && reg.gen < this.gen) {
-                reg.deactivate();
-            }
-        }
-    };
-    Context.prototype.addSource = function addSource(src) {
-        if (!this.listening) return;
-
-        var reg = this.registrationIndex[src.id];
-
-        if (reg) {
-            reg.activate(this.gen);
-        } else {
-            new Registration(this, src);
-        }
-    };
-    Context.prototype.addChild = function addChild(fn) {
-        this.cleanups.push(fn);
-    };
-    Context.prototype.cleanup = function cleanup() {
-        for (var i = 0; i < this.cleanups.length; i++) {
-            this.cleanups[i]();
-        }
-        this.cleanups = [];
-    };
-    Context.prototype.dispose = function dispose() {
-        var i;
-
-        for (i = 0; i < this.finalizers.length; i++) {
-            this.finalizers[i]();
-        }
-        for (i = this.registrations.length - 1; i >= 0; i--) {
-            this.registrations[i].deactivate();
-        }
-    };
-
-    function Registration(ctx, src) {
-        this.active = true;
-        this.gen = ctx.gen;
-        this.updates = src.updates;
-        this.offset = src.updates.length;
-
-        // set i to the point where the lineages diverge
-        for (var i = 0, len = Math.min(ctx.lineage.length, src.lineage.length);
-            i < len && ctx.lineage[i] === src.lineage[i];
-            i++);
-
-        this.update = ctx.updaters[i];
-        this.updates.push(this.update);
-
-        ctx.registrations.push(this);
-        ctx.registrationIndex[src.id] = this;
-    }
-
-    Registration.prototype.activate = function active(gen) {
-        if (!this.active) {
-            this.active = true;
-            this.updates[this.offset] = this.update;
-        }
-        this.gen = gen;
-    };
-    Registration.prototype.deactivate = function deactivate() {
-        if (this.active) {
-            this.updates[this.offset] = null;
-        }
-        this.active = false;
-    };
 
     function DataCombinator() { }
 
@@ -292,103 +326,52 @@ define('S', [], function () {
     }
 
     function peek(fn) {
-        return ctxMgr.runWithoutListening(fn);
+        return env.runWithoutListening(fn);
     }
 
     function defer(fn) {
-        if (ctxMgr.ctx) {
-            ctxMgr.deferred.push(fn);
+        if (env.ctx) {
+            env.deferred.push(fn);
         } else {
             fn();
         }
     }
 
     function cleanup(fn) {
-        if (ctxMgr.ctx) {
-            ctxMgr.ctx.cleanups.push(fn);
+        if (env.ctx) {
+            env.ctx.cleanups.push(fn);
         } else {
             throw new Error("S.cleanup() must be called from within an S.formula.  Cannot call it at toplevel.");
         }
     }
 
     function finalize(fn) {
-        if (ctxMgr.ctx) {
-            ctxMgr.ctx.finalizers.push(fn);
+        if (env.ctx) {
+            env.ctx.finalizers.push(fn);
         } else {
             throw new Error("S.finalize() must be called from within an S.formula.  Cannot call it at toplevel.");
         }
     }
 
-    return S;
+    function toJSON(o) {
+        return JSON.stringify(o, function (k, v) {
+            return (typeof v === 'function' && v.S) ? v() : v;
+        });
+    };
 });
 
-define('Chainable', [], function () {
-
-    return function Chainable(fn, key, prev, head) {
-        this.head = head !== undefined ? head : (prev && prev.head !== undefined) ? prev.head : null;
-        this[key] = (prev && prev[key] !== undefined) ? compose(fn, prev[key]) : fn;
-    }
-
-    function compose(f, g) {
-        return function compose(x) { return f(g(x)); };
-    }
-
-});
-
-define('S.sub', ['S'], function (S) {
-    S.sub = function sub(/* arg1, arg2, ... argn, fn */) {
-        var args = Array.prototype.slice.call(arguments),
-            fn = function () { },
-            realFn = args.pop(),
-            len = args.length,
-            values = new Array(len),
-            sub = this.S(function () {
-                for (var i = 0; i < len; i++) {
-                    values[i] = args[i]();
-                }
-
-                return S.peek(function () {
-                    return fn.apply(undefined, values);
-                });
-            });
-
-        fn = realFn;
-
-        return sub;
-    }
-});
-
-define('S.mods', ['S', 'Chainable'], function (S, Chainable) {
+define('schedulers', ['S'], function (S) {
 
     var _S_defer = S.defer;
 
-    ChainableMod.prototype = new Chainable();
-    ChainableMod.prototype.S = S.formula;
-    ChainableMod.prototype.sub = S.sub;
-
-    S.on             = ChainableMod.prototype.on             = chainableOn;
-    S.once           = ChainableMod.prototype.once           = chainableOnce;
-    S.defer          = ChainableMod.prototype.defer          = chainableDefer;
-    S.delay          = ChainableMod.prototype.delay          = chainableDelay;
-    S.debounce       = ChainableMod.prototype.debounce       = chainableDebounce;
-    S.throttle       = ChainableMod.prototype.throttle       = chainableThrottle;
-    S.pause          = ChainableMod.prototype.pause          = chainablePause;
-    S.throttledPause = ChainableMod.prototype.throttledPause = chainableThrottledPause;
-
-    return;
-
-    function ChainableMod(fn, prev) {
-        Chainable.call(this, fn, 'mod', prev);
-    }
-
-    function chainableOn(/* signals */) { return new ChainableMod(on(arguments.slice(0)), this); }
-    function chainableOnce()            { return new ChainableMod(on([]),                 this); }
-    function chainableDefer()           { return new ChainableMod(defer(),                this); }
-    function chainableDelay(t)          { return new ChainableMod(delay(t),               this); }
-    function chainableDebounce(t)       { return new ChainableMod(debounce(t),            this); }
-    function chainableThrottle(t)       { return new ChainableMod(throttle(t),            this); }
-    function chainablePause(s)          { return new ChainableMod(pause(s),               this); }
-    function chainableThrottledPause(s) { return new ChainableMod(throttledPause(s),      this); }
+    return {
+        defer: defer,
+        delay: delay,
+        throttle: throttle,
+        debounce: debounce,
+        pause: pause,
+        throttledPause: throttledPause
+    };
 
     function defer(fn) {
         if (fn !== undefined) return _S_defer(fn);
@@ -418,7 +401,7 @@ define('S.mods', ['S', 'Chainable'], function (S, Chainable) {
     function throttle(t) {
         return function throttle(fn) {
             var last = 0,
-                scheduled = false;
+            scheduled = false;
 
             return function () {
                 if (scheduled) return;
@@ -443,7 +426,7 @@ define('S.mods', ['S', 'Chainable'], function (S, Chainable) {
     function debounce(t) {
         return function (fn) {
             var last = 0,
-                tout = 0;
+            tout = 0;
 
             return function () {
                 var now = Date.now();
@@ -478,7 +461,6 @@ define('S.mods', ['S', 'Chainable'], function (S, Chainable) {
         }
     }
 
-
     function throttledPause(signal) {
         var fns = [];
 
@@ -508,21 +490,47 @@ define('S.mods', ['S', 'Chainable'], function (S, Chainable) {
             }
         };
     }
-
-    function on(/* signals */) {
-        return function (fn) {
-            // TODO
-            return fn;
-        }
-    }
 });
 
-define('S.toJSON', ['S'], function (S) {
-    S.toJSON = function toJSON(o) {
-        return JSON.stringify(o, function (k, v) {
-            return (typeof v === 'function' && v.S) ? v() : v;
-        });
+define('FormulaOptionBuilder', ['S', 'schedulers'], function (S, schedulers) {
+
+    var _S_defer = S.defer;
+
+    S.on             = function ()  { return new FormulaOptionBuilder().on([].slice.call(arguments)); };
+    S.once           = function ()  { return new FormulaOptionBuilder().once(); };
+    S.defer          = function ()  { return new FormulaOptionBuilder().defer(); };
+    S.delay          = function (t) { return new FormulaOptionBuilder().delay(t); };
+    S.debounce       = function (t) { return new FormulaOptionBuilder().debounce(t); };
+    S.throttle       = function (t) { return new FormulaOptionBuilder().throttle(t); };
+    S.pause          = function (s) { return new FormulaOptionBuilder().pause(s); };
+    S.throttledPause = function (s) { return new FormulaOptionBuilder().throttledPause(s); };
+
+    function FormulaOptionBuilder() {
+        this.options = {
+            sources: null,
+            update: null,
+            skipFirst: false
+        };
+    }
+
+    FormulaOptionBuilder.prototype = {
+        S:              function (fn) { return S.formula(fn, this.options); },
+        on:             function (s)  { this.options.sources = maybeAppend(this.options.sources, Array.isArray(s) ? s : [].slice.call(arguments)); return this; },
+        once:           function ()   { this.options.sources = [];                         return this; },
+        skipFirst:      function ()   { this.options.skipFirst = true;                     return this; },
+        defer:          function ()   { composeUpdate(this, schedulers.defer());           return this; },
+        delay:          function (t)  { composeUpdate(this, schedulers.delay(t));          return this; },
+        debounce:       function (t)  { composeUpdate(this, schedulers.debounce(t));       return this; },
+        throttle:       function (t)  { composeUpdate(this, schedulers.throttle(t));       return this; },
+        pause:          function (s)  { composeUpdate(this, schedulers.pause(s));          return this; },
+        throttledPause: function (s)  { composeUpdate(this, schedulers.throttledPause(s)); return this; },
     };
+
+    return;
+
+    function maybeCompose(f, g) { return g ? function compose(x) { return f(g(x)); } : f; }
+    function maybeAppend(a, b) { return a ? a.concat(b) : b; }
+    function composeUpdate(b, fn) { b.options.update = maybeCompose(fn, b.options.update); }
 });
 
 });

@@ -6,11 +6,13 @@ var gulp = require('gulp'),
 gulp.task('dist', function() {
     gulp.src([
         "src/_preamble.js",
+        "src/Source.js",
+        "src/Dependency.js",
+        "src/Context.js",
+        "src/Environment.js",
         "src/S.js",
-        "src/Chainable.js",
-        "src/S.sub.js",
-        "src/S.mods.js",
-        "src/S.toJSON.js",
+        "src/UpdateSchedulers.js",
+        "src/FormulaOptionBuilder.js",
         "src/_postamble.js"
     ])
     .pipe(concat("S.js"))
