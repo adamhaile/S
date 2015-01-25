@@ -4,18 +4,18 @@ define('S', ['Environment', 'Source', 'Context'], function (Environment, Source,
     // initializer
     S.lift     = lift;
 
-    S.data    = data;
-    S.formula = formula;
-    S.peek    = peek;
-    S.defer   = defer;
-    S.cleanup = cleanup;
+    S.data     = data;
+    S.formula  = formula;
+    S.peek     = peek;
+    S.defer    = defer;
+    S.proxy    = proxy;
+    S.cleanup  = cleanup;
     S.finalize = finalize;
     S.toJSON   = toJSON;
 
-    S.data.S = DataCombinator;
-    S.formula.S = FormulaCombinator;
-
-    FormulaCombinator.prototype = new DataCombinator();
+    // stubs for our combinators
+    S.data.pipe = null;
+    S.formula.pipe = null;
 
     return S;
 
@@ -30,18 +30,20 @@ define('S', ['Environment', 'Source', 'Context'], function (Environment, Source,
     }
 
     function data(value) {
-        if (value === undefined) throw new Error("S.data can't be initialized with undefined.  In S, undefined is reserved for namespace lookup failures.");
+        if (value === undefined)
+            throw new Error("S.data can't be initialized with undefined.  In S, undefined is reserved for namespace lookup failures.");
 
         var src = new Source(env);
 
-        data.S = new DataCombinator(data);
+        data.pipe = S.data.pipe;
         data.toString = dataToString;
 
         return data;
 
         function data(newValue) {
             if (arguments.length > 0) {
-                if (newValue === undefined) throw new Error("S.data can't be set to undefined.  In S, undefined is reserved for namespace lookup failures.");
+                if (newValue === undefined)
+                    throw new Error("S.data can't be set to undefined.  In S, undefined is reserved for namespace lookup failures.");
                 value = newValue;
                 src.propagate();
                 env.runDeferred();
@@ -61,10 +63,11 @@ define('S', ['Environment', 'Source', 'Context'], function (Environment, Source,
 
         if (env.ctx) env.ctx.addChild(dispose);
 
-        formula.S = new FormulaCombinator(formula, dispose);
+        formula.pipe = S.formula.pipe;
+        formula.dispose = dispose;
         formula.toString = toString;
 
-        if (!options.skipFirst) update();
+        (options.init ? options.init(update) : update)();
 
         env.runDeferred();
 
@@ -75,15 +78,22 @@ define('S', ['Environment', 'Source', 'Context'], function (Environment, Source,
             return value;
         }
 
-        function update() {
-            env.runInContext(_update, ctx);
+        function update(x) {
+            env.runInContext(_update, x, ctx);
+            //var newValue = env.runInContext(fn, x, ctx);
+
+            //if (newValue !== undefined) {
+            //    value = newValue;
+            //    src.propagate();
+            //}
         }
 
-        function _update() {
-            var newValue = fn();
+        function _update(x) {
+            var newValue = x === undefined ? fn() : fn(x);
 
             if (newValue !== undefined) {
                 value = newValue;
+                env.ctx = null;
                 src.propagate();
             }
         }
@@ -98,15 +108,6 @@ define('S', ['Environment', 'Source', 'Context'], function (Environment, Source,
         }
     }
 
-    function DataCombinator(signal) {
-        this.signal = signal;
-    }
-
-    function FormulaCombinator(formula, dispose) {
-        DataCombinator.call(this, formula);
-        this.dispose = dispose;
-    }
-
     function dataToString() {
         return "[data: " + S.peek(this) + "]";
     }
@@ -116,7 +117,7 @@ define('S', ['Environment', 'Source', 'Context'], function (Environment, Source,
     }
 
     function defer(fn) {
-        if (env.ctx) {
+        if (!env.toplevel) {
             env.deferred.push(fn);
         } else {
             fn();
@@ -137,6 +138,13 @@ define('S', ['Environment', 'Source', 'Context'], function (Environment, Source,
         } else {
             throw new Error("S.finalize() must be called from within an S.formula.  Cannot call it at toplevel.");
         }
+    }
+
+    function proxy(getter, setter) {
+        return function proxy(value) {
+            if (arguments.length !== 0) setter(value);
+            return getter();
+        };
     }
 
     function toJSON(o) {

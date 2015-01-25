@@ -411,7 +411,7 @@ describe("S.formula", function () {
         });
 
         it("disposes child when it is disposed", function () {
-            f.S.dispose();
+            f.dispose();
             e(3);
             expect(g()).toBe(2);
         });
@@ -451,7 +451,7 @@ describe("S.formula", function () {
             spy.calls.reset();
             d(2);
             expect(spy.calls.count()).toBe(1);
-            f.S.dispose();
+            f.dispose();
             spy.calls.reset();
             d(3);
             expect(spy.calls.count()).toBe(0);

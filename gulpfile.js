@@ -11,8 +11,9 @@ gulp.task('dist', function() {
         "src/Context.js",
         "src/Environment.js",
         "src/S.js",
-        "src/UpdateSchedulers.js",
+        "src/UpdateModifiers.js",
         "src/FormulaOptionBuilder.js",
+        "src/Transformers.js",
         "src/_postamble.js"
     ])
     .pipe(concat("S.js"))

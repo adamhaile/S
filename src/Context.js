@@ -26,7 +26,7 @@ define('Context', ['Dependency'], function (Dependency) {
             env.runInContext(function () {
                 for (var i = 0; i < options.sources.length; i++)
                     options.sources[i]();
-            }, this);
+            }, undefined, this);
 
             this.listening = false;
         }

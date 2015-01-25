@@ -29,7 +29,7 @@ describe("S.on(...)", function () {
             c = S(3),
             spy1 = jasmine.createSpy("spy1"),
             spy2 = jasmine.createSpy("spy2"),
-            s1 = S.on(a, b, c).S(function () { spy1(); }),
+            s1 = S.on([a, b, c]).S(function () { spy1(); }),
             s2 = S.on(a).on(b).on(c).S(function () { spy2(); });
 
         spy1.calls.reset();

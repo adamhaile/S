@@ -106,7 +106,7 @@ define('Context', ['Dependency'], function (Dependency) {
             env.runInContext(function () {
                 for (var i = 0; i < options.sources.length; i++)
                     options.sources[i]();
-            }, this);
+            }, undefined, this);
 
             this.listening = false;
         }
@@ -171,26 +171,32 @@ define('Environment', [], function () {
 
     function Environment() {
         this.count = 1;
+        this.toplevel = true;
         this.ctx = null;
         this.deferred = [];
     }
 
     Environment.prototype = {
-        runInContext: function runInContext(fn, ctx) {
+        runInContext: function runInContext(fn, x, ctx) {
             if (ctx.updating) return;
 
-            var oldCtx;
+            var oldCtx, result, toplevel;
 
             oldCtx = this.ctx, this.ctx = ctx;
+            toplevel = this.toplevel, this.toplevel = false;
 
             ctx.beginUpdate();
 
             try {
-                return fn();
+                result = x === undefined ? fn() : fn(x);
             } finally {
-                ctx.endUpdate();
                 this.ctx = oldCtx;
+                this.toplevel = toplevel;
             }
+
+            ctx.endUpdate();
+
+            return result;
         },
         runWithoutListening: function runWithoutListening(fn) {
             var oldListening;
@@ -204,9 +210,10 @@ define('Environment', [], function () {
             }
         },
         runDeferred: function runDeferred() {
-            if (this.ctx) return;
-            while (this.deferred.length !== 0) {
-                this.deferred.shift()();
+            if (this.toplevel) {
+                while (this.deferred.length !== 0) {
+                    this.deferred.shift()();
+                }
             }
         }
     };
@@ -220,18 +227,18 @@ define('S', ['Environment', 'Source', 'Context'], function (Environment, Source,
     // initializer
     S.lift     = lift;
 
-    S.data    = data;
-    S.formula = formula;
-    S.peek    = peek;
-    S.defer   = defer;
-    S.cleanup = cleanup;
+    S.data     = data;
+    S.formula  = formula;
+    S.peek     = peek;
+    S.defer    = defer;
+    S.proxy    = proxy;
+    S.cleanup  = cleanup;
     S.finalize = finalize;
     S.toJSON   = toJSON;
 
-    S.data.S = DataCombinator;
-    S.formula.S = FormulaCombinator;
-
-    FormulaCombinator.prototype = new DataCombinator();
+    // stubs for our combinators
+    S.data.pipe = null;
+    S.formula.pipe = null;
 
     return S;
 
@@ -246,18 +253,20 @@ define('S', ['Environment', 'Source', 'Context'], function (Environment, Source,
     }
 
     function data(value) {
-        if (value === undefined) throw new Error("S.data can't be initialized with undefined.  In S, undefined is reserved for namespace lookup failures.");
+        if (value === undefined)
+            throw new Error("S.data can't be initialized with undefined.  In S, undefined is reserved for namespace lookup failures.");
 
         var src = new Source(env);
 
-        data.S = new DataCombinator(data);
+        data.pipe = S.data.pipe;
         data.toString = dataToString;
 
         return data;
 
         function data(newValue) {
             if (arguments.length > 0) {
-                if (newValue === undefined) throw new Error("S.data can't be set to undefined.  In S, undefined is reserved for namespace lookup failures.");
+                if (newValue === undefined)
+                    throw new Error("S.data can't be set to undefined.  In S, undefined is reserved for namespace lookup failures.");
                 value = newValue;
                 src.propagate();
                 env.runDeferred();
@@ -277,10 +286,11 @@ define('S', ['Environment', 'Source', 'Context'], function (Environment, Source,
 
         if (env.ctx) env.ctx.addChild(dispose);
 
-        formula.S = new FormulaCombinator(formula, dispose);
+        formula.pipe = S.formula.pipe;
+        formula.dispose = dispose;
         formula.toString = toString;
 
-        if (!options.skipFirst) update();
+        (options.init ? options.init(update) : update)();
 
         env.runDeferred();
 
@@ -291,15 +301,22 @@ define('S', ['Environment', 'Source', 'Context'], function (Environment, Source,
             return value;
         }
 
-        function update() {
-            env.runInContext(_update, ctx);
+        function update(x) {
+            env.runInContext(_update, x, ctx);
+            //var newValue = env.runInContext(fn, x, ctx);
+
+            //if (newValue !== undefined) {
+            //    value = newValue;
+            //    src.propagate();
+            //}
         }
 
-        function _update() {
-            var newValue = fn();
+        function _update(x) {
+            var newValue = x === undefined ? fn() : fn(x);
 
             if (newValue !== undefined) {
                 value = newValue;
+                env.ctx = null;
                 src.propagate();
             }
         }
@@ -314,15 +331,6 @@ define('S', ['Environment', 'Source', 'Context'], function (Environment, Source,
         }
     }
 
-    function DataCombinator(signal) {
-        this.signal = signal;
-    }
-
-    function FormulaCombinator(formula, dispose) {
-        DataCombinator.call(this, formula);
-        this.dispose = dispose;
-    }
-
     function dataToString() {
         return "[data: " + S.peek(this) + "]";
     }
@@ -332,7 +340,7 @@ define('S', ['Environment', 'Source', 'Context'], function (Environment, Source,
     }
 
     function defer(fn) {
-        if (env.ctx) {
+        if (!env.toplevel) {
             env.deferred.push(fn);
         } else {
             fn();
@@ -355,6 +363,13 @@ define('S', ['Environment', 'Source', 'Context'], function (Environment, Source,
         }
     }
 
+    function proxy(getter, setter) {
+        return function proxy(value) {
+            if (arguments.length !== 0) setter(value);
+            return getter();
+        };
+    }
+
     function toJSON(o) {
         return JSON.stringify(o, function (k, v) {
             return (typeof v === 'function' && v.S) ? v() : v;
@@ -362,177 +377,330 @@ define('S', ['Environment', 'Source', 'Context'], function (Environment, Source,
     };
 });
 
-define('schedulers', ['S'], function (S) {
+define('modifiers', ['S'], function (S) {
 
     var _S_defer = S.defer;
 
     return {
-        defer: defer,
-        delay: delay,
-        throttle: throttle,
-        debounce: debounce,
-        pause: pause,
-        throttledPause: throttledPause
+        stop:      stop,
+        defer:     defer,
+        defer1:    defer1,
+        delay:     delay,
+        delay1:    delay1,
+        throttle:  throttle,
+        throttle1: throttle1,
+        debounce1: debounce1,
+        pause:     pause,
+        pause1:    pause1,
+        map:       map,
+        filter:    filter,
+        changes:   changes
     };
 
+    function stop(update) {
+        return function stopped(x) { }
+    }
+
     function defer(fn) {
-        if (fn !== undefined) return _S_defer(fn);
+        if (fn !== undefined)
+            return _S_defer(fn);
 
-        return function (update, id) {
-            var scheduled = false;
+        return function (update) {
+            return function deferred(x) {
+                _S_defer(function deferred() {
+                    update(x);
+                });
+            };
+        };
+    }
 
-            return function deferred() {
+    function defer1(fn) {
+        return function (update) {
+            var scheduled = false,
+                lastx = undefined;
+
+            return function deferred(x) {
+                lastx = x;
+
                 if (scheduled) return;
-
                 scheduled = true;
 
                 _S_defer(function deferred() {
                     scheduled = false;
-                    update();
+                    update(lastx);
                 });
             }
         };
     }
 
     function delay(t) {
-        return function (update, id) {
-            return function delayed() { setTimeout(update, t); }
+        return function (update) {
+            return function delayed(x) { setTimeout(update, t, x); }
         }
     }
 
-    function throttle(t) {
-        return function throttle(fn) {
-            var last = 0,
-            scheduled = false;
+    function delay1(t) {
+        return function (update) {
+            var scheduled = false,
+                x = undefined;
 
-            return function () {
+            return function delayed(_x) {
+                x = _x;
+
+                if (scheduled) return;
+                scheduled = true;
+
+                setTimeout(function delayed() {
+                    scheduled = false;
+                    update(x);
+                }, t);
+            };
+        };
+    }
+
+    function throttle(t) {
+        return function (update) {
+            var last = 0;
+            return function throttled(x) {
+                var now = Date.now();
+                last += t;
+                if (last <= now) {
+                    last = now;
+                    update(x);
+                } else {
+                    setTimeout(update, last - now, x);
+                }
+            }
+        }
+    }
+
+    function throttle1(t) {
+        return function throttle(update) {
+            var last = 0,
+                lastx = undefined,
+                scheduled = false;
+
+            return function throttle(x) {
+                lastx = x;
+
                 if (scheduled) return;
 
                 var now = Date.now();
 
                 if ((now - last) > t) {
                     last = now;
-                    fn();
+                    update(x);
                 } else {
                     scheduled = true;
                     setTimeout(function throttled() {
                         last = Date.now();
                         scheduled = false;
-                        fn();
+                        update(lastx);
                     }, t - (now - last));
                 }
             };
         };
     }
 
-    function debounce(t) {
-        return function (fn) {
+    function debounce1(t) {
+        return function (update) {
             var last = 0,
-            tout = 0;
+                lastx = undefined,
+                tout = 0;
 
-            return function () {
+            return function (x) {
+                lastx = x;
+
                 var now = Date.now();
 
                 if (now > last) {
                     last = now;
                     if (tout) clearTimeout(tout);
 
-                    tout = setTimeout(fn, t);
+                    tout = setTimeout(function debounce() { update(lastx); }, t);
                 }
             };
         };
     }
 
     function pause(signal) {
-        var fns = [];
+        var updates = [],
+            paused;
 
-        S.formula(function resume() {
-            if (!signal()) return;
-
-            for (var i = 0; i < fns.length; i++) {
-                fns[i]();
+        S.on(signal).S(function resume() {
+            while (!(paused = signal()) && updates.length) {
+                var update = updates.shift();
+                update();
             }
-
-            fns = [];
         });
 
-        return function (fn) {
-            return function () {
-                fns.push(fn);
+        return function (update) {
+            return function pause(x) {
+                if (paused) updates.push(function pause() { update(x); });
+                else update(x);
             }
         }
     }
 
-    function throttledPause(signal) {
-        var fns = [];
+    function pause1(signal) {
+        var updates = [],
+            paused;
 
-        S.formula(function resume() {
-            if (!signal()) return;
-
-            for (var i = 0; i < fns.length; i++) {
-                fns[i]();
+        S.on(signal).S(function resume() {
+            while (!(paused = signal()) && updates.length) {
+                var update = updates.shift();
+                update();
             }
-
-            fns = [];
         });
 
-        return function (fn) {
-            var scheduled = false;
+        return function (update) {
+            var scheduled = false,
+                lastx = undefined;
 
-            return function () {
-                if (scheduled) return;
+            return function throttledPause(x) {
+                if (paused) {
+                    lastx = x;
 
-                scheduled = true;
+                    if (scheduled) return;
+                    scheduled = true;
 
-                fns.push(function paused() {
-                    scheduled = false;
-
-                    fn();
-                });
+                    updates.push(function paused() {
+                        scheduled = false;
+                        update(lastx);
+                    });
+                } else {
+                    update(x);
+                }
             }
+        };
+    }
+
+    function map(fn) {
+        return function (update) {
+            return function map(x) {
+                update(x === undefined ? fn() : fn(x));
+            };
+        };
+    }
+
+    function filter(pred) {
+        return function (update) {
+            return function filter(x) {
+                if (x === undefined ? pred() : pred(x)) update(x);
+            };
+        };
+    }
+
+    function changes(eq) {
+        eq = eq || function eq(c, n) { return c === n; };
+        return function (update) {
+            var last = undefined;
+            return function changes(x) {
+                var neq = !eq(x, last);
+                last = x;
+                if (neq) update(x);
+            };
         };
     }
 });
 
-define('FormulaOptionBuilder', ['S', 'schedulers'], function (S, schedulers) {
-
-    var _S_defer = S.defer;
-
-    S.on             = function ()  { return new FormulaOptionBuilder().on([].slice.call(arguments)); };
-    S.once           = function ()  { return new FormulaOptionBuilder().once(); };
-    S.defer          = function ()  { return new FormulaOptionBuilder().defer(); };
-    S.delay          = function (t) { return new FormulaOptionBuilder().delay(t); };
-    S.debounce       = function (t) { return new FormulaOptionBuilder().debounce(t); };
-    S.throttle       = function (t) { return new FormulaOptionBuilder().throttle(t); };
-    S.pause          = function (s) { return new FormulaOptionBuilder().pause(s); };
-    S.throttledPause = function (s) { return new FormulaOptionBuilder().throttledPause(s); };
+define('FormulaOptionBuilder', ['S', 'modifiers'], function (S, modifiers) {
 
     function FormulaOptionBuilder() {
         this.options = {
             sources: null,
             update: null,
-            skipFirst: false
+            init: null
         };
     }
 
     FormulaOptionBuilder.prototype = {
-        S:              function (fn) { return S.formula(fn, this.options); },
-        on:             function (s)  { this.options.sources = maybeAppend(this.options.sources, Array.isArray(s) ? s : [].slice.call(arguments)); return this; },
-        once:           function ()   { this.options.sources = [];                         return this; },
-        skipFirst:      function ()   { this.options.skipFirst = true;                     return this; },
-        defer:          function ()   { composeUpdate(this, schedulers.defer());           return this; },
-        delay:          function (t)  { composeUpdate(this, schedulers.delay(t));          return this; },
-        debounce:       function (t)  { composeUpdate(this, schedulers.debounce(t));       return this; },
-        throttle:       function (t)  { composeUpdate(this, schedulers.throttle(t));       return this; },
-        pause:          function (s)  { composeUpdate(this, schedulers.pause(s));          return this; },
-        throttledPause: function (s)  { composeUpdate(this, schedulers.throttledPause(s)); return this; },
+        S: function (fn) {
+            return S.formula(fn, this.options);
+        },
+        on: function (l) {
+            l = !l ? [] : !Array.isArray(l) ? [l] : l;
+            this.options.sources = maybeConcat(this.options.sources, l);
+            return this;
+        },
+        once: function () {
+            this.options.sources = [];
+            return this;
+        },
+        skipFirst: function () {
+            if (this.options.sources === null || this.options.sources.length === 0)
+                throw new Error("to use skipFirst, you must first have specified at least one dependency with .on(...)")
+            composeInit(this, modifiers.stop);
+            return this;
+        }
+    };
+
+    // add methods for modifiers
+    'defer defer1 delay delay1 throttle throttle1 debounce1 pause pause1 filter'.split(' ').map(function (method) {
+        FormulaOptionBuilder.prototype[method] = function (v) { composeUpdate(this, modifiers[method](v)); return this; };
+    });
+
+    // add methods to S
+    'on once defer defer1 delay delay1 throttle throttle1 debounce1 pause pause1 filter'.split(' ').map(function (method) {
+        S[method] = function (v) { return new FormulaOptionBuilder()[method](v); };
+    });
+
+    return;
+
+    function maybeCompose(f, g) { return g ? function compose(x) { return f(g(x)); } : f; }
+    function maybeConcat(a, b) { return a ? a.concat(b) : b; }
+    function composeUpdate(b, fn) { b.options.update = maybeCompose(fn, b.options.update); }
+    function composeInit(b, fn) { b.options.init = maybeCompose(fn, b.options.init); }
+});
+
+define('Transformers', ['S', 'modifiers'], function (S, modifiers) {
+
+    S.data.pipe = function pipe() { return new TransBuilder(this); };
+    S.formula.pipe = function pipe() { return new FormulaTransBuilder(this); };
+
+    function TransBuilder(s) {
+        var m = modifiers.map(s);
+        this.signal = s;
+        this.options = {
+            sources: [s],
+            update: m,
+            init: m
+        };
+    }
+
+    TransBuilder.prototype = {
+        S: function (fn) {
+            return S.proxy(S.formula(fn || identity, this.options), this.signal);
+        }
+    };
+
+    function FormulaTransBuilder(f) {
+        TransBuilder.call(this, f);
+    }
+
+    FormulaTransBuilder.prototype = new TransBuilder();
+    FormulaTransBuilder.prototype.S = function (fn) { return S.formula(fn || identity, this.options); };
+
+    'defer defer1 delay delay1 throttle throttle1 debounce1 pause pause1 map filter changes'.split(' ').map(function (method) {
+        TransBuilder.prototype[method] = function (v) {
+            composeUpdate(this, modifiers[method](v));
+            return this;
+        };
+    });
+
+    TransBuilder.prototype.map = function (fn) {
+        var m = modifiers.map(fn);
+        composeInit(this, m);
+        composeUpdate(this, m);
+        return this;
     };
 
     return;
 
     function maybeCompose(f, g) { return g ? function compose(x) { return f(g(x)); } : f; }
-    function maybeAppend(a, b) { return a ? a.concat(b) : b; }
     function composeUpdate(b, fn) { b.options.update = maybeCompose(fn, b.options.update); }
+    function composeInit(b, fn) { b.options.init = maybeCompose(fn, b.options.init); }
+    function identity(x) { return x; }
 });
 
 });

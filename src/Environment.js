@@ -2,26 +2,32 @@ define('Environment', [], function () {
 
     function Environment() {
         this.count = 1;
+        this.toplevel = true;
         this.ctx = null;
         this.deferred = [];
     }
 
     Environment.prototype = {
-        runInContext: function runInContext(fn, ctx) {
+        runInContext: function runInContext(fn, x, ctx) {
             if (ctx.updating) return;
 
-            var oldCtx;
+            var oldCtx, result, toplevel;
 
             oldCtx = this.ctx, this.ctx = ctx;
+            toplevel = this.toplevel, this.toplevel = false;
 
             ctx.beginUpdate();
 
             try {
-                return fn();
+                result = x === undefined ? fn() : fn(x);
             } finally {
-                ctx.endUpdate();
                 this.ctx = oldCtx;
+                this.toplevel = toplevel;
             }
+
+            ctx.endUpdate();
+
+            return result;
         },
         runWithoutListening: function runWithoutListening(fn) {
             var oldListening;
@@ -35,9 +41,10 @@ define('Environment', [], function () {
             }
         },
         runDeferred: function runDeferred() {
-            if (this.ctx) return;
-            while (this.deferred.length !== 0) {
-                this.deferred.shift()();
+            if (this.toplevel) {
+                while (this.deferred.length !== 0) {
+                    this.deferred.shift()();
+                }
             }
         }
     };
