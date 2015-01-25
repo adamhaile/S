@@ -8,12 +8,6 @@ define('Context', ['Dependency'], function (Dependency) {
         this.mod = options.update;
         this.updaters = [];
 
-        for (i = this.lineage.length - 1; i >= 0; i--) {
-            l = this.lineage[i];
-            if (l.mod) update = l.mod(update);
-            this.updaters[i] = update;
-        }
-
         this.updating = false;
         this.listening = true;
         this.gen = 1;
@@ -22,11 +16,17 @@ define('Context', ['Dependency'], function (Dependency) {
         this.cleanups = [];
         this.finalizers = [];
 
+        for (i = this.lineage.length - 1; i >= 0; i--) {
+            l = this.lineage[i];
+            if (l.mod) update = l.mod(update, this);
+            this.updaters[i] = update;
+        }
+
         if (options.sources) {
             env.runInContext(function () {
                 for (var i = 0; i < options.sources.length; i++)
                     options.sources[i]();
-            }, undefined, this);
+            }, this);
 
             this.listening = false;
         }
@@ -36,11 +36,8 @@ define('Context', ['Dependency'], function (Dependency) {
         beginUpdate: function beginUpdate() {
             this.cleanup();
             this.gen++;
-            this.updating = true;
         },
         endUpdate: function endUpdate() {
-            this.updating = false;
-
             if (!this.listening) return;
 
             var i, dep;

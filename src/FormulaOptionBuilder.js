@@ -30,12 +30,12 @@ define('FormulaOptionBuilder', ['S', 'modifiers'], function (S, modifiers) {
     };
 
     // add methods for modifiers
-    'defer defer1 delay delay1 throttle throttle1 debounce1 pause pause1 filter'.split(' ').map(function (method) {
+    'defer throttle debounce pause'.split(' ').map(function (method) {
         FormulaOptionBuilder.prototype[method] = function (v) { composeUpdate(this, modifiers[method](v)); return this; };
     });
 
     // add methods to S
-    'on once defer defer1 delay delay1 throttle throttle1 debounce1 pause pause1 filter'.split(' ').map(function (method) {
+    'on once defer throttle debounce pause'.split(' ').map(function (method) {
         S[method] = function (v) { return new FormulaOptionBuilder()[method](v); };
     });
 

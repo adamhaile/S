@@ -8,7 +8,7 @@ define('Environment', [], function () {
     }
 
     Environment.prototype = {
-        runInContext: function runInContext(fn, x, ctx) {
+        runInContext: function runInContext(fn, ctx) {
             if (ctx.updating) return;
 
             var oldCtx, result, toplevel;
@@ -17,10 +17,12 @@ define('Environment', [], function () {
             toplevel = this.toplevel, this.toplevel = false;
 
             ctx.beginUpdate();
+            ctx.updating = true;
 
             try {
-                result = x === undefined ? fn() : fn(x);
+                result = fn();
             } finally {
+                ctx.updating = false;
                 this.ctx = oldCtx;
                 this.toplevel = toplevel;
             }

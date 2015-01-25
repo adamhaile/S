@@ -13,10 +13,6 @@ define('S', ['Environment', 'Source', 'Context'], function (Environment, Source,
     S.finalize = finalize;
     S.toJSON   = toJSON;
 
-    // stubs for our combinators
-    S.data.pipe = null;
-    S.formula.pipe = null;
-
     return S;
 
     function S(arg1, arg2) {
@@ -35,7 +31,6 @@ define('S', ['Environment', 'Source', 'Context'], function (Environment, Source,
 
         var src = new Source(env);
 
-        data.pipe = S.data.pipe;
         data.toString = dataToString;
 
         return data;
@@ -63,7 +58,6 @@ define('S', ['Environment', 'Source', 'Context'], function (Environment, Source,
 
         if (env.ctx) env.ctx.addChild(dispose);
 
-        formula.pipe = S.formula.pipe;
         formula.dispose = dispose;
         formula.toString = toString;
 
@@ -79,8 +73,8 @@ define('S', ['Environment', 'Source', 'Context'], function (Environment, Source,
         }
 
         function update(x) {
-            env.runInContext(_update, x, ctx);
-            //var newValue = env.runInContext(fn, x, ctx);
+            env.runInContext(_update, ctx);
+            //var newValue = env.runInContext(fn, ctx);
 
             //if (newValue !== undefined) {
             //    value = newValue;
@@ -89,7 +83,7 @@ define('S', ['Environment', 'Source', 'Context'], function (Environment, Source,
         }
 
         function _update(x) {
-            var newValue = x === undefined ? fn() : fn(x);
+            var newValue = fn();
 
             if (newValue !== undefined) {
                 value = newValue;

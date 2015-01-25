@@ -33,7 +33,7 @@ describe("S.defer", function () {
             eagerSpy = jasmine.createSpy(""),
             deferredSpy = jasmine.createSpy(""),
             eager = S(function () { eagerSpy(); f1(); f2(); f3(); });
-            deferred = S.defer1().S(function () { deferredSpy(); f1(); f2(); f3(); });
+            deferred = S.defer().S(function () { deferredSpy(); f1(); f2(); f3(); });
 
         eagerSpy.calls.reset();
         deferredSpy.calls.reset();
