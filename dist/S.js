@@ -17,10 +17,74 @@
 })(function (define) {
     "use strict";
 
-define('Source', [], function () {
-    function Source(env) {
-        this.id = env.count++;
-        this.lineage = env.ctx ? env.ctx.lineage : [];
+define('graph', [], function () {
+
+    function Recorder() {
+        this.count = 1;
+        this.target = null;
+        this.deferred = [];
+    }
+
+    Recorder.prototype = {
+        addSource: function addSource(src) {
+            if (this.target) this.target.addSource(src);
+        },
+        addChild: function addChild(dispose) {
+            if (this.target) this.target.addChild(dispose);
+        },
+        runWithTarget: function runWithTarget(fn, target) {
+            if (target.updating) return;
+
+            var oldTarget, result;
+
+            oldTarget = this.target, this.target = target;
+
+            target.beginUpdate();
+            target.updating = true;
+
+            result = this.runWithTargetInner(fn, oldTarget);
+
+            target.endUpdate();
+
+            return result;
+        },
+        // Chrome can't optimize a function with a try { } statement, so we move
+        // the minimal set of needed ops into a separate function.
+        runWithTargetInner: function runWithTargetInner(fn, oldTarget) {
+            try {
+                return fn();
+            } finally {
+                this.target.updating = false;
+                this.target = oldTarget;
+            }
+        },
+        peek: function runWithoutListening(fn) {
+            var oldListening;
+
+            if (this.target) {
+                oldListening = this.target.listening, this.target.listening = false;
+
+                try {
+                    return fn();
+                } finally {
+                    this.target.listening = oldListening;
+                }
+            } else {
+                return fn();
+            }
+        },
+        runDeferred: function runDeferred() {
+            if (!this.target) {
+                while (this.deferred.length !== 0) {
+                    this.deferred.shift()();
+                }
+            }
+        }
+    };
+
+    function Source(recorder) {
+        this.id = recorder.count++;
+        this.lineage = recorder.target ? recorder.target.lineage : [];
 
         this.updates = [];
     }
@@ -36,54 +100,10 @@ define('Source', [], function () {
         }
     };
 
-    return Source;
-});
-
-define('Dependency', [], function () {
-
-    function Dependency(ctx, src) {
-        this.active = true;
-        this.gen = ctx.gen;
-        this.updates = src.updates;
-        this.offset = src.updates.length;
-
-        // set i to the point where the lineages diverge
-        for (var i = 0, len = Math.min(ctx.lineage.length, src.lineage.length);
-            i < len && ctx.lineage[i] === src.lineage[i];
-            i++);
-
-        this.update = ctx.updaters[i];
-        this.updates.push(this.update);
-
-        ctx.dependencies.push(this);
-        ctx.dependenciesIndex[src.id] = this;
-    }
-
-    Dependency.prototype = {
-        activate: function activate(gen) {
-            if (!this.active) {
-                this.active = true;
-                this.updates[this.offset] = this.update;
-            }
-            this.gen = gen;
-        },
-        deactivate: function deactivate() {
-            if (this.active) {
-                this.updates[this.offset] = null;
-            }
-            this.active = false;
-        }
-    };
-
-    return Dependency;
-});
-
-define('Context', ['Dependency'], function (Dependency) {
-
-    function Context(update, options, env) {
+    function Target(update, options, recorder) {
         var i, l;
 
-        this.lineage = env.ctx ? env.ctx.lineage.slice(0) : [];
+        this.lineage = recorder.target ? recorder.target.lineage.slice(0) : [];
         this.lineage.push(this);
         this.mod = options.update;
         this.updaters = [];
@@ -103,7 +123,7 @@ define('Context', ['Dependency'], function (Dependency) {
         }
 
         if (options.sources) {
-            env.runInContext(function () {
+            recorder.runWithTarget(function () {
                 for (var i = 0; i < options.sources.length; i++)
                     options.sources[i]();
             }, this);
@@ -112,7 +132,7 @@ define('Context', ['Dependency'], function (Dependency) {
         }
     }
 
-    Context.prototype = {
+    Target.prototype = {
         beginUpdate: function beginUpdate() {
             this.cleanup();
             this.gen++;
@@ -140,8 +160,8 @@ define('Context', ['Dependency'], function (Dependency) {
                 new Dependency(this, src);
             }
         },
-        addChild: function addChild(fn) {
-            this.cleanups.push(fn);
+        addChild: function addChild(dispose) {
+            this.cleanups.push(dispose);
         },
         cleanup: function cleanup() {
             for (var i = 0; i < this.cleanups.length; i++) {
@@ -161,67 +181,50 @@ define('Context', ['Dependency'], function (Dependency) {
         }
     };
 
-    return Context;
-});
+    function Dependency(target, src) {
+        this.active = true;
+        this.gen = target.gen;
+        this.updates = src.updates;
+        this.offset = src.updates.length;
 
-define('Environment', [], function () {
+        // set i to the point where the lineages diverge
+        for (var i = 0, len = Math.min(target.lineage.length, src.lineage.length);
+            i < len && target.lineage[i] === src.lineage[i];
+            i++);
 
-    function Environment() {
-        this.count = 1;
-        this.toplevel = true;
-        this.ctx = null;
-        this.deferred = [];
+        this.update = target.updaters[i];
+        this.updates.push(this.update);
+
+        target.dependencies.push(this);
+        target.dependenciesIndex[src.id] = this;
     }
 
-    Environment.prototype = {
-        runInContext: function runInContext(fn, ctx) {
-            if (ctx.updating) return;
-
-            var oldCtx, result, toplevel;
-
-            oldCtx = this.ctx, this.ctx = ctx;
-            toplevel = this.toplevel, this.toplevel = false;
-
-            ctx.beginUpdate();
-            ctx.updating = true;
-
-            try {
-                result = fn();
-            } finally {
-                ctx.updating = false;
-                this.ctx = oldCtx;
-                this.toplevel = toplevel;
+    Dependency.prototype = {
+        activate: function activate(gen) {
+            if (!this.active) {
+                this.active = true;
+                this.updates[this.offset] = this.update;
             }
-
-            ctx.endUpdate();
-
-            return result;
+            this.gen = gen;
         },
-        runWithoutListening: function runWithoutListening(fn) {
-            var oldListening;
-
-            if (this.ctx) oldListening = this.ctx.listening, this.ctx.listening = false;
-
-            try {
-                return fn();
-            } finally {
-                if (this.ctx) this.ctx.listening = oldListening;
+        deactivate: function deactivate() {
+            if (this.active) {
+                this.updates[this.offset] = null;
             }
-        },
-        runDeferred: function runDeferred() {
-            if (this.toplevel) {
-                while (this.deferred.length !== 0) {
-                    this.deferred.shift()();
-                }
-            }
+            this.active = false;
         }
     };
 
-    return Environment;
+    return {
+        Recorder: Recorder,
+        Source: Source,
+        Target: Target,
+        Dependency: Dependency
+    };
 });
 
-define('S', ['Environment', 'Source', 'Context'], function (Environment, Source, Context) {
-    var env = new Environment();
+define('S', ['graph'], function (graph) {
+    var rec = new graph.Recorder();
 
     // initializer
     S.lift     = lift;
@@ -251,7 +254,7 @@ define('S', ['Environment', 'Source', 'Context'], function (Environment, Source,
         if (value === undefined)
             throw new Error("S.data can't be initialized with undefined.  In S, undefined is reserved for namespace lookup failures.");
 
-        var src = new Source(env);
+        var src = new graph.Source(rec);
 
         data.toString = dataToString;
 
@@ -263,9 +266,9 @@ define('S', ['Environment', 'Source', 'Context'], function (Environment, Source,
                     throw new Error("S.data can't be set to undefined.  In S, undefined is reserved for namespace lookup failures.");
                 value = newValue;
                 src.propagate();
-                env.runDeferred();
+                rec.runDeferred();
             } else {
-                if (env.ctx) env.ctx.addSource(src);
+                rec.addSource(src);
             }
             return value;
         }
@@ -274,53 +277,46 @@ define('S', ['Environment', 'Source', 'Context'], function (Environment, Source,
     function formula(fn, options) {
         options = options || {};
 
-        var src = new Source(env),
-            ctx = new Context(update, options, env),
+        var src = new graph.Source(rec),
+            tgt = new graph.Target(update, options, rec),
             value;
 
-        if (env.ctx) env.ctx.addChild(dispose);
+        rec.addChild(dispose);
 
         formula.dispose = dispose;
         formula.toString = toString;
 
         (options.init ? options.init(update) : update)();
 
-        env.runDeferred();
+        rec.runDeferred();
 
         return formula;
 
         function formula() {
-            if (env.ctx) env.ctx.addSource(src);
+            rec.addSource(src);
             return value;
         }
 
-        function update(x) {
-            env.runInContext(_update, ctx);
-            //var newValue = env.runInContext(fn, ctx);
-
-            //if (newValue !== undefined) {
-            //    value = newValue;
-            //    src.propagate();
-            //}
+        function update() {
+            rec.runWithTarget(_update, tgt);
         }
 
-        function _update(x) {
+        function _update() {
             var newValue = fn();
 
             if (newValue !== undefined) {
                 value = newValue;
-                env.ctx = null;
                 src.propagate();
             }
         }
 
         function dispose() {
-            ctx.cleanup();
-            ctx.dispose();
+            tgt.cleanup();
+            tgt.dispose();
         }
 
         function toString() {
-            return "[formula: " + (value !== undefined ? value + " - " : "")+ fn + "]";
+            return "[formula: " + (value !== undefined ? value + " - " : "") + fn + "]";
         }
     }
 
@@ -329,28 +325,28 @@ define('S', ['Environment', 'Source', 'Context'], function (Environment, Source,
     }
 
     function peek(fn) {
-        return env.runWithoutListening(fn);
+        return rec.peek(fn);
     }
 
     function defer(fn) {
-        if (!env.toplevel) {
-            env.deferred.push(fn);
+        if (rec.target) {
+            rec.deferred.push(fn);
         } else {
             fn();
         }
     }
 
     function cleanup(fn) {
-        if (env.ctx) {
-            env.ctx.cleanups.push(fn);
+        if (rec.target) {
+            rec.target.cleanups.push(fn);
         } else {
             throw new Error("S.cleanup() must be called from within an S.formula.  Cannot call it at toplevel.");
         }
     }
 
     function finalize(fn) {
-        if (env.ctx) {
-            env.ctx.finalizers.push(fn);
+        if (rec.target) {
+            rec.target.finalizers.push(fn);
         } else {
             throw new Error("S.finalize() must be called from within an S.formula.  Cannot call it at toplevel.");
         }
@@ -365,12 +361,12 @@ define('S', ['Environment', 'Source', 'Context'], function (Environment, Source,
 
     function toJSON(o) {
         return JSON.stringify(o, function (k, v) {
-            return (typeof v === 'function' && v.S) ? v() : v;
+            return (typeof v === 'function') ? v() : v;
         });
     };
 });
 
-define('modifiers', ['S'], function (S) {
+define('schedulers', ['S'], function (S) {
 
     var _S_defer = S.defer;
 
@@ -410,7 +406,7 @@ define('modifiers', ['S'], function (S) {
             var last = 0,
                 scheduled = false;
 
-            return function throttle(x) {
+            return function throttle() {
                 if (scheduled) return;
 
                 var now = Date.now();
@@ -479,7 +475,7 @@ define('modifiers', ['S'], function (S) {
     }
 });
 
-define('FormulaOptionBuilder', ['S', 'modifiers'], function (S, modifiers) {
+define('FormulaOptionBuilder', ['S', 'schedulers'], function (S, schedulers) {
 
     function FormulaOptionBuilder() {
         this.options = {
@@ -512,7 +508,7 @@ define('FormulaOptionBuilder', ['S', 'modifiers'], function (S, modifiers) {
 
     // add methods for modifiers
     'defer throttle debounce pause'.split(' ').map(function (method) {
-        FormulaOptionBuilder.prototype[method] = function (v) { composeUpdate(this, modifiers[method](v)); return this; };
+        FormulaOptionBuilder.prototype[method] = function (v) { composeUpdate(this, schedulers[method](v)); return this; };
     });
 
     // add methods to S
@@ -522,7 +518,7 @@ define('FormulaOptionBuilder', ['S', 'modifiers'], function (S, modifiers) {
 
     return;
 
-    function maybeCompose(f, g) { return g ? function compose(x) { return f(g(x)); } : f; }
+    function maybeCompose(f, g) { return g ? function compose() { return f(g()); } : f; }
     function maybeConcat(a, b) { return a ? a.concat(b) : b; }
     function composeUpdate(b, fn) { b.options.update = maybeCompose(fn, b.options.update); }
     function composeInit(b, fn) { b.options.init = maybeCompose(fn, b.options.init); }

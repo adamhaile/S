@@ -1,4 +1,4 @@
-define('modifiers', ['S'], function (S) {
+define('schedulers', ['S'], function (S) {
 
     var _S_defer = S.defer;
 
@@ -38,7 +38,7 @@ define('modifiers', ['S'], function (S) {
             var last = 0,
                 scheduled = false;
 
-            return function throttle(x) {
+            return function throttle() {
                 if (scheduled) return;
 
                 var now = Date.now();

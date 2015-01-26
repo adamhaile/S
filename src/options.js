@@ -1,4 +1,4 @@
-define('FormulaOptionBuilder', ['S', 'modifiers'], function (S, modifiers) {
+define('FormulaOptionBuilder', ['S', 'schedulers'], function (S, schedulers) {
 
     function FormulaOptionBuilder() {
         this.options = {
@@ -31,7 +31,7 @@ define('FormulaOptionBuilder', ['S', 'modifiers'], function (S, modifiers) {
 
     // add methods for modifiers
     'defer throttle debounce pause'.split(' ').map(function (method) {
-        FormulaOptionBuilder.prototype[method] = function (v) { composeUpdate(this, modifiers[method](v)); return this; };
+        FormulaOptionBuilder.prototype[method] = function (v) { composeUpdate(this, schedulers[method](v)); return this; };
     });
 
     // add methods to S
@@ -41,7 +41,7 @@ define('FormulaOptionBuilder', ['S', 'modifiers'], function (S, modifiers) {
 
     return;
 
-    function maybeCompose(f, g) { return g ? function compose(x) { return f(g(x)); } : f; }
+    function maybeCompose(f, g) { return g ? function compose() { return f(g()); } : f; }
     function maybeConcat(a, b) { return a ? a.concat(b) : b; }
     function composeUpdate(b, fn) { b.options.update = maybeCompose(fn, b.options.update); }
     function composeInit(b, fn) { b.options.init = maybeCompose(fn, b.options.init); }

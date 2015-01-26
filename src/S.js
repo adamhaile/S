@@ -1,5 +1,5 @@
-define('S', ['Environment', 'Source', 'Context'], function (Environment, Source, Context) {
-    var env = new Environment();
+define('S', ['graph'], function (graph) {
+    var rec = new graph.Recorder();
 
     // initializer
     S.lift     = lift;
@@ -29,7 +29,7 @@ define('S', ['Environment', 'Source', 'Context'], function (Environment, Source,
         if (value === undefined)
             throw new Error("S.data can't be initialized with undefined.  In S, undefined is reserved for namespace lookup failures.");
 
-        var src = new Source(env);
+        var src = new graph.Source(rec);
 
         data.toString = dataToString;
 
@@ -41,9 +41,9 @@ define('S', ['Environment', 'Source', 'Context'], function (Environment, Source,
                     throw new Error("S.data can't be set to undefined.  In S, undefined is reserved for namespace lookup failures.");
                 value = newValue;
                 src.propagate();
-                env.runDeferred();
+                rec.runDeferred();
             } else {
-                if (env.ctx) env.ctx.addSource(src);
+                rec.addSource(src);
             }
             return value;
         }
@@ -52,53 +52,46 @@ define('S', ['Environment', 'Source', 'Context'], function (Environment, Source,
     function formula(fn, options) {
         options = options || {};
 
-        var src = new Source(env),
-            ctx = new Context(update, options, env),
+        var src = new graph.Source(rec),
+            tgt = new graph.Target(update, options, rec),
             value;
 
-        if (env.ctx) env.ctx.addChild(dispose);
+        rec.addChild(dispose);
 
         formula.dispose = dispose;
         formula.toString = toString;
 
         (options.init ? options.init(update) : update)();
 
-        env.runDeferred();
+        rec.runDeferred();
 
         return formula;
 
         function formula() {
-            if (env.ctx) env.ctx.addSource(src);
+            rec.addSource(src);
             return value;
         }
 
-        function update(x) {
-            env.runInContext(_update, ctx);
-            //var newValue = env.runInContext(fn, ctx);
-
-            //if (newValue !== undefined) {
-            //    value = newValue;
-            //    src.propagate();
-            //}
+        function update() {
+            rec.runWithTarget(_update, tgt);
         }
 
-        function _update(x) {
+        function _update() {
             var newValue = fn();
 
             if (newValue !== undefined) {
                 value = newValue;
-                env.ctx = null;
                 src.propagate();
             }
         }
 
         function dispose() {
-            ctx.cleanup();
-            ctx.dispose();
+            tgt.cleanup();
+            tgt.dispose();
         }
 
         function toString() {
-            return "[formula: " + (value !== undefined ? value + " - " : "")+ fn + "]";
+            return "[formula: " + (value !== undefined ? value + " - " : "") + fn + "]";
         }
     }
 
@@ -107,28 +100,28 @@ define('S', ['Environment', 'Source', 'Context'], function (Environment, Source,
     }
 
     function peek(fn) {
-        return env.runWithoutListening(fn);
+        return rec.peek(fn);
     }
 
     function defer(fn) {
-        if (!env.toplevel) {
-            env.deferred.push(fn);
+        if (rec.target) {
+            rec.deferred.push(fn);
         } else {
             fn();
         }
     }
 
     function cleanup(fn) {
-        if (env.ctx) {
-            env.ctx.cleanups.push(fn);
+        if (rec.target) {
+            rec.target.cleanups.push(fn);
         } else {
             throw new Error("S.cleanup() must be called from within an S.formula.  Cannot call it at toplevel.");
         }
     }
 
     function finalize(fn) {
-        if (env.ctx) {
-            env.ctx.finalizers.push(fn);
+        if (rec.target) {
+            rec.target.finalizers.push(fn);
         } else {
             throw new Error("S.finalize() must be called from within an S.formula.  Cannot call it at toplevel.");
         }
@@ -143,7 +136,7 @@ define('S', ['Environment', 'Source', 'Context'], function (Environment, Source,
 
     function toJSON(o) {
         return JSON.stringify(o, function (k, v) {
-            return (typeof v === 'function' && v.S) ? v() : v;
+            return (typeof v === 'function') ? v() : v;
         });
     };
 });
