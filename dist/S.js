@@ -110,6 +110,7 @@ define('graph', [], function () {
 
         this.updating = false;
         this.listening = true;
+        this.generator = !!options.generator;
         this.gen = 1;
         this.dependencies = [];
         this.dependenciesIndex = {};
@@ -160,8 +161,8 @@ define('graph', [], function () {
                 new Dependency(this, src);
             }
         },
-        addChild: function addChild(dispose) {
-            this.cleanups.push(dispose);
+        addChild: function addChild(disposeChild) {
+            (this.generator ? this.finalizers : this.cleanups).push(disposeChild);
         },
         cleanup: function cleanup() {
             for (var i = 0; i < this.cleanups.length; i++) {
@@ -227,10 +228,7 @@ define('S', ['graph'], function (graph) {
     var rec = new graph.Recorder();
 
     // initializer
-    S.lift     = lift;
-
     S.data     = data;
-    S.formula  = formula;
     S.peek     = peek;
     S.defer    = defer;
     S.proxy    = proxy;
@@ -239,16 +237,6 @@ define('S', ['graph'], function (graph) {
     S.toJSON   = toJSON;
 
     return S;
-
-    function S(arg1, arg2) {
-        return S.lift(arg1, arg2);
-    }
-
-    function lift(arg1, arg2) {
-        return typeof arg1 === 'function' ? formula(arg1, arg2)
-            : arg1 instanceof Array ? S.seq(arg1)
-            : data(arg1);
-    }
 
     function data(value) {
         if (value === undefined)
@@ -274,7 +262,7 @@ define('S', ['graph'], function (graph) {
         }
     }
 
-    function formula(fn, options) {
+    function S(fn, options) {
         options = options || {};
 
         var src = new graph.Source(rec),
@@ -298,10 +286,10 @@ define('S', ['graph'], function (graph) {
         }
 
         function update() {
-            rec.runWithTarget(_update, tgt);
+            rec.runWithTarget(updateInner, tgt);
         }
 
-        function _update() {
+        function updateInner() {
             var newValue = fn();
 
             if (newValue !== undefined) {
@@ -481,13 +469,14 @@ define('FormulaOptionBuilder', ['S', 'schedulers'], function (S, schedulers) {
         this.options = {
             sources: null,
             update: null,
-            init: null
+            init: null,
+            generator: false
         };
     }
 
     FormulaOptionBuilder.prototype = {
         S: function (fn) {
-            return S.formula(fn, this.options);
+            return S(fn, this.options);
         },
         on: function (l) {
             l = !l ? [] : !Array.isArray(l) ? [l] : l;
@@ -503,6 +492,10 @@ define('FormulaOptionBuilder', ['S', 'schedulers'], function (S, schedulers) {
                 throw new Error("to use skipFirst, you must first have specified at least one dependency with .on(...)")
             composeInit(this, modifiers.stop);
             return this;
+        },
+        generator: function () {
+            this.options.generator = true;
+            return this;
         }
     };
 
@@ -512,7 +505,7 @@ define('FormulaOptionBuilder', ['S', 'schedulers'], function (S, schedulers) {
     });
 
     // add methods to S
-    'on once defer throttle debounce pause'.split(' ').map(function (method) {
+    'on once generator defer throttle debounce pause'.split(' ').map(function (method) {
         S[method] = function (v) { return new FormulaOptionBuilder()[method](v); };
     });
 

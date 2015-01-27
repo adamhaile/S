@@ -2,10 +2,7 @@ define('S', ['graph'], function (graph) {
     var rec = new graph.Recorder();
 
     // initializer
-    S.lift     = lift;
-
     S.data     = data;
-    S.formula  = formula;
     S.peek     = peek;
     S.defer    = defer;
     S.proxy    = proxy;
@@ -14,16 +11,6 @@ define('S', ['graph'], function (graph) {
     S.toJSON   = toJSON;
 
     return S;
-
-    function S(arg1, arg2) {
-        return S.lift(arg1, arg2);
-    }
-
-    function lift(arg1, arg2) {
-        return typeof arg1 === 'function' ? formula(arg1, arg2)
-            : arg1 instanceof Array ? S.seq(arg1)
-            : data(arg1);
-    }
 
     function data(value) {
         if (value === undefined)
@@ -49,7 +36,7 @@ define('S', ['graph'], function (graph) {
         }
     }
 
-    function formula(fn, options) {
+    function S(fn, options) {
         options = options || {};
 
         var src = new graph.Source(rec),
@@ -73,10 +60,10 @@ define('S', ['graph'], function (graph) {
         }
 
         function update() {
-            rec.runWithTarget(_update, tgt);
+            rec.runWithTarget(updateInner, tgt);
         }
 
-        function _update() {
+        function updateInner() {
             var newValue = fn();
 
             if (newValue !== undefined) {

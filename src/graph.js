@@ -91,6 +91,7 @@ define('graph', [], function () {
 
         this.updating = false;
         this.listening = true;
+        this.generator = !!options.generator;
         this.gen = 1;
         this.dependencies = [];
         this.dependenciesIndex = {};
@@ -141,8 +142,8 @@ define('graph', [], function () {
                 new Dependency(this, src);
             }
         },
-        addChild: function addChild(dispose) {
-            this.cleanups.push(dispose);
+        addChild: function addChild(disposeChild) {
+            (this.generator ? this.finalizers : this.cleanups).push(disposeChild);
         },
         cleanup: function cleanup() {
             for (var i = 0; i < this.cleanups.length; i++) {

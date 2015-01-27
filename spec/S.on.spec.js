@@ -1,6 +1,6 @@
 describe("S.on(...)", function () {
     it("registers a dependency", function () {
-        var d = S(1),
+        var d = S.data(1),
             spy = jasmine.createSpy("spy"),
             s = S.on(d).S(function () { spy(); });
 
@@ -12,7 +12,7 @@ describe("S.on(...)", function () {
     });
 
     it("prohibits organic dependencies", function () {
-        var d = S(1),
+        var d = S.data(1),
             spy = jasmine.createSpy("spy"),
             s = S.on(/* nothing */).S(function () { spy(); return d(); });
 
@@ -24,9 +24,9 @@ describe("S.on(...)", function () {
     });
 
     it ("allows multiple dependencies, either in one specification or many", function () {
-        var a = S(1),
-            b = S(2),
-            c = S(3),
+        var a = S.data(1),
+            b = S.data(2),
+            c = S.data(3),
             spy1 = jasmine.createSpy("spy1"),
             spy2 = jasmine.createSpy("spy2"),
             s1 = S.on([a, b, c]).S(function () { spy1(); }),

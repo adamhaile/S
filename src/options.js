@@ -4,13 +4,14 @@ define('FormulaOptionBuilder', ['S', 'schedulers'], function (S, schedulers) {
         this.options = {
             sources: null,
             update: null,
-            init: null
+            init: null,
+            generator: false
         };
     }
 
     FormulaOptionBuilder.prototype = {
         S: function (fn) {
-            return S.formula(fn, this.options);
+            return S(fn, this.options);
         },
         on: function (l) {
             l = !l ? [] : !Array.isArray(l) ? [l] : l;
@@ -26,6 +27,10 @@ define('FormulaOptionBuilder', ['S', 'schedulers'], function (S, schedulers) {
                 throw new Error("to use skipFirst, you must first have specified at least one dependency with .on(...)")
             composeInit(this, modifiers.stop);
             return this;
+        },
+        generator: function () {
+            this.options.generator = true;
+            return this;
         }
     };
 
@@ -35,7 +40,7 @@ define('FormulaOptionBuilder', ['S', 'schedulers'], function (S, schedulers) {
     });
 
     // add methods to S
-    'on once defer throttle debounce pause'.split(' ').map(function (method) {
+    'on once generator defer throttle debounce pause'.split(' ').map(function (method) {
         S[method] = function (v) { return new FormulaOptionBuilder()[method](v); };
     });
 

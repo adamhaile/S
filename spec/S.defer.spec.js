@@ -1,11 +1,9 @@
 describe("S.defer", function () {
     it("delays updates until reaching top level", function () {
         var d = S.data(1),
-            f = S.defer().S(function () {
-                return d();
-            });
+            f = S.defer().S(d);
 
-        S.formula(function () {
+        S(function () {
             d(2);
             expect(S.peek(f)).toBe(1); // need to .peek, or we register a dependency to f, which causes a circular dependency
         });
@@ -26,10 +24,10 @@ describe("S.defer", function () {
         //     |
         //     v
         //     g
-        var d = S(0),
-            f1 = S.formula(function () { return d(); }),
-            f2 = S.formula(function () { return d(); }),
-            f3 = S.formula(function () { return d(); }),
+        var d = S.data(0),
+            f1 = S(function () { return d(); }),
+            f2 = S(function () { return d(); }),
+            f3 = S(function () { return d(); }),
             eagerSpy = jasmine.createSpy(""),
             deferredSpy = jasmine.createSpy(""),
             eager = S(function () { eagerSpy(); f1(); f2(); f3(); });

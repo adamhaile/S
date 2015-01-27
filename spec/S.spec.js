@@ -1,18 +1,18 @@
 
-describe("S.formula", function () {
+describe("S()", function () {
     describe("creation", function () {
         var f;
 
         beforeEach(function () {
-            f = S.formula(function () { return 1; });
+            f = S(function () { return 1; });
         });
 
         it("throws if no function passed in", function () {
-            expect(function() { S.formula(); }).toThrow();
+            expect(function() { S(); }).toThrow();
         });
 
         it("throws if arg is not a function", function () {
-            expect(function() { S.formula(1); }).toThrow();
+            expect(function() { S(1); }).toThrow();
         });
 
         it("generates a function", function () {
@@ -47,9 +47,9 @@ describe("S.formula", function () {
         var spy, d, f;
 
         beforeEach(function () {
-            d = S(1),
+            d = S.data(1),
             spy = jasmine.createSpy("callCounter"),
-            f = S.formula(function () { spy(); return d(); });
+            f = S(function () { spy(); return d(); });
         });
 
         it("updates when S.data is set", function () {
@@ -72,9 +72,9 @@ describe("S.formula", function () {
         var i, t, e, spy, f;
 
         beforeEach(function () {
-            i = S(true), t = S(1), e = S(2)
+            i = S.data(true), t = S.data(1), e = S.data(2)
             spy = jasmine.createSpy("spy");
-            f = S.formula(function () { spy(); return i() ? t() : e(); });
+            f = S(function () { spy(); return i() ? t() : e(); });
             spy.calls.reset();
         });
 
@@ -110,7 +110,7 @@ describe("S.formula", function () {
 
         beforeEach(function () {
             spy = jasmine.createSpy("spy");
-            f = S(function () { spy(); d = S(1); })
+            f = S(function () { spy(); d = S.data(1); })
         });
 
         it("does not register a dependency", function () {
@@ -120,14 +120,14 @@ describe("S.formula", function () {
         });
     });
 
-    describe("that creates an S.formula", function () {
+    describe("that creates a formula", function () {
         var d, f, g, spy;
 
         beforeEach(function () {
-            d = S(1);
+            d = S.data(1);
             spy = jasmine.createSpy("spy");
             gspy = jasmine.createSpy("gspy");
-            f = S(function () { spy(); g = S.formula(function () { gspy(); return d(); }); })
+            f = S(function () { spy(); g = S(function () { gspy(); return d(); }); })
         });
 
         it("does not register a dependency", function () {
@@ -143,7 +143,7 @@ describe("S.formula", function () {
         var f;
 
         beforeEach(function () {
-            f = S.formula(function () { });
+            f = S(function () { });
         });
 
         it("reads as undefined", function () {
@@ -156,8 +156,8 @@ describe("S.formula", function () {
 
         beforeEach(function () {
             d = S.data(1);
-            fn = function () { if(d()) return d(); },
-            f = S.formula(fn);
+            fn = function () { if (d()) return d(); },
+            f = S(fn);
         });
 
         it("does not change value when function returns no value", function () {
@@ -177,11 +177,11 @@ describe("S.formula", function () {
         var d, evalCounter, f, watcherCounter, watcher;
 
         beforeEach(function () {
-            d = S(1),
+            d = S.data(1),
             evalCounter = jasmine.createSpy("evalCounter"),
-            f = S.formula(function () { evalCounter(); return d(); }),
+            f = S(function () { evalCounter(); return d(); }),
             watcherCounter = jasmine.createSpy("watcherEvalCounter"),
-            watcher = S.formula(function () { watcherCounter(); return f(); });
+            watcher = S(function () { watcherCounter(); return f(); });
         });
 
         it("does not cause re-evaluation", function () {
@@ -210,11 +210,11 @@ describe("S.formula", function () {
         var d, evalCounter, f, watcherCounter, watcher;
 
         beforeEach(function () {
-            d = S(1),
+            d = S.data(1),
             evalCounter = jasmine.createSpy("evalCounter"),
-            f = S.formula(function () { evalCounter(); d(); }),
+            f = S(function () { evalCounter(); d(); }),
             watcherCounter = jasmine.createSpy("watcherCounter"),
-            watcher = S.formula(function () { watcherCounter(); f(); });
+            watcher = S(function () { watcherCounter(); f(); });
         });
 
         it("does not occur", function () {
@@ -228,11 +228,11 @@ describe("S.formula", function () {
         var d, evalCounter, f, watcherCounter, watcher;
 
         beforeEach(function () {
-            d = S(1),
+            d = S.data(1),
             evalCounter = jasmine.createSpy("evalCounter"),
-            f = S.formula(function () { evalCounter(); if (d()) return d(); }),
+            f = S(function () { evalCounter(); if (d()) return d(); }),
             watcherCounter = jasmine.createSpy("watcherCounter"),
-            watcher = S.formula(function () { watcherCounter(); f(); });
+            watcher = S(function () { watcherCounter(); f(); });
         });
 
         it("does not occur when function returns no value", function () {
@@ -256,9 +256,9 @@ describe("S.formula", function () {
             //      |   |
             //      v   |
             //      f---+
-            d = S(1),
+            d = S.data(1),
             spy = jasmine.createSpy("callCounter"),
-            f = S.formula(function () { spy(); return d(d() + 1); });
+            f = S(function () { spy(); return d(d() + 1); });
         });
 
         it("stops propagation at the point that it cycles", function () {
@@ -282,13 +282,13 @@ describe("S.formula", function () {
             //      +-> f3 -------------+   |
             //      |                       |
             //      +-> f3 -----------------+
-            d = S(0);
+            d = S.data(0);
             // when f1 updates d, it won't fire f1 but it will f2, 3, 4 and 5, etc.
-            f1 = S.formula(function () { d(d() + 1); });
-            f2 = S.formula(function () { d(d() + 1); });
-            f3 = S.formula(function () { d(d() + 1); });
-            f4 = S.formula(function () { d(d() + 1); });
-            f5 = S.formula(function () { d(d() + 1); });
+            f1 = S(function () { d(d() + 1); });
+            f2 = S(function () { d(d() + 1); });
+            f3 = S(function () { d(d() + 1); });
+            f4 = S(function () { d(d() + 1); });
+            f5 = S(function () { d(d() + 1); });
         });
 
         it("can produce factorial propagation", function () {
@@ -311,16 +311,16 @@ describe("S.formula", function () {
             // +---+---+---+---+
             //         v
             //         g
-            d = S(0);
+            d = S.data(0);
 
-            f1 = S.formula(function () { return d(); });
-            f2 = S.formula(function () { return d(); });
-            f3 = S.formula(function () { return d(); });
-            f4 = S.formula(function () { return d(); });
-            f5 = S.formula(function () { return d(); });
+            f1 = S(function () { return d(); });
+            f2 = S(function () { return d(); });
+            f3 = S(function () { return d(); });
+            f4 = S(function () { return d(); });
+            f5 = S(function () { return d(); });
 
             spy = jasmine.createSpy("callCounter");
-            g = S.formula(function () { spy(); return f1() + f2() + f3() + f4() + f5(); });
+            g = S(function () { spy(); return f1() + f2() + f3() + f4() + f5(); });
         });
 
         it("can produce linear propagation", function () {
@@ -347,18 +347,18 @@ describe("S.formula", function () {
             // +--+--+
             //    v
             //    h
-            d = S(0);
+            d = S.data(0);
 
-            f1 = S.formula(function () { return d(); });
-            f2 = S.formula(function () { return d(); });
-            f3 = S.formula(function () { return d(); });
+            f1 = S(function () { return d(); });
+            f2 = S(function () { return d(); });
+            f3 = S(function () { return d(); });
 
-            g1 = S.formula(function () { return f1() + f2() + f3(); });
-            g2 = S.formula(function () { return f1() + f2() + f3(); });
-            g3 = S.formula(function () { return f1() + f2() + f3(); });
+            g1 = S(function () { return f1() + f2() + f3(); });
+            g2 = S(function () { return f1() + f2() + f3(); });
+            g3 = S(function () { return f1() + f2() + f3(); });
 
             spy = jasmine.createSpy("callCounter");
-            h  = S.formula(function () { spy(); return g1() + g2() + g3(); });
+            h  = S(function () { spy(); return g1() + g2() + g3(); });
         });
 
         it("can produce exponential propagation", function () {
@@ -373,8 +373,8 @@ describe("S.formula", function () {
         var d, e, fspy, f, gspy, g, h;
 
         beforeEach(function () {
-            d = S(1);
-            e = S(2);
+            d = S.data(1);
+            e = S.data(2);
             fspy = jasmine.createSpy("fspy");
             gspy = jasmine.createSpy("gspy");
             f = S(function () {
@@ -423,14 +423,14 @@ describe("S.formula", function () {
         beforeEach(function () {
             d = S.data(1);
             f = S.defer().S(function () {
-                g = S.formula(function () {
+                g = S(function () {
                     return d();
                 });
             });
         });
 
         it("applies flow modifer to child", function () {
-            S.formula(function () {
+            S(function () {
                 d(2);
                 expect(S.peek(g)).toBe(1);
             });
@@ -442,9 +442,9 @@ describe("S.formula", function () {
         var d, f, spy;
 
         beforeEach(function () {
-            d = S(1);
+            d = S.data(1);
             spy = jasmine.createSpy("spy");
-            f = S.formula(function () { spy(); d(); });
+            f = S(function () { spy(); d(); });
         });
 
         it("disables updates", function () {
