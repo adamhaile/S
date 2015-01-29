@@ -236,7 +236,6 @@ define('S', ['graph'], function (graph) {
     S.finalize = finalize;
     S.toJSON   = toJSON;
 
-    return S;
 
     function data(value) {
         if (value === undefined)
@@ -245,6 +244,11 @@ define('S', ['graph'], function (graph) {
         var src = new graph.Source(rec);
 
         data.toString = dataToString;
+        //data.foo = arrayify;
+
+        //if (Array.isArray(value)) arrayify(data);
+        //data.S = new (Array.isArray(value) ? ArrayCombinator : DataCombinator)(data);
+        data.S = new DataCombinator(data);
 
         return data;
 
@@ -351,7 +355,42 @@ define('S', ['graph'], function (graph) {
         return JSON.stringify(o, function (k, v) {
             return (typeof v === 'function') ? v() : v;
         });
-    };
+    }
+
+    function DataCombinator(signal) {
+        this.signal = signal;
+    }
+/*
+    function ArrayCombinator(signal) {
+        this.signal = signal;
+    }
+
+    ArrayCombinator.prototype = new DataCombinator(null);
+    ArrayCombinator.prototype.push    = push;
+    ArrayCombinator.prototype.push    = push;
+    ArrayCombinator.prototype.pop     = pop;
+    ArrayCombinator.prototype.shift   = shift;
+    ArrayCombinator.prototype.unshift = unshift;
+    ArrayCombinator.prototype.splice  = splice;
+    ArrayCombinator.prototype.remove  = remove;
+*/
+    function arrayify(s) {
+        s.push    = push;
+        s.pop     = pop;
+        s.shift   = shift;
+        s.unshift = unshift;
+        s.splice  = splice;
+        s.remove  = remove;
+    }
+
+    function push(v)         { var l = peek(this); l.push(v);     this(l); return v; }
+    function pop()           { var l = peek(this), v = l.pop();   this(l); return v; }
+    function shift()         { var l = peek(this), v = l.shift(); this(l); return v; }
+    function unshift(v)      { var l = peek(this); l.unshift(v);  this(l); return v; }
+    function splice(/*...*/) { var l = peek(this), v = l.splice.apply(l, arguments); this(l); return v;}
+    function remove(v)       { var l = peek(this), i = l.indexOf(v); if (i !== -1) { l.splice(i, 1); this(l); return v; } }
+
+    return S;
 });
 
 define('schedulers', ['S'], function (S) {

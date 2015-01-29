@@ -20,6 +20,8 @@ define('S', ['graph'], function (graph) {
 
         data.toString = dataToString;
 
+        if (Array.isArray(value)) arrayify(data);
+
         return data;
 
         function data(newValue) {
@@ -125,5 +127,21 @@ define('S', ['graph'], function (graph) {
         return JSON.stringify(o, function (k, v) {
             return (typeof v === 'function') ? v() : v;
         });
-    };
+    }
+
+    function arrayify(s) {
+        s.push    = push;
+        s.pop     = pop;
+        s.shift   = shift;
+        s.unshift = unshift;
+        s.splice  = splice;
+        s.remove  = remove;
+    }
+
+    function push(v)         { var l = peek(this); l.push(v);     this(l); return v; }
+    function pop()           { var l = peek(this), v = l.pop();   this(l); return v; }
+    function shift()         { var l = peek(this), v = l.shift(); this(l); return v; }
+    function unshift(v)      { var l = peek(this); l.unshift(v);  this(l); return v; }
+    function splice(/*...*/) { var l = peek(this), v = l.splice.apply(l, arguments); this(l); return v;}
+    function remove(v)       { var l = peek(this), i = l.indexOf(v); if (i !== -1) { l.splice(i, 1); this(l); return v; } }
 });
