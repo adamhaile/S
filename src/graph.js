@@ -1,16 +1,16 @@
 define('graph', [], function () {
 
-    function Recorder() {
+    function Overseer() {
         this.count = 1;
         this.target = null;
         this.deferred = [];
     }
 
-    Recorder.prototype = {
-        addSource: function addSource(src) {
+    Overseer.prototype = {
+        reportReference: function reportReference(src) {
             if (this.target) this.target.addSource(src);
         },
-        addChild: function addChild(dispose) {
+        reportFormula: function reportFormula(dispose) {
             if (this.target) this.target.addChild(dispose);
         },
         runWithTarget: function runWithTarget(fn, target) {
@@ -198,7 +198,7 @@ define('graph', [], function () {
     };
 
     return {
-        Recorder: Recorder,
+        Overseer: Overseer,
         Source: Source,
         Target: Target,
         Dependency: Dependency

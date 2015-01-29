@@ -1,5 +1,5 @@
 define('S', ['graph'], function (graph) {
-    var rec = new graph.Recorder();
+    var os = new graph.Overseer();
 
     // initializer
     S.data     = data;
@@ -16,7 +16,7 @@ define('S', ['graph'], function (graph) {
         if (value === undefined)
             throw new Error("S.data can't be initialized with undefined.  In S, undefined is reserved for namespace lookup failures.");
 
-        var src = new graph.Source(rec);
+        var src = new graph.Source(os);
 
         data.toString = dataToString;
 
@@ -30,9 +30,9 @@ define('S', ['graph'], function (graph) {
                     throw new Error("S.data can't be set to undefined.  In S, undefined is reserved for namespace lookup failures.");
                 value = newValue;
                 src.propagate();
-                rec.runDeferred();
+                os.runDeferred();
             } else {
-                rec.addSource(src);
+                os.reportReference(src);
             }
             return value;
         }
@@ -41,28 +41,28 @@ define('S', ['graph'], function (graph) {
     function S(fn, options) {
         options = options || {};
 
-        var src = new graph.Source(rec),
-            tgt = new graph.Target(update, options, rec),
+        var src = new graph.Source(os),
+            tgt = new graph.Target(update, options, os),
             value;
 
-        rec.addChild(dispose);
+        os.reportFormula(dispose);
 
         formula.dispose = dispose;
         formula.toString = toString;
 
         (options.init ? options.init(update) : update)();
 
-        rec.runDeferred();
+        os.runDeferred();
 
         return formula;
 
         function formula() {
-            rec.addSource(src);
+            os.reportReference(src);
             return value;
         }
 
         function update() {
-            rec.runWithTarget(updateInner, tgt);
+            os.runWithTarget(updateInner, tgt);
         }
 
         function updateInner() {
@@ -89,28 +89,28 @@ define('S', ['graph'], function (graph) {
     }
 
     function peek(fn) {
-        return rec.peek(fn);
+        return os.peek(fn);
     }
 
     function defer(fn) {
-        if (rec.target) {
-            rec.deferred.push(fn);
+        if (os.target) {
+            os.deferred.push(fn);
         } else {
             fn();
         }
     }
 
     function cleanup(fn) {
-        if (rec.target) {
-            rec.target.cleanups.push(fn);
+        if (os.target) {
+            os.target.cleanups.push(fn);
         } else {
             throw new Error("S.cleanup() must be called from within an S.formula.  Cannot call it at toplevel.");
         }
     }
 
     function finalize(fn) {
-        if (rec.target) {
-            rec.target.finalizers.push(fn);
+        if (os.target) {
+            os.target.finalizers.push(fn);
         } else {
             throw new Error("S.finalize() must be called from within an S.formula.  Cannot call it at toplevel.");
         }
