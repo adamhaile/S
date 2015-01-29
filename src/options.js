@@ -44,6 +44,8 @@ define('FormulaOptionBuilder', ['S', 'schedulers'], function (S, schedulers) {
         S[method] = function (v) { return new FormulaOptionBuilder()[method](v); };
     });
 
+    S.stopsign = schedulers.stopsign;
+
     return;
 
     function maybeCompose(f, g) { return g ? function compose() { return f(g()); } : f; }

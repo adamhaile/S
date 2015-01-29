@@ -7,7 +7,8 @@ define('schedulers', ['S'], function (S) {
         defer:    defer,
         throttle: throttle,
         debounce: debounce,
-        pause:    pause
+        pause:    pause,
+        stopsign: stopsign
     };
 
     function stop(update) {
@@ -18,7 +19,7 @@ define('schedulers', ['S'], function (S) {
         if (fn !== undefined)
             return _S_defer(fn);
 
-        return function (update, ctx) {
+        return function (update) {
             var scheduled = false;
 
             return function deferred() {
@@ -34,7 +35,7 @@ define('schedulers', ['S'], function (S) {
     }
 
     function throttle(t) {
-        return function throttle(update, ctx) {
+        return function throttle(update) {
             var last = 0,
                 scheduled = false;
 
@@ -59,7 +60,7 @@ define('schedulers', ['S'], function (S) {
     }
 
     function debounce(t) {
-        return function (update, ctx) {
+        return function (update) {
             var last = 0,
                 tout = 0;
 
@@ -76,33 +77,38 @@ define('schedulers', ['S'], function (S) {
         };
     }
 
-    function pause(signal) {
-        return function (update, ctx) {
-            var updates = [],
-                paused,
-                scheduled = false,
-                watcher = S.on(signal).S(function resume() {
-                    while (!(paused = signal()) && updates.length) {
-                        var update = updates.shift();
-                        update();
-                    }
-                });
+    function pause(collector) {
+        return function (update) {
+            var scheduled = false;
 
-            ctx.finalizers.push(watcher.dispose);
+            return function paused() {
+                if (scheduled) return;
+                scheduled = true;
 
-            return function pause() {
-                if (paused) {
-                    if (scheduled) return;
-                    scheduled = true;
-
-                    updates.push(function paused() {
-                        scheduled = false;
-                        update();
-                    });
-                } else {
+                collector(function resume() {
+                    scheduled = false;
                     update();
-                }
+                });
             }
         };
+    }
+
+    function stopsign() {
+        var updates = [];
+
+        collector.go = go;
+
+        return collector;
+
+        function collector(update) {
+            updates.push(update);
+        }
+
+        function go() {
+            for (var i = 0; i < updates.length; i++) {
+                updates[i]();
+            }
+            updates = [];
+        }
     }
 });

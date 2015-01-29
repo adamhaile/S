@@ -100,7 +100,7 @@ define('graph', [], function () {
 
         for (i = this.lineage.length - 1; i >= 0; i--) {
             l = this.lineage[i];
-            if (l.mod) update = l.mod(update, this);
+            if (l.mod) update = l.mod(update);
             this.updaters[i] = update;
         }
 
