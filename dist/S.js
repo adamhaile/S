@@ -32,47 +32,6 @@ define('graph', [], function () {
         reportFormula: function reportFormula(dispose) {
             if (this.target) this.target.addChild(dispose);
         },
-        runWithTarget: function runWithTarget(fn, target) {
-            if (target.updating) return;
-
-            var oldTarget, result;
-
-            oldTarget = this.target, this.target = target;
-
-            target.beginUpdate();
-            target.updating = true;
-
-            result = this.runWithTargetInner(fn, oldTarget);
-
-            target.endUpdate();
-
-            return result;
-        },
-        // Chrome can't optimize a function with a try { } statement, so we move
-        // the minimal set of needed ops into a separate function.
-        runWithTargetInner: function runWithTargetInner(fn, oldTarget) {
-            try {
-                return fn();
-            } finally {
-                this.target.updating = false;
-                this.target = oldTarget;
-            }
-        },
-        peek: function runWithoutListening(fn) {
-            var oldListening;
-
-            if (this.target) {
-                oldListening = this.target.listening, this.target.listening = false;
-
-                try {
-                    return fn();
-                } finally {
-                    this.target.listening = oldListening;
-                }
-            } else {
-                return fn();
-            }
-        },
         runDeferred: function runDeferred() {
             if (!this.target) {
                 while (this.deferred.length !== 0) {
@@ -82,9 +41,9 @@ define('graph', [], function () {
         }
     };
 
-    function Source(recorder) {
-        this.id = recorder.count++;
-        this.lineage = recorder.target ? recorder.target.lineage : [];
+    function Source(os) {
+        this.id = os.count++;
+        this.lineage = os.target ? os.target.lineage : [];
 
         this.updates = [];
     }
@@ -100,17 +59,16 @@ define('graph', [], function () {
         }
     };
 
-    function Target(update, options, recorder) {
-        var i, l;
+    function Target(update, options, os) {
+        var i, ancestor, oldTarget;
 
-        this.lineage = recorder.target ? recorder.target.lineage.slice(0) : [];
+        this.lineage = os.target ? os.target.lineage.slice(0) : [];
         this.lineage.push(this);
-        this.mod = options.update;
+        this.scheduler = options.update;
         this.updaters = [];
 
-        this.updating = false;
         this.listening = true;
-        this.generator = !!options.generator;
+        this.generating = false;
         this.gen = 1;
         this.dependencies = [];
         this.dependenciesIndex = {};
@@ -118,16 +76,19 @@ define('graph', [], function () {
         this.finalizers = [];
 
         for (i = this.lineage.length - 1; i >= 0; i--) {
-            l = this.lineage[i];
-            if (l.mod) update = l.mod(update);
+            ancestor = this.lineage[i];
+            if (ancestor.scheduler) update = ancestor.scheduler(update);
             this.updaters[i] = update;
         }
 
         if (options.sources) {
-            recorder.runWithTarget(function () {
-                for (var i = 0; i < options.sources.length; i++)
+            oldTarget = os.target, os.target = this;
+            try {
+                for (i = 0; i < options.sources.length; i++)
                     options.sources[i]();
-            }, this);
+            } finally {
+                os.target = oldTarget;
+            }
 
             this.listening = false;
         }
@@ -150,6 +111,9 @@ define('graph', [], function () {
                 }
             }
         },
+        addChild: function addChild(dispose) {
+            (this.generating ? this.finalizers : this.cleanups).push(dispose);
+        },
         addSource: function addSource(src) {
             if (!this.listening) return;
 
@@ -160,9 +124,6 @@ define('graph', [], function () {
             } else {
                 new Dependency(this, src);
             }
-        },
-        addChild: function addChild(disposeChild) {
-            (this.generator ? this.finalizers : this.cleanups).push(disposeChild);
         },
         cleanup: function cleanup() {
             for (var i = 0; i < this.cleanups.length; i++) {
@@ -227,13 +188,14 @@ define('graph', [], function () {
 define('S', ['graph'], function (graph) {
     var os = new graph.Overseer();
 
-    // initializer
+    // add methods to S
     S.data     = data;
     S.peek     = peek;
     S.defer    = defer;
     S.proxy    = proxy;
     S.cleanup  = cleanup;
     S.finalize = finalize;
+    S.generator = generator;
     S.toJSON   = toJSON;
 
     return S;
@@ -269,8 +231,10 @@ define('S', ['graph'], function (graph) {
 
         var src = new graph.Source(os),
             tgt = new graph.Target(update, options, os),
-            value;
+            value,
+            updating;
 
+        // register dispose before running fn, in case it throws
         os.reportFormula(dispose);
 
         formula.dispose = dispose;
@@ -288,16 +252,28 @@ define('S', ['graph'], function (graph) {
         }
 
         function update() {
-            os.runWithTarget(updateInner, tgt);
-        }
+            if (updating) return;
+            updating = true;
 
-        function updateInner() {
-            var newValue = fn();
+            var oldTarget, newValue;
 
-            if (newValue !== undefined) {
-                value = newValue;
-                src.propagate();
+            oldTarget = os.target, os.target = tgt;
+
+            tgt.beginUpdate();
+
+            try {
+                newValue = fn();
+
+                if (newValue !== undefined) {
+                    value = newValue;
+                    src.propagate();
+                }
+            } finally {
+                updating = false;
+                os.target = oldTarget;
             }
+
+            tgt.endUpdate();
         }
 
         function dispose() {
@@ -311,11 +287,35 @@ define('S', ['graph'], function (graph) {
     }
 
     function dataToString() {
-        return "[data: " + S.peek(this) + "]";
+        return "[data: " + peek(this) + "]";
     }
 
     function peek(fn) {
-        return os.peek(fn);
+        if (os.target && os.target.listening) {
+            os.target.listening = false;
+
+            try {
+                return fn();
+            } finally {
+                os.target.listening = true;
+            }
+        } else {
+            return fn();
+        }
+    }
+
+    function generator(fn) {
+        if (os.target && !os.target.generating) {
+            os.target.generating = true;
+
+            try {
+                return fn();
+            } finally {
+                os.target.generating = false;
+            }
+        } else {
+            return fn();
+        }
     }
 
     function defer(fn) {
@@ -378,10 +378,10 @@ define('schedulers', ['S'], function (S) {
 
     return {
         stop:     stop,
+        pause:    pause,
         defer:    defer,
         throttle: throttle,
         debounce: debounce,
-        pause:    pause,
         stopsign: stopsign
     };
 
@@ -389,18 +389,15 @@ define('schedulers', ['S'], function (S) {
         return function stopped() { }
     }
 
-    function defer(fn) {
-        if (fn !== undefined)
-            return _S_defer(fn);
-
+    function pause(collector) {
         return function (update) {
             var scheduled = false;
 
-            return function deferred() {
+            return function paused() {
                 if (scheduled) return;
                 scheduled = true;
 
-                _S_defer(function deferred() {
+                collector(function resume() {
                     scheduled = false;
                     update();
                 });
@@ -408,10 +405,15 @@ define('schedulers', ['S'], function (S) {
         };
     }
 
+    function defer(fn) {
+        if (fn !== undefined) return _S_defer(fn);
+        else return pause(_S_defer);
+    }
+
     function throttle(t) {
         return function throttle(update) {
             var last = 0,
-                scheduled = false;
+            scheduled = false;
 
             return function throttle() {
                 if (scheduled) return;
@@ -448,22 +450,6 @@ define('schedulers', ['S'], function (S) {
                     tout = setTimeout(function debounce() { update(); }, t);
                 }
             };
-        };
-    }
-
-    function pause(collector) {
-        return function (update) {
-            var scheduled = false;
-
-            return function paused() {
-                if (scheduled) return;
-                scheduled = true;
-
-                collector(function resume() {
-                    scheduled = false;
-                    update();
-                });
-            }
         };
     }
 
@@ -516,10 +502,6 @@ define('FormulaOptionBuilder', ['S', 'schedulers'], function (S, schedulers) {
                 throw new Error("to use skipFirst, you must first have specified at least one dependency with .on(...)")
             composeInit(this, modifiers.stop);
             return this;
-        },
-        generator: function () {
-            this.options.generator = true;
-            return this;
         }
     };
 
@@ -529,7 +511,7 @@ define('FormulaOptionBuilder', ['S', 'schedulers'], function (S, schedulers) {
     });
 
     // add methods to S
-    'on once generator defer throttle debounce pause'.split(' ').map(function (method) {
+    'on once defer throttle debounce pause'.split(' ').map(function (method) {
         S[method] = function (v) { return new FormulaOptionBuilder()[method](v); };
     });
 

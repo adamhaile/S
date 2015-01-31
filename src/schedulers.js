@@ -4,10 +4,10 @@ define('schedulers', ['S'], function (S) {
 
     return {
         stop:     stop,
+        pause:    pause,
         defer:    defer,
         throttle: throttle,
         debounce: debounce,
-        pause:    pause,
         stopsign: stopsign
     };
 
@@ -15,18 +15,15 @@ define('schedulers', ['S'], function (S) {
         return function stopped() { }
     }
 
-    function defer(fn) {
-        if (fn !== undefined)
-            return _S_defer(fn);
-
+    function pause(collector) {
         return function (update) {
             var scheduled = false;
 
-            return function deferred() {
+            return function paused() {
                 if (scheduled) return;
                 scheduled = true;
 
-                _S_defer(function deferred() {
+                collector(function resume() {
                     scheduled = false;
                     update();
                 });
@@ -34,10 +31,15 @@ define('schedulers', ['S'], function (S) {
         };
     }
 
+    function defer(fn) {
+        if (fn !== undefined) return _S_defer(fn);
+        else return pause(_S_defer);
+    }
+
     function throttle(t) {
         return function throttle(update) {
             var last = 0,
-                scheduled = false;
+            scheduled = false;
 
             return function throttle() {
                 if (scheduled) return;
@@ -74,22 +76,6 @@ define('schedulers', ['S'], function (S) {
                     tout = setTimeout(function debounce() { update(); }, t);
                 }
             };
-        };
-    }
-
-    function pause(collector) {
-        return function (update) {
-            var scheduled = false;
-
-            return function paused() {
-                if (scheduled) return;
-                scheduled = true;
-
-                collector(function resume() {
-                    scheduled = false;
-                    update();
-                });
-            }
         };
     }
 

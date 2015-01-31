@@ -1,13 +1,26 @@
 describe('S.pause', function () {
-    it('halts execution, which can be resumed with an S.stopsign', function () {
-        var ss = S.stopsign(),
-            d = S.data(1),
-            f = S.pause(ss).S(function () { return d(); });
+    it('hands update execution off to the supplied collector function', function () {
+        var resume,
+            collector = function (fn) { resume = fn; },
+            trigger = S.data(1),
+            fruns = 0,
+            f = S.pause(collector).S(function () { trigger(); fruns++; });
 
-        expect(f()).toBe(1);
-        d(2);
-        expect(f()).toBe(1);
-        ss.go();
-        expect(f()).toBe(2);
+        // at first, no updates have run, so no resume collected
+        expect(resume).not.toBeDefined();
+        expect(fruns).toBe(1);
+
+        // trigger an update
+        trigger(2);
+
+        // resume collected, but f still not updated
+        expect(resume).toEqual(jasmine.any(Function));
+        expect(fruns).toBe(1);
+
+        // trigger resume
+        resume();
+
+        // now f is updated
+        expect(fruns).toBe(2);
     });
 });

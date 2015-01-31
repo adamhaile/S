@@ -8,7 +8,7 @@ S.js is a tiny library (2kb gzipped) for performing simple, clean, fast reactive
 
 ### Clean
 - S's design has been worked and reworked to remove unexpected or surprising corner cases
-- S has an extensive test suite containing more code than the library itself
+- S has an extensive and growing test suite containing more code than the library itself
 
 ### Fast
 - Benchmarks put S 5-100 times faster than most well-known libraries at dispatching updates

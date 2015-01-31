@@ -1,13 +1,14 @@
 define('S', ['graph'], function (graph) {
     var os = new graph.Overseer();
 
-    // initializer
+    // add methods to S
     S.data     = data;
     S.peek     = peek;
     S.defer    = defer;
     S.proxy    = proxy;
     S.cleanup  = cleanup;
     S.finalize = finalize;
+    S.generator = generator;
     S.toJSON   = toJSON;
 
     return S;
@@ -43,8 +44,10 @@ define('S', ['graph'], function (graph) {
 
         var src = new graph.Source(os),
             tgt = new graph.Target(update, options, os),
-            value;
+            value,
+            updating;
 
+        // register dispose before running fn, in case it throws
         os.reportFormula(dispose);
 
         formula.dispose = dispose;
@@ -62,16 +65,28 @@ define('S', ['graph'], function (graph) {
         }
 
         function update() {
-            os.runWithTarget(updateInner, tgt);
-        }
+            if (updating) return;
+            updating = true;
 
-        function updateInner() {
-            var newValue = fn();
+            var oldTarget, newValue;
 
-            if (newValue !== undefined) {
-                value = newValue;
-                src.propagate();
+            oldTarget = os.target, os.target = tgt;
+
+            tgt.beginUpdate();
+
+            try {
+                newValue = fn();
+
+                if (newValue !== undefined) {
+                    value = newValue;
+                    src.propagate();
+                }
+            } finally {
+                updating = false;
+                os.target = oldTarget;
             }
+
+            tgt.endUpdate();
         }
 
         function dispose() {
@@ -85,11 +100,35 @@ define('S', ['graph'], function (graph) {
     }
 
     function dataToString() {
-        return "[data: " + S.peek(this) + "]";
+        return "[data: " + peek(this) + "]";
     }
 
     function peek(fn) {
-        return os.peek(fn);
+        if (os.target && os.target.listening) {
+            os.target.listening = false;
+
+            try {
+                return fn();
+            } finally {
+                os.target.listening = true;
+            }
+        } else {
+            return fn();
+        }
+    }
+
+    function generator(fn) {
+        if (os.target && !os.target.generating) {
+            os.target.generating = true;
+
+            try {
+                return fn();
+            } finally {
+                os.target.generating = false;
+            }
+        } else {
+            return fn();
+        }
     }
 
     function defer(fn) {

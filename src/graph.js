@@ -13,47 +13,6 @@ define('graph', [], function () {
         reportFormula: function reportFormula(dispose) {
             if (this.target) this.target.addChild(dispose);
         },
-        runWithTarget: function runWithTarget(fn, target) {
-            if (target.updating) return;
-
-            var oldTarget, result;
-
-            oldTarget = this.target, this.target = target;
-
-            target.beginUpdate();
-            target.updating = true;
-
-            result = this.runWithTargetInner(fn, oldTarget);
-
-            target.endUpdate();
-
-            return result;
-        },
-        // Chrome can't optimize a function with a try { } statement, so we move
-        // the minimal set of needed ops into a separate function.
-        runWithTargetInner: function runWithTargetInner(fn, oldTarget) {
-            try {
-                return fn();
-            } finally {
-                this.target.updating = false;
-                this.target = oldTarget;
-            }
-        },
-        peek: function runWithoutListening(fn) {
-            var oldListening;
-
-            if (this.target) {
-                oldListening = this.target.listening, this.target.listening = false;
-
-                try {
-                    return fn();
-                } finally {
-                    this.target.listening = oldListening;
-                }
-            } else {
-                return fn();
-            }
-        },
         runDeferred: function runDeferred() {
             if (!this.target) {
                 while (this.deferred.length !== 0) {
@@ -63,9 +22,9 @@ define('graph', [], function () {
         }
     };
 
-    function Source(recorder) {
-        this.id = recorder.count++;
-        this.lineage = recorder.target ? recorder.target.lineage : [];
+    function Source(os) {
+        this.id = os.count++;
+        this.lineage = os.target ? os.target.lineage : [];
 
         this.updates = [];
     }
@@ -81,17 +40,16 @@ define('graph', [], function () {
         }
     };
 
-    function Target(update, options, recorder) {
-        var i, l;
+    function Target(update, options, os) {
+        var i, ancestor, oldTarget;
 
-        this.lineage = recorder.target ? recorder.target.lineage.slice(0) : [];
+        this.lineage = os.target ? os.target.lineage.slice(0) : [];
         this.lineage.push(this);
-        this.mod = options.update;
+        this.scheduler = options.update;
         this.updaters = [];
 
-        this.updating = false;
         this.listening = true;
-        this.generator = !!options.generator;
+        this.generating = false;
         this.gen = 1;
         this.dependencies = [];
         this.dependenciesIndex = {};
@@ -99,16 +57,19 @@ define('graph', [], function () {
         this.finalizers = [];
 
         for (i = this.lineage.length - 1; i >= 0; i--) {
-            l = this.lineage[i];
-            if (l.mod) update = l.mod(update);
+            ancestor = this.lineage[i];
+            if (ancestor.scheduler) update = ancestor.scheduler(update);
             this.updaters[i] = update;
         }
 
         if (options.sources) {
-            recorder.runWithTarget(function () {
-                for (var i = 0; i < options.sources.length; i++)
+            oldTarget = os.target, os.target = this;
+            try {
+                for (i = 0; i < options.sources.length; i++)
                     options.sources[i]();
-            }, this);
+            } finally {
+                os.target = oldTarget;
+            }
 
             this.listening = false;
         }
@@ -131,6 +92,9 @@ define('graph', [], function () {
                 }
             }
         },
+        addChild: function addChild(dispose) {
+            (this.generating ? this.finalizers : this.cleanups).push(dispose);
+        },
         addSource: function addSource(src) {
             if (!this.listening) return;
 
@@ -141,9 +105,6 @@ define('graph', [], function () {
             } else {
                 new Dependency(this, src);
             }
-        },
-        addChild: function addChild(disposeChild) {
-            (this.generator ? this.finalizers : this.cleanups).push(disposeChild);
         },
         cleanup: function cleanup() {
             for (var i = 0; i < this.cleanups.length; i++) {
