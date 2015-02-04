@@ -189,14 +189,14 @@ define('S', ['graph'], function (graph) {
     var os = new graph.Overseer();
 
     // add methods to S
-    S.data     = data;
-    S.peek     = peek;
-    S.defer    = defer;
-    S.proxy    = proxy;
-    S.cleanup  = cleanup;
-    S.finalize = finalize;
+    S.data      = data;
+    S.peek      = peek;
+    S.defer     = defer;
+    S.proxy     = proxy;
+    S.cleanup   = cleanup;
+    S.finalize  = finalize;
     S.generator = generator;
-    S.toJSON   = toJSON;
+    S.toJSON    = toJSON;
 
     return S;
 
@@ -206,7 +206,7 @@ define('S', ['graph'], function (graph) {
 
         var src = new graph.Source(os);
 
-        data.toString = dataToString;
+        data.toJSON = dataToJSON;
 
         if (Array.isArray(value)) arrayify(data);
 
@@ -238,7 +238,7 @@ define('S', ['graph'], function (graph) {
         os.reportFormula(dispose);
 
         formula.dispose = dispose;
-        formula.toString = toString;
+        //formula.toString = toString;
 
         (options.init ? options.init(update) : update)();
 
@@ -273,6 +273,7 @@ define('S', ['graph'], function (graph) {
                 os.target = oldTarget;
             }
 
+
             tgt.endUpdate();
         }
 
@@ -281,13 +282,13 @@ define('S', ['graph'], function (graph) {
             tgt.dispose();
         }
 
-        function toString() {
-            return "[formula: " + (value !== undefined ? value + " - " : "") + fn + "]";
-        }
+        //function toString() {
+        //    return "[formula: " + (value !== undefined ? value + " - " : "") + fn + "]";
+        //}
     }
 
-    function dataToString() {
-        return "[data: " + peek(this) + "]";
+    function dataToJSON() {
+        return this();
     }
 
     function peek(fn) {
