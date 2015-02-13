@@ -399,21 +399,16 @@ describe("S()", function () {
             expect(gspy.calls.count()).toBe(2);
         });
 
-        it("deactives old child when updated", function () {
+        it("disposes old child when updated", function () {
             // re-evalue parent, thereby disposing stale g, which we've stored at h
             d(2);
-            // change e, triggering an update of any watchers of it, which should only be the new g
-            e(3);
-            // new g was updated
-            expect(g()).toBe(3);
-            // but old g (stored as h) was not
-            expect(h()).toBe(2);
+            // h is now disposed
+            expect(h()).not.toBeDefined();
         });
 
         it("disposes child when it is disposed", function () {
             f.dispose();
-            e(3);
-            expect(g()).toBe(2);
+            expect(g()).not.toBeDefined();
         });
     });
 

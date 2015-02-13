@@ -31,12 +31,18 @@ define('graph', [], function () {
 
     Source.prototype = {
         propagate: function propagate() {
-            var i, u, us = this.updates;
+            var i,
+                update,
+                updates = this.updates;
 
-            for (i = 0; i < us.length; i++) {
-                u = us[i];
-                if (u) u();
+            for (i = 0; i < updates.length; i++) {
+                update = updates[i];
+                if (update) update();
             }
+        },
+        dispose: function () {
+            this.lineage = null;
+            this.updates.length = 0;
         }
     };
 
@@ -46,7 +52,7 @@ define('graph', [], function () {
         this.lineage = os.target ? os.target.lineage.slice(0) : [];
         this.lineage.push(this);
         this.scheduler = options.update;
-        this.updaters = [];
+        this.updaters = new Array(this.lineage.length);
 
         this.listening = true;
         this.generating = false;
@@ -56,6 +62,7 @@ define('graph', [], function () {
         this.cleanups = [];
         this.finalizers = [];
 
+        this.updaters[this.lineage.length] = update;
         for (i = this.lineage.length - 1; i >= 0; i--) {
             ancestor = this.lineage[i];
             if (ancestor.scheduler) update = ancestor.scheduler(update);
@@ -101,7 +108,7 @@ define('graph', [], function () {
             var dep = this.dependenciesIndex[src.id];
 
             if (dep) {
-                dep.activate(this.gen);
+                dep.activate(this.gen, src);
             } else {
                 new Dependency(this, src);
             }
@@ -115,12 +122,17 @@ define('graph', [], function () {
         dispose: function dispose() {
             var i;
 
+            this.cleanup();
+
             for (i = 0; i < this.finalizers.length; i++) {
                 this.finalizers[i]();
             }
+            this.finalizers = [];
+
             for (i = this.dependencies.length - 1; i >= 0; i--) {
                 this.dependencies[i].deactivate();
             }
+            this.dependencies = [];
         }
     };
 
@@ -135,6 +147,8 @@ define('graph', [], function () {
             i < len && target.lineage[i] === src.lineage[i];
             i++);
 
+        //for (var i = 0; i < target.lineage.length && i < src.lineage.length && target.lineage[i] === src.lineage[i]; i++);
+
         this.update = target.updaters[i];
         this.updates.push(this.update);
 
@@ -143,9 +157,10 @@ define('graph', [], function () {
     }
 
     Dependency.prototype = {
-        activate: function activate(gen) {
+        activate: function activate(gen, src) {
             if (!this.active) {
                 this.active = true;
+                this.updates = src.updates;
                 this.updates[this.offset] = this.update;
             }
             this.gen = gen;
@@ -153,6 +168,7 @@ define('graph', [], function () {
         deactivate: function deactivate() {
             if (this.active) {
                 this.updates[this.offset] = null;
+                this.updates = null;
             }
             this.active = false;
         }

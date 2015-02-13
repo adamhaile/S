@@ -60,7 +60,7 @@ define('S', ['graph'], function (graph) {
         return formula;
 
         function formula() {
-            os.reportReference(src);
+            if (src) os.reportReference(src);
             return value;
         }
 
@@ -86,13 +86,15 @@ define('S', ['graph'], function (graph) {
                 os.target = oldTarget;
             }
 
-
             tgt.endUpdate();
         }
 
         function dispose() {
-            tgt.cleanup();
-            tgt.dispose();
+            if (src) {
+                src.dispose();
+                tgt.dispose();
+            }
+            src = tgt = fn = value = undefined;
         }
 
         //function toString() {
