@@ -1,6 +1,4 @@
-define('schedulers', ['S'], function (S) {
-
-    var _S_defer = S.defer;
+define('schedulers', ['core'], function (core) {
 
     return {
         stop:     stop,
@@ -8,7 +6,8 @@ define('schedulers', ['S'], function (S) {
         defer:    defer,
         throttle: throttle,
         debounce: debounce,
-        stopsign: stopsign
+        stopsign: stopsign,
+        when:     when
     };
 
     function stop(update) {
@@ -32,8 +31,7 @@ define('schedulers', ['S'], function (S) {
     }
 
     function defer(fn) {
-        if (fn !== undefined) return _S_defer(fn);
-        else return pause(_S_defer);
+        return pause(core.defer);
     }
 
     function throttle(t) {
@@ -95,6 +93,15 @@ define('schedulers', ['S'], function (S) {
                 updates[i]();
             }
             updates = [];
+        }
+    }
+
+    function when(preds) {
+        return function when(update) {
+            for (var i = 0; i < preds.length; i++) {
+                if (preds[i]() === undefined) return;
+            }
+            update();
         }
     }
 });

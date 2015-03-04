@@ -120,25 +120,6 @@ describe("S()", function () {
         });
     });
 
-    describe("that creates a formula", function () {
-        var d, f, g, spy;
-
-        beforeEach(function () {
-            d = S.data(1);
-            spy = jasmine.createSpy("spy");
-            gspy = jasmine.createSpy("gspy");
-            f = S(function () { spy(); g = S(function () { gspy(); return d(); }); })
-        });
-
-        it("does not register a dependency", function () {
-            spy.calls.reset();
-            gspy.calls.reset();
-            d(2);
-            expect(gspy.calls.count()).toBe(1);
-            expect(spy.calls.count()).toBe(0);
-        });
-    });
-
     describe("from a function with no return value", function () {
         var f;
 
@@ -170,6 +151,14 @@ describe("S()", function () {
             d(2);
             expect(fn()).toBe(2);
             expect(f()).toBe(2);
+        });
+    });
+
+    describe("with parameters", function () {
+        it("passes parameters to given function", function () {
+            var f = S(function (x, y) { return x + y; }, 1, 2);
+
+            expect(f()).toBe(3);
         });
     });
 
@@ -366,70 +355,6 @@ describe("S()", function () {
             d(0);
             // two layers of 3 nodes each = 3 x 3 = 9
             expect(spy.calls.count()).toBe(9);
-        });
-    });
-
-    describe("with child", function () {
-        var d, e, fspy, f, gspy, g, h;
-
-        beforeEach(function () {
-            d = S.data(1);
-            e = S.data(2);
-            fspy = jasmine.createSpy("fspy");
-            gspy = jasmine.createSpy("gspy");
-            f = S(function () {
-                fspy();
-                d();
-                g = S(function () {
-                    gspy();
-                    return e();
-                });
-            });
-            h = g;
-        });
-
-        it("creates child on initialization", function () {
-            expect(h).toEqual(jasmine.any(Function));
-            expect(h()).toBe(2);
-        });
-
-        it("does not depend on child's dependencies", function () {
-            e(3);
-            expect(fspy.calls.count()).toBe(1);
-            expect(gspy.calls.count()).toBe(2);
-        });
-
-        it("disposes old child when updated", function () {
-            // re-evalue parent, thereby disposing stale g, which we've stored at h
-            d(2);
-            // h is now disposed
-            expect(h()).not.toBeDefined();
-        });
-
-        it("disposes child when it is disposed", function () {
-            f.dispose();
-            expect(g()).not.toBeDefined();
-        });
-    });
-
-    describe("with child and flow modifier", function () {
-        var d, f, g;
-
-        beforeEach(function () {
-            d = S.data(1);
-            f = S.defer().S(function () {
-                g = S(function () {
-                    return d();
-                });
-            });
-        });
-
-        it("applies flow modifer to child", function () {
-            S(function () {
-                d(2);
-                expect(S.peek(g)).toBe(1);
-            });
-            expect(g()).toBe(2);
         });
     });
 

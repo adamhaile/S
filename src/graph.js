@@ -11,7 +11,7 @@ define('graph', [], function () {
             if (this.target) this.target.addSource(src);
         },
         reportFormula: function reportFormula(dispose) {
-            if (this.target) this.target.addChild(dispose);
+            if (this.target) this.target.addSubformula(dispose);
         },
         runDeferred: function runDeferred() {
             if (!this.target) {
@@ -52,17 +52,21 @@ define('graph', [], function () {
         this.lineage = os.target ? os.target.lineage.slice(0) : [];
         this.lineage.push(this);
         this.scheduler = options.update;
-        this.updaters = new Array(this.lineage.length);
 
         this.listening = true;
-        this.generating = false;
+        this.pinning = false;
+        this.locked = true;
+
         this.gen = 1;
         this.dependencies = [];
         this.dependenciesIndex = {};
+
         this.cleanups = [];
         this.finalizers = [];
 
+        this.updaters = new Array(this.lineage.length + 1);
         this.updaters[this.lineage.length] = update;
+
         for (i = this.lineage.length - 1; i >= 0; i--) {
             ancestor = this.lineage[i];
             if (ancestor.scheduler) update = ancestor.scheduler(update);
@@ -71,10 +75,12 @@ define('graph', [], function () {
 
         if (options.sources) {
             oldTarget = os.target, os.target = this;
+            this.locked = false;
             try {
                 for (i = 0; i < options.sources.length; i++)
                     options.sources[i]();
             } finally {
+                this.locked = true;
                 os.target = oldTarget;
             }
 
@@ -99,11 +105,13 @@ define('graph', [], function () {
                 }
             }
         },
-        addChild: function addChild(dispose) {
-            (this.generating ? this.finalizers : this.cleanups).push(dispose);
+        addSubformula: function addSubformula(dispose) {
+            if (this.locked)
+                throw new Error("Cannot create a new subformula except while updating the parent");
+            (this.pinning ? this.finalizers : this.cleanups).push(dispose);
         },
         addSource: function addSource(src) {
-            if (!this.listening) return;
+            if (!this.listening || this.locked) return;
 
             var dep = this.dependenciesIndex[src.id];
 
@@ -127,12 +135,18 @@ define('graph', [], function () {
             for (i = 0; i < this.finalizers.length; i++) {
                 this.finalizers[i]();
             }
-            this.finalizers = [];
 
             for (i = this.dependencies.length - 1; i >= 0; i--) {
                 this.dependencies[i].deactivate();
             }
-            this.dependencies = [];
+
+            this.lineage = null;
+            this.scheduler = null;
+            this.updaters = null;
+            this.cleanups = null;
+            this.finalizers = null;
+            this.dependencies = null;
+            this.dependenciesIndex = null;
         }
     };
 

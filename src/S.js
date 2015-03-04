@@ -1,189 +1,41 @@
-define('S', ['graph'], function (graph) {
-    var os = new graph.Overseer();
+define('S', ['core', 'options', 'schedulers', 'misc'], function (core, options, schedulers, misc) {
+    // build our top-level object S
+    function S(fn /*, args */) {
+        if (arguments.length > 1) {
+            var _fn = fn;
+            var _args = Array.prototype.slice.call(arguments, 1);
+            fn = function () { return _fn.apply(null, _args); };
+        }
 
-    // add methods to S
-    S.data      = data;
-    S.peek      = peek;
-    S.defer     = defer;
-    S.proxy     = proxy;
-    S.cleanup   = cleanup;
-    S.finalize  = finalize;
-    S.generator = generator;
-    S.toJSON    = toJSON;
+        return core.formula(fn, new core.FormulaOptions());
+    }
+
+    S.data      = core.data;
+    S.promise   = core.promise;
+    S.peek      = core.peek;
+    S.cleanup   = core.cleanup;
+    S.finalize  = core.finalize;
+    S.pin       = core.pin;
+
+    // add methods to S for formula options builder
+    'on once when defer throttle debounce pause'.split(' ').map(function (method) {
+        S[method] = function (v) { return new options.FormulaOptionsBuilder()[method](v); };
+    });
+
+    // enable creation of formula from options builder
+    options.FormulaOptionsBuilder.prototype.S = function S(fn /*, args */) {
+        if (arguments.length > 1) {
+            var _fn = fn;
+            var _args = Array.prototype.slice.call(arguments, 1);
+            fn = function () { return _fn.apply(null, _args); };
+        }
+
+        return core.formula(fn, this.options);
+    }
+
+    S.stopsign = schedulers.stopsign;
+
+    S.proxy = misc.proxy;
 
     return S;
-
-    function data(value) {
-        if (value === undefined)
-            throw new Error("S.data can't be initialized with undefined.  In S, undefined is reserved for namespace lookup failures.");
-
-        var src = new graph.Source(os);
-
-        data.toJSON = dataToJSON;
-
-        if (Array.isArray(value)) arrayify(data);
-
-        return data;
-
-        function data(newValue) {
-            if (arguments.length > 0) {
-                if (newValue === undefined)
-                    throw new Error("S.data can't be set to undefined.  In S, undefined is reserved for namespace lookup failures.");
-                value = newValue;
-                src.propagate();
-                os.runDeferred();
-            } else {
-                os.reportReference(src);
-            }
-            return value;
-        }
-    }
-
-    function S(fn, options) {
-        options = options || {};
-
-        var src = new graph.Source(os),
-            tgt = new graph.Target(update, options, os),
-            value,
-            updating;
-
-        // register dispose before running fn, in case it throws
-        os.reportFormula(dispose);
-
-        formula.dispose = dispose;
-        //formula.toString = toString;
-
-        (options.init ? options.init(update) : update)();
-
-        os.runDeferred();
-
-        return formula;
-
-        function formula() {
-            if (src) os.reportReference(src);
-            return value;
-        }
-
-        function update() {
-            if (updating) return;
-            updating = true;
-
-            var oldTarget, newValue;
-
-            oldTarget = os.target, os.target = tgt;
-
-            tgt.beginUpdate();
-
-            try {
-                newValue = fn();
-
-                if (newValue !== undefined) {
-                    value = newValue;
-                    src.propagate();
-                }
-            } finally {
-                updating = false;
-                os.target = oldTarget;
-            }
-
-            tgt.endUpdate();
-        }
-
-        function dispose() {
-            if (src) {
-                src.dispose();
-                tgt.dispose();
-            }
-            src = tgt = fn = value = undefined;
-        }
-
-        //function toString() {
-        //    return "[formula: " + (value !== undefined ? value + " - " : "") + fn + "]";
-        //}
-    }
-
-    function dataToJSON() {
-        return this();
-    }
-
-    function peek(fn) {
-        if (os.target && os.target.listening) {
-            os.target.listening = false;
-
-            try {
-                return fn();
-            } finally {
-                os.target.listening = true;
-            }
-        } else {
-            return fn();
-        }
-    }
-
-    function generator(fn) {
-        if (os.target && !os.target.generating) {
-            os.target.generating = true;
-
-            try {
-                return fn();
-            } finally {
-                os.target.generating = false;
-            }
-        } else {
-            return fn();
-        }
-    }
-
-    function defer(fn) {
-        if (os.target) {
-            os.deferred.push(fn);
-        } else {
-            fn();
-        }
-    }
-
-    function cleanup(fn) {
-        if (os.target) {
-            os.target.cleanups.push(fn);
-        } else {
-            throw new Error("S.cleanup() must be called from within an S.formula.  Cannot call it at toplevel.");
-        }
-    }
-
-    function finalize(fn) {
-        if (os.target) {
-            os.target.finalizers.push(fn);
-        } else {
-            throw new Error("S.finalize() must be called from within an S.formula.  Cannot call it at toplevel.");
-        }
-    }
-
-    function proxy(getter, setter) {
-        return function proxy(value) {
-            if (arguments.length !== 0) setter(value);
-            return getter();
-        };
-    }
-
-    function toJSON(o) {
-        return JSON.stringify(o, function (k, v) {
-            return (typeof v === 'function') ? v() : v;
-        });
-    }
-
-    function arrayify(s) {
-        s.push    = push;
-        s.pop     = pop;
-        s.shift   = shift;
-        s.unshift = unshift;
-        s.splice  = splice;
-        s.remove  = remove;
-    }
-
-    function push(v)         { var l = peek(this); l.push(v);     this(l); return v; }
-    function pop()           { var l = peek(this), v = l.pop();   this(l); return v; }
-    function shift()         { var l = peek(this), v = l.shift(); this(l); return v; }
-    function unshift(v)      { var l = peek(this); l.unshift(v);  this(l); return v; }
-    function splice(/*...*/) { var l = peek(this), v = l.splice.apply(l, arguments); this(l); return v;}
-    function remove(v)       { var l = peek(this), i = l.indexOf(v); if (i !== -1) { l.splice(i, 1); this(l); return v; } }
-});
+})

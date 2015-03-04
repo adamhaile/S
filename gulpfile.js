@@ -7,9 +7,11 @@ gulp.task('dist', function() {
     gulp.src([
         "src/_preamble.js",
         "src/graph.js",
-        "src/S.js",
+        "src/core.js",
         "src/schedulers.js",
         "src/options.js",
+        "src/misc.js",
+        "src/S.js",
         "src/_postamble.js"
     ])
     .pipe(concat("S.js"))

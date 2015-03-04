@@ -1,18 +1,10 @@
-define('FormulaOptionBuilder', ['S', 'schedulers'], function (S, schedulers) {
+define('options', ['core', 'schedulers'], function (core, schedulers) {
 
-    function FormulaOptionBuilder() {
-        this.options = {
-            sources: null,
-            update: null,
-            init: null,
-            generator: false
-        };
+    function FormulaOptionsBuilder() {
+        this.options = new core.FormulaOptions();
     }
 
-    FormulaOptionBuilder.prototype = {
-        S: function (fn) {
-            return S(fn, this.options);
-        },
+    FormulaOptionsBuilder.prototype = {
         on: function (l) {
             l = !l ? [] : !Array.isArray(l) ? [l] : l;
             this.options.sources = maybeConcat(this.options.sources, l);
@@ -25,24 +17,27 @@ define('FormulaOptionBuilder', ['S', 'schedulers'], function (S, schedulers) {
         skipFirst: function () {
             if (this.options.sources === null || this.options.sources.length === 0)
                 throw new Error("to use skipFirst, you must first have specified at least one dependency with .on(...)")
-            composeInit(this, modifiers.stop);
+            composeInit(this, schedulers.stop);
+            return this;
+        },
+        when: function (l) {
+            l = !l ? [] : !Array.isArray(l) ? [l] : l;
+            this.options.sources = maybeConcat(this.options.sources, l);
+            var scheduler = schedulers.pause(schedulers.when(l));
+            composeInit(this, scheduler);
+            composeUpdate(this, scheduler);
             return this;
         }
     };
 
-    // add methods for modifiers
+    // add methods for schedulers
     'defer throttle debounce pause'.split(' ').map(function (method) {
-        FormulaOptionBuilder.prototype[method] = function (v) { composeUpdate(this, schedulers[method](v)); return this; };
+        FormulaOptionsBuilder.prototype[method] = function (v) { composeUpdate(this, schedulers[method](v)); return this; };
     });
 
-    // add methods to S
-    'on once defer throttle debounce pause'.split(' ').map(function (method) {
-        S[method] = function (v) { return new FormulaOptionBuilder()[method](v); };
-    });
-
-    S.stopsign = schedulers.stopsign;
-
-    return;
+    return {
+        FormulaOptionsBuilder: FormulaOptionsBuilder
+    };
 
     function maybeCompose(f, g) { return g ? function compose() { return f(g()); } : f; }
     function maybeConcat(a, b) { return a ? a.concat(b) : b; }

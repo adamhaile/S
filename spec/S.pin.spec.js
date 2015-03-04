@@ -1,5 +1,5 @@
-describe("S.generator", function () {
-    it("marks a region in which generated formulas are tied to the lifespan (not update cycle) of any parent formula", function () {
+describe("S.pin", function () {
+    it("marks a region in which subformulas are tied to the lifespan (not update cycle) of their parent formula", function () {
         var outerTrigger = S.data(null),
             innerTrigger = S.data(null),
             outer,
@@ -9,7 +9,7 @@ describe("S.generator", function () {
             // register dependency to outer trigger
             outerTrigger();
             // generator
-            S.generator(function () {
+            S.pin(function () {
                 // inner formula
                 S(function () {
                     // register dependency on inner trigger

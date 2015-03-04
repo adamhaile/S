@@ -30,7 +30,7 @@ define('graph', [], function () {
             if (this.target) this.target.addSource(src);
         },
         reportFormula: function reportFormula(dispose) {
-            if (this.target) this.target.addChild(dispose);
+            if (this.target) this.target.addSubformula(dispose);
         },
         runDeferred: function runDeferred() {
             if (!this.target) {
@@ -71,17 +71,21 @@ define('graph', [], function () {
         this.lineage = os.target ? os.target.lineage.slice(0) : [];
         this.lineage.push(this);
         this.scheduler = options.update;
-        this.updaters = new Array(this.lineage.length);
 
         this.listening = true;
-        this.generating = false;
+        this.pinning = false;
+        this.locked = true;
+
         this.gen = 1;
         this.dependencies = [];
         this.dependenciesIndex = {};
+
         this.cleanups = [];
         this.finalizers = [];
 
+        this.updaters = new Array(this.lineage.length + 1);
         this.updaters[this.lineage.length] = update;
+
         for (i = this.lineage.length - 1; i >= 0; i--) {
             ancestor = this.lineage[i];
             if (ancestor.scheduler) update = ancestor.scheduler(update);
@@ -90,10 +94,12 @@ define('graph', [], function () {
 
         if (options.sources) {
             oldTarget = os.target, os.target = this;
+            this.locked = false;
             try {
                 for (i = 0; i < options.sources.length; i++)
                     options.sources[i]();
             } finally {
+                this.locked = true;
                 os.target = oldTarget;
             }
 
@@ -118,11 +124,13 @@ define('graph', [], function () {
                 }
             }
         },
-        addChild: function addChild(dispose) {
-            (this.generating ? this.finalizers : this.cleanups).push(dispose);
+        addSubformula: function addSubformula(dispose) {
+            if (this.locked)
+                throw new Error("Cannot create a new subformula except while updating the parent");
+            (this.pinning ? this.finalizers : this.cleanups).push(dispose);
         },
         addSource: function addSource(src) {
-            if (!this.listening) return;
+            if (!this.listening || this.locked) return;
 
             var dep = this.dependenciesIndex[src.id];
 
@@ -146,12 +154,18 @@ define('graph', [], function () {
             for (i = 0; i < this.finalizers.length; i++) {
                 this.finalizers[i]();
             }
-            this.finalizers = [];
 
             for (i = this.dependencies.length - 1; i >= 0; i--) {
                 this.dependencies[i].deactivate();
             }
-            this.dependencies = [];
+
+            this.lineage = null;
+            this.scheduler = null;
+            this.updaters = null;
+            this.cleanups = null;
+            this.finalizers = null;
+            this.dependencies = null;
+            this.dependenciesIndex = null;
         }
     };
 
@@ -201,20 +215,20 @@ define('graph', [], function () {
     };
 });
 
-define('S', ['graph'], function (graph) {
+define('core', ['graph'], function (graph) {
     var os = new graph.Overseer();
 
-    // add methods to S
-    S.data      = data;
-    S.peek      = peek;
-    S.defer     = defer;
-    S.proxy     = proxy;
-    S.cleanup   = cleanup;
-    S.finalize  = finalize;
-    S.generator = generator;
-    S.toJSON    = toJSON;
-
-    return S;
+    return {
+        data: data,
+        promise: promise,
+        FormulaOptions: FormulaOptions,
+        formula: formula,
+        defer: defer,
+        peek: peek,
+        cleanup: cleanup,
+        finalize: finalize,
+        pin: pin
+    }
 
     function data(value) {
         if (value === undefined)
@@ -222,7 +236,7 @@ define('S', ['graph'], function (graph) {
 
         var src = new graph.Source(os);
 
-        data.toJSON = dataToJSON;
+        data.toJSON = signalToJSON;
 
         if (Array.isArray(value)) arrayify(data);
 
@@ -242,9 +256,35 @@ define('S', ['graph'], function (graph) {
         }
     }
 
-    function S(fn, options) {
-        options = options || {};
+    function promise() {
+        var value = undefined,
+            src = new graph.Source(os);
 
+        promise.toJSON = signalToJSON;
+
+        return promise;
+
+        function promise(newValue) {
+            if (arguments.length > 0) {
+                if (newValue === undefined)
+                throw new Error("S.promise can't be resolved with undefined.  In S, undefined is reserved for namespace lookup failures.");
+                value = newValue;
+                src.propagate();
+                os.runDeferred();
+            } else {
+                os.reportReference(src);
+            }
+            return value;
+        }
+    }
+
+    function FormulaOptions() {
+        this.sources = null;
+        this.update = null;
+        this.init = null;
+    }
+
+    function formula(fn, options) {
         var src = new graph.Source(os),
             tgt = new graph.Target(update, options, os),
             value,
@@ -255,6 +295,7 @@ define('S', ['graph'], function (graph) {
 
         formula.dispose = dispose;
         //formula.toString = toString;
+        formula.toJSON = signalToJSON;
 
         (options.init ? options.init(update) : update)();
 
@@ -268,7 +309,7 @@ define('S', ['graph'], function (graph) {
         }
 
         function update() {
-            if (updating) return;
+            if (updating || !tgt) return;
             updating = true;
 
             var oldTarget, newValue;
@@ -276,20 +317,23 @@ define('S', ['graph'], function (graph) {
             oldTarget = os.target, os.target = tgt;
 
             tgt.beginUpdate();
+            tgt.locked = false;
 
             try {
                 newValue = fn();
+                if (tgt) tgt.locked = true;
 
                 if (newValue !== undefined) {
                     value = newValue;
-                    src.propagate();
+                    if (src) src.propagate(); // executing fn might have disposed us (!)
                 }
             } finally {
                 updating = false;
+                if (tgt) tgt.locked = true;
                 os.target = oldTarget;
             }
 
-            tgt.endUpdate();
+            if (tgt) tgt.endUpdate();
         }
 
         function dispose() {
@@ -305,7 +349,7 @@ define('S', ['graph'], function (graph) {
         //}
     }
 
-    function dataToJSON() {
+    function signalToJSON() {
         return this();
     }
 
@@ -323,14 +367,14 @@ define('S', ['graph'], function (graph) {
         }
     }
 
-    function generator(fn) {
-        if (os.target && !os.target.generating) {
-            os.target.generating = true;
+    function pin(fn) {
+        if (os.target && !os.target.pinning) {
+            os.target.pinning = true;
 
             try {
                 return fn();
             } finally {
-                os.target.generating = false;
+                os.target.pinning = false;
             }
         } else {
             return fn();
@@ -361,19 +405,6 @@ define('S', ['graph'], function (graph) {
         }
     }
 
-    function proxy(getter, setter) {
-        return function proxy(value) {
-            if (arguments.length !== 0) setter(value);
-            return getter();
-        };
-    }
-
-    function toJSON(o) {
-        return JSON.stringify(o, function (k, v) {
-            return (typeof v === 'function') ? v() : v;
-        });
-    }
-
     function arrayify(s) {
         s.push    = push;
         s.pop     = pop;
@@ -391,9 +422,7 @@ define('S', ['graph'], function (graph) {
     function remove(v)       { var l = peek(this), i = l.indexOf(v); if (i !== -1) { l.splice(i, 1); this(l); return v; } }
 });
 
-define('schedulers', ['S'], function (S) {
-
-    var _S_defer = S.defer;
+define('schedulers', ['core'], function (core) {
 
     return {
         stop:     stop,
@@ -401,7 +430,8 @@ define('schedulers', ['S'], function (S) {
         defer:    defer,
         throttle: throttle,
         debounce: debounce,
-        stopsign: stopsign
+        stopsign: stopsign,
+        when:     when
     };
 
     function stop(update) {
@@ -425,8 +455,7 @@ define('schedulers', ['S'], function (S) {
     }
 
     function defer(fn) {
-        if (fn !== undefined) return _S_defer(fn);
-        else return pause(_S_defer);
+        return pause(core.defer);
     }
 
     function throttle(t) {
@@ -490,23 +519,24 @@ define('schedulers', ['S'], function (S) {
             updates = [];
         }
     }
+
+    function when(preds) {
+        return function when(update) {
+            for (var i = 0; i < preds.length; i++) {
+                if (preds[i]() === undefined) return;
+            }
+            update();
+        }
+    }
 });
 
-define('FormulaOptionBuilder', ['S', 'schedulers'], function (S, schedulers) {
+define('options', ['core', 'schedulers'], function (core, schedulers) {
 
-    function FormulaOptionBuilder() {
-        this.options = {
-            sources: null,
-            update: null,
-            init: null,
-            generator: false
-        };
+    function FormulaOptionsBuilder() {
+        this.options = new core.FormulaOptions();
     }
 
-    FormulaOptionBuilder.prototype = {
-        S: function (fn) {
-            return S(fn, this.options);
-        },
+    FormulaOptionsBuilder.prototype = {
         on: function (l) {
             l = !l ? [] : !Array.isArray(l) ? [l] : l;
             this.options.sources = maybeConcat(this.options.sources, l);
@@ -519,29 +549,87 @@ define('FormulaOptionBuilder', ['S', 'schedulers'], function (S, schedulers) {
         skipFirst: function () {
             if (this.options.sources === null || this.options.sources.length === 0)
                 throw new Error("to use skipFirst, you must first have specified at least one dependency with .on(...)")
-            composeInit(this, modifiers.stop);
+            composeInit(this, schedulers.stop);
+            return this;
+        },
+        when: function (l) {
+            l = !l ? [] : !Array.isArray(l) ? [l] : l;
+            this.options.sources = maybeConcat(this.options.sources, l);
+            var scheduler = schedulers.pause(schedulers.when(l));
+            composeInit(this, scheduler);
+            composeUpdate(this, scheduler);
             return this;
         }
     };
 
-    // add methods for modifiers
+    // add methods for schedulers
     'defer throttle debounce pause'.split(' ').map(function (method) {
-        FormulaOptionBuilder.prototype[method] = function (v) { composeUpdate(this, schedulers[method](v)); return this; };
+        FormulaOptionsBuilder.prototype[method] = function (v) { composeUpdate(this, schedulers[method](v)); return this; };
     });
 
-    // add methods to S
-    'on once defer throttle debounce pause'.split(' ').map(function (method) {
-        S[method] = function (v) { return new FormulaOptionBuilder()[method](v); };
-    });
-
-    S.stopsign = schedulers.stopsign;
-
-    return;
+    return {
+        FormulaOptionsBuilder: FormulaOptionsBuilder
+    };
 
     function maybeCompose(f, g) { return g ? function compose() { return f(g()); } : f; }
     function maybeConcat(a, b) { return a ? a.concat(b) : b; }
     function composeUpdate(b, fn) { b.options.update = maybeCompose(fn, b.options.update); }
     function composeInit(b, fn) { b.options.init = maybeCompose(fn, b.options.init); }
 });
+
+define('misc', [], function () {
+    return {
+        proxy: proxy
+    };
+
+    function proxy(getter, setter) {
+        return function proxy(value) {
+            if (arguments.length !== 0) setter(value);
+            return getter();
+        };
+    }
+});
+
+define('S', ['core', 'options', 'schedulers', 'misc'], function (core, options, schedulers, misc) {
+    // build our top-level object S
+    function S(fn /*, args */) {
+        if (arguments.length > 1) {
+            var _fn = fn;
+            var _args = Array.prototype.slice.call(arguments, 1);
+            fn = function () { return _fn.apply(null, _args); };
+        }
+
+        return core.formula(fn, new core.FormulaOptions());
+    }
+
+    S.data      = core.data;
+    S.promise   = core.promise;
+    S.peek      = core.peek;
+    S.cleanup   = core.cleanup;
+    S.finalize  = core.finalize;
+    S.pin       = core.pin;
+
+    // add methods to S for formula options builder
+    'on once when defer throttle debounce pause'.split(' ').map(function (method) {
+        S[method] = function (v) { return new options.FormulaOptionsBuilder()[method](v); };
+    });
+
+    // enable creation of formula from options builder
+    options.FormulaOptionsBuilder.prototype.S = function S(fn /*, args */) {
+        if (arguments.length > 1) {
+            var _fn = fn;
+            var _args = Array.prototype.slice.call(arguments, 1);
+            fn = function () { return _fn.apply(null, _args); };
+        }
+
+        return core.formula(fn, this.options);
+    }
+
+    S.stopsign = schedulers.stopsign;
+
+    S.proxy = misc.proxy;
+
+    return S;
+})
 
 });
