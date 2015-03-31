@@ -11,16 +11,16 @@ describe("S.on(...)", function () {
         expect(spy.calls.count()).toBe(1);
     });
 
-    it("prohibits organic dependencies", function () {
+    it("prohibits dynamic dependencies", function () {
         var d = S.data(1),
             spy = jasmine.createSpy("spy"),
             s = S.on(/* nothing */).S(function () { spy(); return d(); });
 
-            spy.calls.reset();
+        spy.calls.reset();
 
-            d(2);
+        d(2);
 
-            expect(spy.calls.count()).toBe(0);
+        expect(spy.calls.count()).toBe(0);
     });
 
     it ("allows multiple dependencies, either in one specification or many", function () {

@@ -10,8 +10,8 @@ define('graph', [], function () {
         reportReference: function reportReference(src) {
             if (this.target) this.target.addSource(src);
         },
-        reportFormula: function reportFormula(dispose) {
-            if (this.target) this.target.addSubformula(dispose);
+        reportFormula: function reportFormula(dispose, pin) {
+            if (this.target) this.target.addSubformula(dispose, pin);
         },
         runDeferred: function runDeferred() {
             if (!this.target) {
@@ -33,9 +33,10 @@ define('graph', [], function () {
         propagate: function propagate() {
             var i,
                 update,
-                updates = this.updates;
+                updates = this.updates,
+                len = updates.length;
 
-            for (i = 0; i < updates.length; i++) {
+            for (i = 0; i < len; i++) {
                 update = updates[i];
                 if (update) update();
             }
@@ -54,7 +55,7 @@ define('graph', [], function () {
         this.scheduler = options.update;
 
         this.listening = true;
-        this.pinning = false;
+        this.pinning = options.pinning || false;
         this.locked = true;
 
         this.gen = 1;
@@ -105,10 +106,10 @@ define('graph', [], function () {
                 }
             }
         },
-        addSubformula: function addSubformula(dispose) {
+        addSubformula: function addSubformula(dispose, pin) {
             if (this.locked)
                 throw new Error("Cannot create a new subformula except while updating the parent");
-            (this.pinning ? this.finalizers : this.cleanups).push(dispose);
+            ((pin || this.pinning) ? this.finalizers : this.cleanups).push(dispose);
         },
         addSource: function addSource(src) {
             if (!this.listening || this.locked) return;

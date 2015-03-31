@@ -132,28 +132,6 @@ describe("S()", function () {
         });
     });
 
-    describe("from a function with intermittent return value", function () {
-        var d, fn, f;
-
-        beforeEach(function () {
-            d = S.data(1);
-            fn = function () { if (d()) return d(); },
-            f = S(fn);
-        });
-
-        it("does not change value when function returns no value", function () {
-            d(0);
-            expect(fn()).not.toBeDefined();
-            expect(f()).toBe(1);
-        });
-
-        it("does change value when function returns a value", function () {
-            d(2);
-            expect(fn()).toBe(2);
-            expect(f()).toBe(2);
-        });
-    });
-
     describe("with parameters", function () {
         it("passes parameters to given function", function () {
             var f = S(function (x, y) { return x + y; }, 1, 2);
@@ -192,48 +170,6 @@ describe("S()", function () {
             expect(evalCounter.calls.count()).toBe(2);
             expect(watcherCounter.calls.count()).toBe(2);
             expect(watcher()).toBe(1);
-        });
-    });
-
-    describe("propagation with a valueless function", function () {
-        var d, evalCounter, f, watcherCounter, watcher;
-
-        beforeEach(function () {
-            d = S.data(1),
-            evalCounter = jasmine.createSpy("evalCounter"),
-            f = S(function () { evalCounter(); d(); }),
-            watcherCounter = jasmine.createSpy("watcherCounter"),
-            watcher = S(function () { watcherCounter(); f(); });
-        });
-
-        it("does not occur", function () {
-            d(true);
-            expect(evalCounter.calls.count()).toBe(2);
-            expect(watcherCounter.calls.count()).toBe(1);
-        });
-    });
-
-    describe("propagation with intermitently valued function", function () {
-        var d, evalCounter, f, watcherCounter, watcher;
-
-        beforeEach(function () {
-            d = S.data(1),
-            evalCounter = jasmine.createSpy("evalCounter"),
-            f = S(function () { evalCounter(); if (d()) return d(); }),
-            watcherCounter = jasmine.createSpy("watcherCounter"),
-            watcher = S(function () { watcherCounter(); f(); });
-        });
-
-        it("does not occur when function returns no value", function () {
-            d(0);
-            expect(evalCounter.calls.count()).toBe(2);
-            expect(watcherCounter.calls.count()).toBe(1);
-        });
-
-        it("does occur when function returns a value", function () {
-            d(2);
-            expect(evalCounter.calls.count()).toBe(2);
-            expect(watcherCounter.calls.count()).toBe(2);
         });
     });
 

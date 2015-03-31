@@ -14,10 +14,8 @@ define('options', ['core', 'schedulers'], function (core, schedulers) {
             this.options.sources = [];
             return this;
         },
-        skipFirst: function () {
-            if (this.options.sources === null || this.options.sources.length === 0)
-                throw new Error("to use skipFirst, you must first have specified at least one dependency with .on(...)")
-            composeInit(this, schedulers.stop);
+        pin: function () {
+            this.options.pin = true;
             return this;
         },
         when: function (l) {

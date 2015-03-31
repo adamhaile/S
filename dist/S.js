@@ -29,8 +29,8 @@ define('graph', [], function () {
         reportReference: function reportReference(src) {
             if (this.target) this.target.addSource(src);
         },
-        reportFormula: function reportFormula(dispose) {
-            if (this.target) this.target.addSubformula(dispose);
+        reportFormula: function reportFormula(dispose, pin) {
+            if (this.target) this.target.addSubformula(dispose, pin);
         },
         runDeferred: function runDeferred() {
             if (!this.target) {
@@ -52,9 +52,10 @@ define('graph', [], function () {
         propagate: function propagate() {
             var i,
                 update,
-                updates = this.updates;
+                updates = this.updates,
+                len = updates.length;
 
-            for (i = 0; i < updates.length; i++) {
+            for (i = 0; i < len; i++) {
                 update = updates[i];
                 if (update) update();
             }
@@ -73,7 +74,7 @@ define('graph', [], function () {
         this.scheduler = options.update;
 
         this.listening = true;
-        this.pinning = false;
+        this.pinning = options.pinning || false;
         this.locked = true;
 
         this.gen = 1;
@@ -124,10 +125,10 @@ define('graph', [], function () {
                 }
             }
         },
-        addSubformula: function addSubformula(dispose) {
+        addSubformula: function addSubformula(dispose, pin) {
             if (this.locked)
                 throw new Error("Cannot create a new subformula except while updating the parent");
-            (this.pinning ? this.finalizers : this.cleanups).push(dispose);
+            ((pin || this.pinning) ? this.finalizers : this.cleanups).push(dispose);
         },
         addSource: function addSource(src) {
             if (!this.listening || this.locked) return;
@@ -219,55 +220,25 @@ define('core', ['graph'], function (graph) {
     var os = new graph.Overseer();
 
     return {
-        data: data,
-        promise: promise,
+        data:           data,
         FormulaOptions: FormulaOptions,
-        formula: formula,
-        defer: defer,
-        peek: peek,
-        cleanup: cleanup,
-        finalize: finalize,
-        pin: pin
+        formula:        formula,
+        defer:          defer,
+        peek:           peek,
+        pin:            pin,
+        cleanup:        cleanup,
+        finalize:       finalize
     }
 
     function data(value) {
-        if (value === undefined)
-            throw new Error("S.data can't be initialized with undefined.  In S, undefined is reserved for namespace lookup failures.");
-
         var src = new graph.Source(os);
 
         data.toJSON = signalToJSON;
-
-        if (Array.isArray(value)) arrayify(data);
 
         return data;
 
         function data(newValue) {
             if (arguments.length > 0) {
-                if (newValue === undefined)
-                    throw new Error("S.data can't be set to undefined.  In S, undefined is reserved for namespace lookup failures.");
-                value = newValue;
-                src.propagate();
-                os.runDeferred();
-            } else {
-                os.reportReference(src);
-            }
-            return value;
-        }
-    }
-
-    function promise() {
-        var value = undefined,
-            src = new graph.Source(os);
-
-        promise.toJSON = signalToJSON;
-
-        return promise;
-
-        function promise(newValue) {
-            if (arguments.length > 0) {
-                if (newValue === undefined)
-                throw new Error("S.promise can't be resolved with undefined.  In S, undefined is reserved for namespace lookup failures.");
                 value = newValue;
                 src.propagate();
                 os.runDeferred();
@@ -280,8 +251,9 @@ define('core', ['graph'], function (graph) {
 
     function FormulaOptions() {
         this.sources = null;
-        this.update = null;
-        this.init = null;
+        this.pin     = false;
+        this.update  = null;
+        this.init    = null;
     }
 
     function formula(fn, options) {
@@ -291,7 +263,7 @@ define('core', ['graph'], function (graph) {
             updating;
 
         // register dispose before running fn, in case it throws
-        os.reportFormula(dispose);
+        os.reportFormula(dispose, options.pin);
 
         formula.dispose = dispose;
         //formula.toString = toString;
@@ -312,7 +284,7 @@ define('core', ['graph'], function (graph) {
             if (updating || !tgt) return;
             updating = true;
 
-            var oldTarget, newValue;
+            var oldTarget;
 
             oldTarget = os.target, os.target = tgt;
 
@@ -320,13 +292,9 @@ define('core', ['graph'], function (graph) {
             tgt.locked = false;
 
             try {
-                newValue = fn();
+                value = fn();
                 if (tgt) tgt.locked = true;
-
-                if (newValue !== undefined) {
-                    value = newValue;
-                    if (src) src.propagate(); // executing fn might have disposed us (!)
-                }
+                if (src) src.propagate(); // executing fn might have disposed us (!)
             } finally {
                 updating = false;
                 if (tgt) tgt.locked = true;
@@ -404,22 +372,6 @@ define('core', ['graph'], function (graph) {
             throw new Error("S.finalize() must be called from within an S.formula.  Cannot call it at toplevel.");
         }
     }
-
-    function arrayify(s) {
-        s.push    = push;
-        s.pop     = pop;
-        s.shift   = shift;
-        s.unshift = unshift;
-        s.splice  = splice;
-        s.remove  = remove;
-    }
-
-    function push(v)         { var l = peek(this); l.push(v);     this(l); return v; }
-    function pop()           { var l = peek(this), v = l.pop();   this(l); return v; }
-    function shift()         { var l = peek(this), v = l.shift(); this(l); return v; }
-    function unshift(v)      { var l = peek(this); l.unshift(v);  this(l); return v; }
-    function splice(/*...*/) { var l = peek(this), v = l.splice.apply(l, arguments); this(l); return v;}
-    function remove(v)       { var l = peek(this), i = l.indexOf(v); if (i !== -1) { l.splice(i, 1); this(l); return v; } }
 });
 
 define('schedulers', ['core'], function (core) {
@@ -546,10 +498,8 @@ define('options', ['core', 'schedulers'], function (core, schedulers) {
             this.options.sources = [];
             return this;
         },
-        skipFirst: function () {
-            if (this.options.sources === null || this.options.sources.length === 0)
-                throw new Error("to use skipFirst, you must first have specified at least one dependency with .on(...)")
-            composeInit(this, schedulers.stop);
+        pin: function () {
+            this.options.pin = true;
             return this;
         },
         when: function (l) {
@@ -592,10 +542,11 @@ define('misc', [], function () {
 
 define('S', ['core', 'options', 'schedulers', 'misc'], function (core, options, schedulers, misc) {
     // build our top-level object S
-    function S(fn /*, args */) {
+    function S(fn /*, ...args */) {
+        var _fn, _args;
         if (arguments.length > 1) {
-            var _fn = fn;
-            var _args = Array.prototype.slice.call(arguments, 1);
+            _fn = fn;
+            _args = Array.prototype.slice.call(arguments, 1);
             fn = function () { return _fn.apply(null, _args); };
         }
 
@@ -603,22 +554,30 @@ define('S', ['core', 'options', 'schedulers', 'misc'], function (core, options, 
     }
 
     S.data      = core.data;
-    S.promise   = core.promise;
     S.peek      = core.peek;
     S.cleanup   = core.cleanup;
     S.finalize  = core.finalize;
-    S.pin       = core.pin;
 
     // add methods to S for formula options builder
     'on once when defer throttle debounce pause'.split(' ').map(function (method) {
         S[method] = function (v) { return new options.FormulaOptionsBuilder()[method](v); };
     });
 
+    // S.pin is either an option for a formula being created or the marker of a region where all subs are pinned
+    S.pin = function pin(fn) {
+        if (arguments.length === 0) {
+            return new options.FormulaOptionsBuilder().pin();
+        } else {
+            core.pin(fn);
+        }
+    }
+
     // enable creation of formula from options builder
     options.FormulaOptionsBuilder.prototype.S = function S(fn /*, args */) {
+        var _fn, _args;
         if (arguments.length > 1) {
-            var _fn = fn;
-            var _args = Array.prototype.slice.call(arguments, 1);
+            _fn = fn;
+            _args = Array.prototype.slice.call(arguments, 1);
             fn = function () { return _fn.apply(null, _args); };
         }
 
