@@ -4,16 +4,75 @@ S.js is a tiny library (2kb gzipped) for performing simple, clean, fast reactive
 
 ### Simple
 - The core of S is just two functions, S() and S.data()
-- S follows the *Scheme* school of design: a few simple primitives which can be combined to produce advanced behavior
+- S is inspired by the *Scheme* school of design: a few simple primitives which can be combined to produce advanced behavior
 
 ### Clean
-- S has been designed to avoid unexpected or surprising corner cases
-- S has an extensive and growing behavior-based test suite containing more code than the library itself
+- S seeks to avoid unexpected or surprising corner cases
+- S has an extensive and growing behavior-based test suite
 
 ### Fast
 - Benchmarks put S 5-100 times faster than most well-known libraries at dispatching updates
 
-## A Quick Taste of S
+S.js takes its name from *signal*, a reactive term for a value that changes over time.  In S there are two kinds of signals, *data signals* and *formulas*.  *Data signals* are the leaves in the depenency tree: they're where data (and change) enter the system.  *Formulas* perform computations on signals, generating useful side-effects and/or derived values.  When a data signal changes, S propagates that to the formulas which reference it, then to the upstream formulas which reference those formulas, and so on, until the system has finished reacting to the change.  In this way, an S application implements its behavior by creating and maintaining a tree of signals.  
+
+## A Quick Inductive Example
+
+Let's start with the following simple piece of code:
+
+```javascript
+var a = 1,
+    b = a * 2;
+console.log(b);
+>>> 2
+```
+Plain enough: take a number, double it, and log it.
+
+Now suppose that this code becomes part of a larger application, and as that application runs, it's going to change the value of `a`.  We want to keep our log up-to-date, so we'll wrap the doubling and logging steps as functions:
+
+```javascript
+var a = 1,
+    b = () => a * 2,
+    c = () => console.log(b());
+c();
+>>> 2
+```
+
+Now whenever `a` changes, we just call `c()` and the log will be updated:
+
+```javascript
+a = 2;
+c();
+>>> 4
+a = 3;
+c();
+>>> 6
+```
+
+This works, but it also creates a new problem: we have to remember to call `c()` each time we change `a`, or we'll miss a log entry.  If our code is complicated, or if there are multiple people working on it, this may be hard to enforce.
+
+This is the kind of problem S solves.  Let's wrap our code in S's primitives:
+
+```javascript
+var a = S.data(1),
+    b = S(() => a() * 2),
+    c = S(() => console.log(b()));
+>>> 2
+```
+
+Note that we didn't have to call `c()` to perform the first log, S did it for us.  Nor do we need to call it as `a` changes:
+
+```javascript
+a(2)
+>>> 4
+a(3)
+>>> 6
+```
+
+Whenever `a` changes, we can call `c()` to double and log it.
+
+But what if we want this to happen *every time* a changes? We'll have to audit our code and insert calls to `c()` everywhere a is modified.  If this code is being maintained by multiple people, we'll have to make sure that everybody knows about the new rule to call c() whenever a changes.
+
+## A Simple Inductive Example
 
 Here is a small example of reactive programming in S, a tiny 'application' which takes a number, doubles it, and logs the result to the console:
 
@@ -28,17 +87,17 @@ d(2)
 >> "f is now 4"
 ```
 As small as it is, this snippet demonstrates several characteristics of S:
-- S has two central primitives, `S.data(<value>)`, which creates what is called a *data signal*, and `S(<paramless function>)`, which creates a *formula*.
-- *Data signals* are getter-setter functions: we fetch their value by calling them directly &ndash; `d()`; we set them by passing them a new value &ndash; `d(2)`.
-- When we create a formula, S calls the function and watches to see what signals it references.
+- S has two core primitives: `S.data(<value>)`, the constructor for a data signal, and `S(<paramless function>)`, the constructor for a formula.
+- Data signals are getter-setter functions: we fetch their value by calling them directly `d()`; we set them by passing them a new value `d(2)`.
+- When we create a formula, S invokes the function and watches to see what signals it references.
 - When any of those signals change, S re-evaluates the formula, as when `d()` changes above.
 - Formulas can return values, in which case they may be referenced just like data signals &ndash; see `g()`'s call to `f()`.
 - Formulas may also be created for their side effects, like `g()` which logs to console.
 - By default, formulas are *eager*: when a signal changes, S immediately re-evaluates all formulas that reference it.
 
-### TodoMVC
+## TodoMVC with S.js and friends, plus ES6
 
-For a slightly longer example of using S, the below fragment is a minimalist but fully functional version of &ndash; what else &ndash; a TodoMVC application.  It handles creating, modifying, deleting, filtering and clearing todos:
+For a longer example, the below code is a minimalist but fully functional version of &ndash; what else &ndash; TodoMVC.  It handles creating, modifying, deleting, filtering and clearing todos.  S.js provides just the core reactive primitives, so to create an entire HTML application, we need help from a few other companion libraries.  This example uses the suite Surplus.js, aka "S plus" some friends.  Most notably, it uses the htmlliterals preprocessor for embedded DOM construction and the S.array utility for a data signal carrying an array.  This example also uses ES6's fat-arrow functions to demonstrate how well they works with S.js.
 
 ```javascript
 var // define our ToDo class ...
@@ -120,9 +179,9 @@ a("a 3") // now turn the dependency on b() back off
 b("b 4") // b() no longer triggers f()
 ```
 
-Automatic dependencies are usually what we want: if our formula references a signal, then it must likely depends upon that signal.  However, there are cases where we might want explicit control over when a formula updates.  Perhaps it references several signals but should only re-evaluate when a particular one changes.  Or perhaps there is a signal or two for which we only want the current value and don't care if it changes.
+Automatic dependencies are usually what we want: if our formula references a signal, then it most likely depends upon that signal.  However, there are cases where we might want explicit control over when a formula updates.  Perhaps it references several signals but should only re-evaluate when a particular one changes.  Or perhaps there is a signal or two for which we only want the current value and don't care if it changes.
 
-S provides two functions for explicitly controlling dependencies: .on(...) and .peek(...).  Formulas created with the .on(...) prefix modifier will update only when one of the indicated signals changes:
+S provides two functions for explicitly controlling dependencies: S.on(...) and S.peek(...).  Formulas created with the .on(...) prefix modifier will update only when one of the indicated signals changes:
 
 ```javascript
 var f = S.on(foo).S(function () { return foo() + bar(); });
