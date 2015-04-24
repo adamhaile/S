@@ -1,23 +1,216 @@
 define('graph', [], function () {
-
-    function Overseer() {
-        this.count = 1;
-        this.target = null;
-        this.deferred = [];
+    function Graph() {
+        this.nodeCount = 0;
+        this.updatingNode = null;
+        this.deferredChanges = null;
     }
 
-    Overseer.prototype = {
-        reportReference: function reportReference(src) {
-            if (this.target) this.target.addSource(src);
+    Graph.prototype = {
+        reportChange: function reportChange(node) {
+            if (this.deferredChanges) {
+                this.deferredChanges.push(node);
+                return
+            }
+
+            node.markDirty(null);
+            var oldNode = this.updatingNode;
+            this.updatingNode = null;
+            try {
+                node.update();
+            } finally {
+                this.updatingNode = oldNode;
+            }
         },
-        reportFormula: function reportFormula(dispose, pin) {
-            if (this.target) this.target.addSubformula(dispose, pin);
+
+        freeze: function freeze(fn) {
+            var changes, oldNode, i, len;
+
+            if (this.deferredChanges) {
+                fn();
+                return;
+            }
+
+            this.deferredChanges = changes = [];
+
+            try {
+                fn();
+            } finally {
+                this.deferredChanges = null;
+            }
+
+            i = -1, len = changes.length;
+            while (++i < len) changes[i].markDirty(null);
+            oldNode = this.updatingNode, this.updatingNode = null;
+            i = -1;
+            try {
+                while (++i < len) changes[i].update();
+            } finally {
+                this.updatingNode = oldNode;
+            }
         },
-        runDeferred: function runDeferred() {
-            if (!this.target) {
-                while (this.deferred.length !== 0) {
-                    this.deferred.shift()();
+
+        addEdge: function addEdge(from) {
+            var to = this.updatingNode,
+                edge = null;
+
+            if (to && to.listening && !to.dirtying) {
+                edge = to.inboundIndex[from.id];
+                if (!edge) edge = new Edge(from, to);
+                else edge.activate(from);
+            }
+
+            return edge;
+        },
+
+        addNode: function addNode(payload, options) {
+            var node = new Node(this, payload, this.updatingNode, options),
+                i, len, oldNode;
+
+            if (payload) {
+                oldNode = this.updatingNode, this.updatingNode = node;
+
+                if (options && options.sources) {
+                    i = -1, len = options.sources.length;
+                    while (++i < len) options.sources[i]();
+                    this.listening = false;
                 }
+
+                try {
+                    payload();
+                } finally {
+                    this.updatingNode = oldNode;
+                }
+            }
+
+            return node;
+        }
+    };
+
+    function Node(graph, payload, parent, options) {
+        this.graph = graph;
+        this.payload = payload;
+
+        this.id = ++graph.nodeCount;
+        this.gen = 1;
+        this.dirty = 0;
+        this.dirtying = false;
+        this.listening = true;
+        this.pinning = options ? options.pinning : false;
+
+        this.inbound = [];
+        this.inboundIndex = [];
+        this.outbound = [];
+
+        this.cleanups = [];
+        this.finalizers = [];
+    }
+
+    Node.prototype = {
+        markDirty: function markDirty(inbound) {
+            var i, len, outbound;
+            // deactivate circular edges
+            if (this.dirtying) {
+                inbound.deactivate();
+            } else if (++this.dirty === 1) {
+                this.dirtying = true;
+                i = -1, len = this.outbound.length;
+                while (++i < len) {
+                    outbound = this.outbound[i];
+                    if (outbound) {
+                        outbound.to.markDirty(outbound);
+                    }
+                }
+                this.dirtying = false;
+            }
+        },
+
+        update: function update() {
+            var i, len, outbound, edge;
+            if (--this.dirty === 0) {
+                this.graph.updatingNode = this;
+                this.cleanup();
+                if (this.payload) {
+                    this.gen++;
+                    this.payload();
+                    if (this.listening) {
+                        i = -1, len = this.inbound.length;
+                        while (++i < len) {
+                            edge = this.inbound[i];
+                            if (edge.active && edge.gen < this.gen) {
+                                edge.deactivate();
+                            }
+                        }
+                    }
+                }
+                i = -1, len = this.outbound.length, outbound;
+                while (++i < len) {
+                    outbound = this.outbound[i];
+                    if (outbound) outbound.to.update();
+                }
+            }
+        },
+
+        cleanup: function cleanup() {
+            var i = -1, len = this.cleanups.length;
+            while (++i < len) {
+                this.cleanups[i]();
+            }
+            this.cleanups = [];
+        },
+
+        dispose: function dispose() {
+            var i, len;
+
+            this.cleanup();
+
+            i = -1, len = this.finalizers.length;
+            while (++i < len) {
+                this.finalizers[i]();
+            }
+
+            i = -1, len = this.inbound.length;
+            while (++i < len) {
+                this.inbound[i].deactivate();
+            }
+
+            this.graph = null;
+            this.payload = null;
+            this.inbound = null;
+            this.inboundIndex = null;
+            this.outbound = null;
+            this.cleanups = null;
+            this.finalizers = null;
+        }
+    };
+
+    function Edge(from, to) {
+        this.from = from;
+        this.to = to;
+        this.active = true;
+        this.gen = to.gen;
+
+        this.outboundOffset = from.outbound.length;
+
+        from.outbound.push(this);
+        to.inbound.push(this);
+        to.inboundIndex[from.id] = this;
+    }
+
+    Edge.prototype = {
+        activate: function activateEdge(from) {
+            if (!this.active) {
+                this.active = true;
+                from.outbound[this.outboundOffset] = this;
+                this.from = from;
+            }
+            this.gen = this.to.gen;
+        },
+
+        deactivate: function deactivateEdge() {
+            if (this.active) {
+                this.active = false;
+                this.from.outbound[this.outboundOffset] = null;
+                this.from = null;
             }
         }
     };
@@ -190,9 +383,8 @@ define('graph', [], function () {
     };
 
     return {
-        Overseer: Overseer,
-        Source: Source,
-        Target: Target,
-        Dependency: Dependency
+        Graph: Graph,
+        Node: Node,
+        Edge: Edge
     };
 });

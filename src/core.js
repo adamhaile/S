@@ -1,11 +1,11 @@
 define('core', ['graph'], function (graph) {
-    var os = new graph.Overseer();
+    var graph = new graph.Graph();
 
     return {
         data:           data,
         FormulaOptions: FormulaOptions,
         formula:        formula,
-        defer:          defer,
+        freeze:         freeze,
         peek:           peek,
         pin:            pin,
         cleanup:        cleanup,
@@ -13,7 +13,7 @@ define('core', ['graph'], function (graph) {
     }
 
     function data(value) {
-        var src = new graph.Source(os);
+        var node = graph.addNode(null, null);
 
         data.toJSON = signalToJSON;
 
@@ -22,10 +22,9 @@ define('core', ['graph'], function (graph) {
         function data(newValue) {
             if (arguments.length > 0) {
                 value = newValue;
-                src.propagate();
-                os.runDeferred();
+                graph.reportChange(node);
             } else {
-                os.reportReference(src);
+                graph.addEdge(node);
             }
             return value;
         }
@@ -39,59 +38,27 @@ define('core', ['graph'], function (graph) {
     }
 
     function formula(fn, options) {
-        var src = new graph.Source(os),
-            tgt = new graph.Target(update, options, os),
-            value,
-            updating;
-
-        // register dispose before running fn, in case it throws
-        os.reportFormula(dispose, options.pin);
+        var node = graph.addNode(update, options),
+            value;
 
         formula.dispose = dispose;
         //formula.toString = toString;
         formula.toJSON = signalToJSON;
 
-        (options.init ? options.init(update) : update)();
-
-        os.runDeferred();
-
         return formula;
 
         function formula() {
-            if (src) os.reportReference(src);
+            if (node) graph.addEdge(node);
             return value;
         }
 
         function update() {
-            if (updating || !tgt) return;
-            updating = true;
-
-            var oldTarget;
-
-            oldTarget = os.target, os.target = tgt;
-
-            tgt.beginUpdate();
-            tgt.locked = false;
-
-            try {
-                value = fn();
-                if (tgt) tgt.locked = true;
-                if (src) src.propagate(); // executing fn might have disposed us (!)
-            } finally {
-                updating = false;
-                if (tgt) tgt.locked = true;
-                os.target = oldTarget;
-            }
-
-            if (tgt) tgt.endUpdate();
+            value = fn();
         }
 
         function dispose() {
-            if (src) {
-                src.dispose();
-                tgt.dispose();
-            }
-            src = tgt = fn = value = undefined;
+            if (node) node.dispose();
+            node = fn = value = undefined;
         }
 
         //function toString() {
@@ -104,13 +71,13 @@ define('core', ['graph'], function (graph) {
     }
 
     function peek(fn) {
-        if (os.target && os.target.listening) {
-            os.target.listening = false;
+        if (graph.updatingNode && graph.updatingNode.listening) {
+            graph.updatingNode.listening = false;
 
             try {
                 return fn();
             } finally {
-                os.target.listening = true;
+                graph.updatingNode.listening = true;
             }
         } else {
             return fn();
@@ -118,38 +85,34 @@ define('core', ['graph'], function (graph) {
     }
 
     function pin(fn) {
-        if (os.target && !os.target.pinning) {
-            os.target.pinning = true;
+        if (graph.updatingNode && !graph.updatingNode.pinning) {
+            graph.updatingNode.pinning = true;
 
             try {
                 return fn();
             } finally {
-                os.target.pinning = false;
+                graph.updatingNode.pinning = false;
             }
         } else {
             return fn();
         }
     }
 
-    function defer(fn) {
-        if (os.target) {
-            os.deferred.push(fn);
-        } else {
-            fn();
-        }
+    function freeze(fn) {
+        graph.freeze(fn);
     }
 
     function cleanup(fn) {
-        if (os.target) {
-            os.target.cleanups.push(fn);
+        if (graph.updatingNode) {
+            graph.updatingNode.cleanups.push(fn);
         } else {
             throw new Error("S.cleanup() must be called from within an S.formula.  Cannot call it at toplevel.");
         }
     }
 
     function finalize(fn) {
-        if (os.target) {
-            os.target.finalizers.push(fn);
+        if (graph.updatingNode) {
+            graph.updatingNode.finalizers.push(fn);
         } else {
             throw new Error("S.finalize() must be called from within an S.formula.  Cannot call it at toplevel.");
         }

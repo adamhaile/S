@@ -1,4 +1,4 @@
-describe('S.stopsign', function () {
+xdescribe('S.stopsign', function () {
     it('can resume updates halted by S.pause', function () {
         var sign = S.stopsign(),
             d = S.data(1),

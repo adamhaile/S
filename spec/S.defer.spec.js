@@ -1,4 +1,4 @@
-describe("S.defer", function () {
+xdescribe("S.defer", function () {
     it("delays updates until reaching top level", function () {
         var d = S.data(1),
             f = S.defer().S(d);

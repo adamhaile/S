@@ -1,4 +1,3 @@
-
 describe("S()", function () {
     describe("creation", function () {
         var f;
@@ -181,8 +180,8 @@ describe("S()", function () {
             //      |   |
             //      v   |
             //      f---+
-            d = S.data(1),
-            spy = jasmine.createSpy("callCounter"),
+            d = S.data(1);
+            spy = jasmine.createSpy("callCounter");
             f = S(function () { spy(); return d(d() + 1); });
         });
 

@@ -1,4 +1,4 @@
-describe("S() with subformulas", function () {
+xdescribe("S() with subformulas", function () {
 
     it("does not register a dependency on the subformula", function () {
         var d = S.data(1),

@@ -1,4 +1,4 @@
-describe("S.on(...)", function () {
+xdescribe("S.on(...)", function () {
     it("registers a dependency", function () {
         var d = S.data(1),
             spy = jasmine.createSpy("spy"),
