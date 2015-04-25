@@ -13,7 +13,7 @@ define('core', ['graph'], function (graph) {
     }
 
     function data(value) {
-        var node = graph.addNode(null, null);
+        var entry = graph.addEntryPoint(null, null);
 
         data.toJSON = signalToJSON;
 
@@ -22,9 +22,9 @@ define('core', ['graph'], function (graph) {
         function data(newValue) {
             if (arguments.length > 0) {
                 value = newValue;
-                graph.reportChange(node);
+                graph.reportChange(entry);
             } else {
-                graph.addEdge(node);
+                graph.addEdge(entry);
             }
             return value;
         }
@@ -38,8 +38,7 @@ define('core', ['graph'], function (graph) {
     }
 
     function formula(fn, options) {
-        var node = graph.addNode(update, options),
-            value;
+        var node = graph.addNode(fn, options, dispose);
 
         formula.dispose = dispose;
         //formula.toString = toString;
@@ -48,17 +47,15 @@ define('core', ['graph'], function (graph) {
         return formula;
 
         function formula() {
-            if (node) graph.addEdge(node);
-            return value;
-        }
-
-        function update() {
-            value = fn();
+            if (!node) return;
+            graph.addEdge(node.emitter);
+            return node.value;
         }
 
         function dispose() {
-            if (node) node.dispose();
-            node = fn = value = undefined;
+            if (!node) return;
+            node.dispose();
+            node = undefined;
         }
 
         //function toString() {

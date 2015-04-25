@@ -2,48 +2,50 @@ define('graph', [], function () {
     function Graph() {
         this.nodeCount = 0;
         this.updatingNode = null;
-        this.deferredChanges = null;
+        this.deferredEmitters = null;
     }
 
     Graph.prototype = {
-        reportChange: function reportChange(node) {
-            if (this.deferredChanges) {
-                this.deferredChanges.push(node);
-                return
+        reportChange: function reportChange(emitter) {
+            if (this.deferredEmitters) {
+                this.deferredEmitters.push(emitter);
+                return;
             }
 
-            node.markDirty(null);
+            emitter.emitDirty();
             var oldNode = this.updatingNode;
             this.updatingNode = null;
             try {
-                node.update();
+                emitter.emitUpdate();
             } finally {
                 this.updatingNode = oldNode;
             }
         },
 
         freeze: function freeze(fn) {
-            var changes, oldNode, i, len;
+            var emitters, oldNode, i, len;
 
-            if (this.deferredChanges) {
+            if (this.deferredEmitters) {
                 fn();
                 return;
             }
 
-            this.deferredChanges = changes = [];
+            this.deferredEmitters = emitters = [];
 
             try {
                 fn();
             } finally {
-                this.deferredChanges = null;
+                this.deferredEmitters = null;
             }
 
-            i = -1, len = changes.length;
-            while (++i < len) changes[i].markDirty(null);
+            i = -1, len = emitters.length;
+            while (++i < len) emitters[i].emitDirty();
+
             oldNode = this.updatingNode, this.updatingNode = null;
+
             i = -1;
             try {
-                while (++i < len) changes[i].update();
+                while (++i < len) emitters[i].emitUpdate();
             } finally {
                 this.updatingNode = oldNode;
             }
@@ -53,53 +55,95 @@ define('graph', [], function () {
             var to = this.updatingNode,
                 edge = null;
 
-            if (to && to.listening && !to.dirtying) {
+            if (to && to.listening) {
                 edge = to.inboundIndex[from.id];
                 if (!edge) edge = new Edge(from, to);
                 else edge.activate(from);
             }
-
-            return edge;
         },
 
-        addNode: function addNode(payload, options) {
-            var node = new Node(this, payload, this.updatingNode, options),
+        addEntryPoint: function addEntryPoint() {
+            return new Emitter(this, null);
+        },
+
+        addNode: function addNode(payload, options, dispose) {
+            var node = new Node(this, payload, options),
                 i, len, oldNode;
 
-            if (payload) {
-                oldNode = this.updatingNode, this.updatingNode = node;
+            oldNode = this.updatingNode, this.updatingNode = node;
 
-                if (options && options.sources) {
-                    i = -1, len = options.sources.length;
-                    while (++i < len) options.sources[i]();
-                    this.listening = false;
-                }
+            if (options.sources) {
+                i = -1, len = options.sources.length;
+                while (++i < len) options.sources[i]();
+                this.listening = false;
+            }
 
-                try {
-                    payload();
-                } finally {
-                    this.updatingNode = oldNode;
-                }
+            if (oldNode) {
+                if (oldNode.pinning || options.pin) oldNode.finalizers.push(dispose);
+                else oldNode.cleanups.push(dispose);
+            }
+
+            node.updating = true;
+            try {
+                node.value = payload();
+            } finally {
+                node.updating = false;
+                this.updatingNode = oldNode;
             }
 
             return node;
         }
     };
 
-    function Node(graph, payload, parent, options) {
+    function Emitter(graph, node) {
+        this.id = ++graph.nodeCount;
+        this.node = node;
+        this.outbound = [];
+    }
+
+    Emitter.prototype = {
+        emitDirty: function emitDirty() {
+            var i = -1, len = this.outbound.length, outbound;
+            while (++i < len) {
+                outbound = this.outbound[i];
+                if (outbound) {
+                    outbound.to.markDirty(outbound);
+                }
+            }
+        },
+
+        emitUpdate: function emitupdate() {
+            var i = -1, len = this.outbound.length, outbound;
+            while (++i < len) {
+                outbound = this.outbound[i];
+                if (outbound) {
+                    outbound.to.update();
+                }
+            }
+        },
+
+        dispose: function () {
+            this.node = null;
+            this.outbound = null;
+        }
+    };
+
+    function Node(graph, payload, options) {
         this.graph = graph;
         this.payload = payload;
+        this.emitter = new Emitter(graph, this);
 
-        this.id = ++graph.nodeCount;
+        this.value = undefined;
         this.gen = 1;
         this.dirty = 0;
+
         this.dirtying = false;
+        this.updating = false;
         this.listening = true;
-        this.pinning = options ? options.pinning : false;
+        this.pinning = false;
 
         this.inbound = [];
         this.inboundIndex = [];
-        this.outbound = [];
 
         this.cleanups = [];
         this.finalizers = [];
@@ -107,46 +151,40 @@ define('graph', [], function () {
 
     Node.prototype = {
         markDirty: function markDirty(inbound) {
-            var i, len, outbound;
             // deactivate circular edges
             if (this.dirtying) {
                 inbound.deactivate();
             } else if (++this.dirty === 1) {
                 this.dirtying = true;
-                i = -1, len = this.outbound.length;
-                while (++i < len) {
-                    outbound = this.outbound[i];
-                    if (outbound) {
-                        outbound.to.markDirty(outbound);
-                    }
-                }
+                this.emitter.emitDirty();
                 this.dirtying = false;
             }
         },
 
         update: function update() {
             var i, len, outbound, edge;
-            if (--this.dirty === 0) {
+            this.dirty--;
+            if (this.dirty === 0 && !this.updating) {
                 this.graph.updatingNode = this;
+
                 this.cleanup();
-                if (this.payload) {
-                    this.gen++;
-                    this.payload();
-                    if (this.listening) {
-                        i = -1, len = this.inbound.length;
-                        while (++i < len) {
-                            edge = this.inbound[i];
-                            if (edge.active && edge.gen < this.gen) {
-                                edge.deactivate();
-                            }
+
+                this.gen++;
+                this.updating = true;
+                this.value = this.payload();
+                this.updating = false;
+
+                if (this.listening) {
+                    i = -1, len = this.inbound.length;
+                    while (++i < len) {
+                        edge = this.inbound[i];
+                        if (edge.active && edge.gen < this.gen) {
+                            edge.deactivate();
                         }
                     }
                 }
-                i = -1, len = this.outbound.length, outbound;
-                while (++i < len) {
-                    outbound = this.outbound[i];
-                    if (outbound) outbound.to.update();
-                }
+
+                this.emitter.emitUpdate();
             }
         },
 
@@ -177,9 +215,10 @@ define('graph', [], function () {
             this.payload = null;
             this.inbound = null;
             this.inboundIndex = null;
-            this.outbound = null;
             this.cleanups = null;
             this.finalizers = null;
+
+            this.emitter.dispose();
         }
     };
 

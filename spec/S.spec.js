@@ -215,14 +215,14 @@ describe("S()", function () {
             f5 = S(function () { d(d() + 1); });
         });
 
-        it("can produce factorial propagation", function () {
+        it("can produce exponential propagation", function () {
             d(0);
-            // count(n) = n * (count(n - 1) + 1)
-            expect(d()).toBe(325);
+            // count(n) = 2^n - 1
+            expect(d()).toBe(31);
         });
     });
 
-    describe("with diamond dependencies", function () {
+    describe("with converging dependencies", function () {
         var d, f1, f2, f3, f4, f5;
 
         beforeEach(function () {
@@ -247,30 +247,30 @@ describe("S()", function () {
             g = S(function () { spy(); return f1() + f2() + f3() + f4() + f5(); });
         });
 
-        it("can produce linear propagation", function () {
+        it("only propagates once", function () {
             spy.calls.reset();
             d(0);
-            expect(spy.calls.count()).toBe(5);
+            expect(spy.calls.count()).toBe(1);
         });
     });
 
-    describe("with interwoven diamond dependencies", function () {
+    describe("with complex converging dependencies", function () {
         var d, f1, f2, f3, g1, g2, g3, h;
 
         beforeEach(function () {
-            //    d
-            //    |
-            // +--+--+
-            // v     v
-            // f1    f2
-            // | \ / |
-            // |  X  |
-            // | / \ |
-            // v     v
-            // g1    g2
-            // +--+--+
-            //    v
-            //    h
+            //     d
+            //     |
+            // +---+---+
+            // v   v   v
+            // f1  f2 f3
+            //   \ | /
+            //     O
+            //   / | \
+            // v   v   v
+            // g1  g2  g3
+            // +---+---+
+            //     v
+            //     h
             d = S.data(0);
 
             f1 = S(function () { return d(); });
@@ -285,11 +285,11 @@ describe("S()", function () {
             h  = S(function () { spy(); return g1() + g2() + g3(); });
         });
 
-        it("can produce exponential propagation", function () {
+        it("only propagates once", function () {
             spy.calls.reset();
             d(0);
             // two layers of 3 nodes each = 3 x 3 = 9
-            expect(spy.calls.count()).toBe(9);
+            expect(spy.calls.count()).toBe(1);
         });
     });
 
