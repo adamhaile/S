@@ -97,11 +97,13 @@ define('schedulers', ['core'], function (core) {
     }
 
     function when(preds) {
-        return function when(update) {
-            for (var i = 0; i < preds.length; i++) {
-                if (preds[i]() === undefined) return;
+        var len = preds.length;
+        return function boundary() {
+            var i = -1;
+            while (++i < len) {
+                if (preds[i]() === undefined) return true;
             }
-            update();
+            return false;
         }
     }
 });

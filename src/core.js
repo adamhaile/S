@@ -31,10 +31,9 @@ define('core', ['graph'], function (graph) {
     }
 
     function FormulaOptions() {
-        this.sources = null;
-        this.pin     = false;
-        this.update  = null;
-        this.init    = null;
+        this.sources  = null;
+        this.pin      = false;
+        this.boundary = null;
     }
 
     function formula(fn, options) {
@@ -49,6 +48,7 @@ define('core', ['graph'], function (graph) {
         function formula() {
             if (!node) return;
             graph.addEdge(node.emitter);
+            if (node.damage !== 0) graph.repair(node);
             return node.value;
         }
 

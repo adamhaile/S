@@ -21,9 +21,7 @@ define('options', ['core', 'schedulers'], function (core, schedulers) {
         when: function (l) {
             l = !l ? [] : !Array.isArray(l) ? [l] : l;
             this.options.sources = maybeConcat(this.options.sources, l);
-            var scheduler = schedulers.pause(schedulers.when(l));
-            composeInit(this, scheduler);
-            composeUpdate(this, scheduler);
+            this.options.boundary = schedulers.when(l);
             return this;
         }
     };
