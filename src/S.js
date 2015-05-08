@@ -14,6 +14,7 @@ define('S', ['core', 'options', 'schedulers', 'misc'], function (core, options, 
     S.data      = core.data;
     S.region    = core.region;
     S.peek      = core.peek;
+    S.freeze    = core.freeze;
     S.cleanup   = core.cleanup;
     S.finalize  = core.finalize;
 

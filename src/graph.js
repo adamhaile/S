@@ -60,7 +60,7 @@ define('graph', [], function () {
                 this.freezeChangeset = null;
             }
 
-            this.applyChangeset(collector);
+            this.flushChangeset(collector);
         },
 
         addEdge: function addEdge(from) {
