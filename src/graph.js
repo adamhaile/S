@@ -69,7 +69,7 @@ define('graph', [], function () {
 
             if (to && to.listening) {
                 edge = to.inboundIndex[from.id];
-                if (!edge) edge = new Edge(from, to, from.region !== to.emitter.region);
+                if (!edge) edge = new Edge(from, to, to.emitter.region && from.region !== to.emitter.region);
                 else edge.activate(from);
             }
         },
@@ -197,7 +197,7 @@ define('graph', [], function () {
                     // if node's inbound edges are now clean, update and propagate
                     if (to.damage === 0) {
                         to.update();
-                        to.emitter.repair();
+                        if (to.emitter) to.emitter.repair();
                     }
                 }
             }
@@ -223,7 +223,7 @@ define('graph', [], function () {
 
         dispose: function () {
             this.node = null;
-            //this.outbound = null;
+            this.outbound = null;
         }
     };
 
@@ -302,6 +302,7 @@ define('graph', [], function () {
             this.finalizers = null;
 
             this.emitter.dispose();
+            this.emitter = null;
         }
     };
 
