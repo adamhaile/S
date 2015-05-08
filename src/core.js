@@ -34,6 +34,7 @@ define('core', ['graph'], function (Graph) {
     function FormulaOptions() {
         this.sources = null;
         this.pin     = false;
+        this.init    = null;
         this.region  = null;
     }
 

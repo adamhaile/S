@@ -97,14 +97,18 @@ define('graph', [], function () {
                 else oldNode.cleanups.push(dispose);
             }
 
-            node.emitter.active = true;
-            try {
-                node.value = payload();
-            } catch (ex) {
-                node.emitter.reset();
-                throw ex;
-            } finally {
-                node.emitter.active = false;
+            if (!options.init || options.init(node.emitter)) {
+                node.emitter.active = true;
+                try {
+                    node.value = payload();
+                } catch (ex) {
+                    node.emitter.reset();
+                    throw ex;
+                } finally {
+                    node.emitter.active = false;
+                    this.updatingNode = oldNode;
+                }
+            } else {
                 this.updatingNode = oldNode;
             }
 
@@ -158,6 +162,8 @@ define('graph', [], function () {
 
     Emitter.prototype = {
         damage: function damage() {
+            if (!this.outbound) return;
+            
             this.active = true;
 
             var i = -1, len = this.outbound.length, edge, to;
@@ -183,6 +189,8 @@ define('graph', [], function () {
         },
 
         repair: function repair() {
+            if (!this.outbound) return;
+            
             this.active = true;
 
             var i = -1, len = this.outbound.length, edge, to;

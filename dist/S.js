@@ -116,14 +116,18 @@ define('graph', [], function () {
                 else oldNode.cleanups.push(dispose);
             }
 
-            node.emitter.active = true;
-            try {
-                node.value = payload();
-            } catch (ex) {
-                node.emitter.reset();
-                throw ex;
-            } finally {
-                node.emitter.active = false;
+            if (!options.init || options.init(node.emitter)) {
+                node.emitter.active = true;
+                try {
+                    node.value = payload();
+                } catch (ex) {
+                    node.emitter.reset();
+                    throw ex;
+                } finally {
+                    node.emitter.active = false;
+                    this.updatingNode = oldNode;
+                }
+            } else {
                 this.updatingNode = oldNode;
             }
 
@@ -177,6 +181,8 @@ define('graph', [], function () {
 
     Emitter.prototype = {
         damage: function damage() {
+            if (!this.outbound) return;
+            
             this.active = true;
 
             var i = -1, len = this.outbound.length, edge, to;
@@ -202,6 +208,8 @@ define('graph', [], function () {
         },
 
         repair: function repair() {
+            if (!this.outbound) return;
+            
             this.active = true;
 
             var i = -1, len = this.outbound.length, edge, to;
@@ -413,6 +421,7 @@ define('core', ['graph'], function (Graph) {
     function FormulaOptions() {
         this.sources = null;
         this.pin     = false;
+        this.init    = null;
         this.region  = null;
     }
 
@@ -601,7 +610,7 @@ define('options', ['core', 'schedulers'], function (core, schedulers) {
         when: function (l) {
             l = !l ? [] : !Array.isArray(l) ? [l] : l;
             this.options.sources = maybeConcat(this.options.sources, l);
-            this.options.region = schedulers.when(l);
+            this.options.region = this.options.init = schedulers.when(l);
             return this;
         },
         defer: function () { return this; }

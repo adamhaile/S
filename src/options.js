@@ -21,7 +21,7 @@ define('options', ['core', 'schedulers'], function (core, schedulers) {
         when: function (l) {
             l = !l ? [] : !Array.isArray(l) ? [l] : l;
             this.options.sources = maybeConcat(this.options.sources, l);
-            this.options.region = schedulers.when(l);
+            this.options.region = this.options.init = schedulers.when(l);
             return this;
         },
         defer: function () { return this; }
