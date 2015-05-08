@@ -12,12 +12,13 @@ define('S', ['core', 'options', 'schedulers', 'misc'], function (core, options, 
     }
 
     S.data      = core.data;
+    S.region    = core.region;
     S.peek      = core.peek;
     S.cleanup   = core.cleanup;
     S.finalize  = core.finalize;
 
     // add methods to S for formula options builder
-    'on once when defer throttle debounce pause'.split(' ').map(function (method) {
+    'on once when throttle debounce pause defer'.split(' ').map(function (method) {
         S[method] = function (v) { return new options.FormulaOptionsBuilder()[method](v); };
     });
 
@@ -41,8 +42,6 @@ define('S', ['core', 'options', 'schedulers', 'misc'], function (core, options, 
 
         return core.formula(fn, this.options);
     }
-
-    S.stopsign = schedulers.stopsign;
 
     S.proxy = misc.proxy;
 

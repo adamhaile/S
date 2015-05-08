@@ -1,10 +1,11 @@
-define('core', ['graph'], function (graph) {
-    var graph = new graph.Graph();
+define('core', ['graph'], function (Graph) {
+    var graph = new Graph();
 
     return {
         data:           data,
         FormulaOptions: FormulaOptions,
         formula:        formula,
+        region:         region,
         freeze:         freeze,
         peek:           peek,
         pin:            pin,
@@ -31,9 +32,9 @@ define('core', ['graph'], function (graph) {
     }
 
     function FormulaOptions() {
-        this.sources  = null;
-        this.pin      = false;
-        this.boundary = null;
+        this.sources = null;
+        this.pin     = false;
+        this.region  = null;
     }
 
     function formula(fn, options) {
@@ -48,7 +49,7 @@ define('core', ['graph'], function (graph) {
         function formula() {
             if (!node) return;
             graph.addEdge(node.emitter);
-            if (node.damage !== 0) graph.repair(node);
+            if (node.damage !== 0) graph.backtrack(node);
             return node.value;
         }
 
@@ -65,6 +66,22 @@ define('core', ['graph'], function (graph) {
 
     function signalToJSON() {
         return this();
+    }
+
+    function region() {
+        var cs = graph.addChangeset();
+
+        region.go = go;
+
+        return region;
+
+        function region(emitter) {
+            cs.add(emitter);
+        }
+
+        function go() {
+            graph.flushChangeset(cs);
+        }
     }
 
     function peek(fn) {

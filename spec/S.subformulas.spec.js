@@ -58,23 +58,23 @@ describe("S() with subformulas", function () {
         });
     });
 
-    describe("with child and flow modifier", function () {
-        var d, f, g;
+    describe("with child and region", function () {
+        var d, f, g, r;
 
         beforeEach(function () {
             d = S.data(1);
-            f = S.defer().S(function () {
+            r = S.region();
+            f = S.pause(r).S(function () {
                 g = S(function () {
                     return d();
                 });
             });
         });
 
-        it("applies flow modifer to child", function () {
-            S(function () {
-                d(2);
-                expect(S.peek(g)).toBe(1);
-            });
+        it("applies region to child", function () {
+            d(2);
+            expect(g()).toBe(1);
+            r.go();
             expect(g()).toBe(2);
         });
     });
