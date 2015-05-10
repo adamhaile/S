@@ -1,8 +1,10 @@
 (function () {
+    "use strict";
+
     // UMD exporter
     if (typeof module === 'object' && typeof module.exports === 'object') module.exports = S; // CommonJS
     else if (typeof define === 'function') define([], function () { return S; }); // AMD
-    else this.S = S; // fallback to global object
+    else (eval || false)("this").S = S; // fallback to global object
 
     // "Globals" used to keep track of current system state
     var NodeCount = 0,
@@ -106,28 +108,32 @@
         return data;
 
         function data(newValue) {
-            var oldNode;
             if (arguments.length > 0) {
                 value = newValue;
-                if (Freezing) {
-                    Freezing(node);
-                } else {
-                    mark(node);
-
-                    oldNode = UpdatingNode, UpdatingNode = null;
-                    try {
-                        update(node);
-                    } catch (ex) {
-                        reset(node);
-                        throw ex;
-                    } finally {
-                        UpdatingNode = oldNode;
-                    }
-                }
+                reportChange(node);
             } else {
                 addEdge(node);
             }
             return value;
+        }
+    }
+
+    function reportChange(node) {
+        var oldNode;
+        if (Freezing) {
+            Freezing(node);
+        } else {
+            mark(node);
+
+            oldNode = UpdatingNode, UpdatingNode = null;
+            try {
+                update(node);
+            } catch (ex) {
+                reset(node);
+                throw ex;
+            } finally {
+                UpdatingNode = oldNode;
+            }
         }
     }
 
