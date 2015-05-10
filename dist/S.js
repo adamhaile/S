@@ -1,432 +1,56 @@
-(function (package) {
-    // nano-implementation of require.js-like define(name, deps, impl) for internal use
-    var definitions = {};
+(function () {
+    // UMD exporter
+    if (typeof module === 'object' && typeof module.exports === 'object') module.exports = S; // CommonJS
+    else if (typeof define === 'function') define([], function () { return S; }); // AMD
+    else this.S = S; // fallback to global object
 
-    package(function define(name, deps, fn) {
-        if (definitions.hasOwnProperty(name)) throw new Error("define: cannot redefine module " + name);
-        definitions[name] = fn.apply(null, deps.map(function (dep) {
-            if (!definitions.hasOwnProperty(dep)) throw new Error("define: module " + dep + " required by " + name + " has not been defined.");
-            return definitions[dep];
-        }));
-    });
+    // "Globals" used to keep track of current system state
+    var NodeCount = 0,
+        UpdatingNode = null,
+        Freezing = null;
 
-    if (typeof module === 'object' && typeof module.exports === 'object') module.exports = definitions.S; // CommonJS
-    else if (typeof define === 'function') define([], function () { return definitions.S; }); // AMD
-    else this.S = definitions.S; // fallback to global object
+    function S(fn /*, ...args */) {
+        // wrap any included args into fn call
+        var _fn, _args, i, len;
+        if (arguments.length > 1) {
+            _fn = fn;
+            _args = Array.prototype.slice.call(arguments, 1);
+            fn = function () { return _fn.apply(null, _args); };
+        }
 
-})(function (define) {
-    "use strict";
+        var options = this instanceof FormulaOptionsBuilder ? this.options : new FormulaOptions(),
+            parent = UpdatingNode,
+            region = options.region || (parent && parent.region) || null,
+            payload = new Payload(fn),
+            node = new Node(++NodeCount, payload, region);
 
-define('graph', [], function () {
-    function Graph() {
-        this.nodeCount = 0;
-        this.updatingNode = null;
-        this.freezeChangeset = null;
-    }
+        UpdatingNode = node;
 
-    Graph.prototype = {
-        reportChange: function reportChange(emitter) {
-            if (this.freezeChangeset) {
-                this.freezeChangeset.add(emitter);
-                return;
-            }
+        if (options.sources) {
+            i = -1, len = options.sources.length;
+            while (++i < len) options.sources[i]();
+            payload.listening = false;
+        }
 
-            emitter.damage();
+        if (parent) {
+            if (parent.payload.pinning || options.pin) parent.payload.finalizers.push(dispose);
+            else parent.payload.cleanups.push(dispose);
+        }
 
-            var oldNode = this.updatingNode;
-            this.updatingNode = null;
+        if (!options.init || options.init(node)) {
+            node.active = true;
             try {
-                emitter.repair();
+                node.payload.value = node.payload.fn();
             } catch (ex) {
-                emitter.reset();
+                reset(node);
                 throw ex;
             } finally {
-                this.updatingNode = oldNode;
+                node.active = false;
+                UpdatingNode = parent;
             }
-        },
-
-        backtrack: function backtrack(node) {
-            var oldNode = this.updatingNode;
-
-            var i = -1, len = node.inbound.length, edge;
-            while (++i < len) {
-                edge = node.inbound[i];
-                if (edge && edge.damaged) {
-                    if (edge.from.node && edge.from.node.damage) {
-                        // keep working backwards through the damage ...
-                        backtrack(edge.from.node);
-                    } else {
-                        // ... until we find clean state, from which to send repair
-                        edge.from.repair();
-                    }
-                }
-            }
-
-            this.currentNode = oldNode;
-        },
-
-        freeze: function freeze(fn) {
-            if (this.freezeChangeset) {
-                fn();
-                return;
-            }
-
-            var collector = this.freezeChangeset = new Changeset();
-
-            try {
-                fn();
-            } finally {
-                this.freezeChangeset = null;
-            }
-
-            this.flushChangeset(collector);
-        },
-
-        addEdge: function addEdge(from) {
-            var to = this.updatingNode,
-                edge = null;
-
-            if (to && to.listening) {
-                edge = to.inboundIndex[from.id];
-                if (!edge) edge = new Edge(from, to, to.emitter.region && from.region !== to.emitter.region);
-                else edge.activate(from);
-            }
-        },
-
-        addEntryPoint: function addEntryPoint() {
-            return new Emitter(this, null, this.updatingNode ? this.updatingNode.emitter.region : null);
-        },
-
-        addNode: function addNode(payload, options, dispose) {
-            var oldNode = this.updatingNode,
-                region = options.region || (oldNode && oldNode.emitter.region) || null,
-                node = new Node(this, payload, region),
-                i, len;
-
-            this.updatingNode = node;
-
-            if (options.sources) {
-                i = -1, len = options.sources.length;
-                while (++i < len) options.sources[i]();
-                node.listening = false;
-            }
-
-            if (oldNode) {
-                if (oldNode.pinning || options.pin) oldNode.finalizers.push(dispose);
-                else oldNode.cleanups.push(dispose);
-            }
-
-            if (!options.init || options.init(node.emitter)) {
-                node.emitter.active = true;
-                try {
-                    node.value = payload();
-                } catch (ex) {
-                    node.emitter.reset();
-                    throw ex;
-                } finally {
-                    node.emitter.active = false;
-                    this.updatingNode = oldNode;
-                }
-            } else {
-                this.updatingNode = oldNode;
-            }
-
-            return node;
-        },
-
-        addChangeset: function addChangeset() {
-            return new Changeset();
-        },
-
-        flushChangeset: function flushChangeset(cs) {
-            var i, emitter, oldNode;
-
-            i = -1;
-            while (++i < cs.emitters.length) {
-                cs.emitters[i].damage();
-            }
-
-            oldNode = this.updatingNode, this.updatingNode = null;
-
-            i = -1;
-            try {
-                while (++i < cs.emitters.length) {
-                    emitter = cs.emitters[i];
-                    if (emitter.node) emitter.node.update();
-                    emitter.repair();
-                }
-            } catch (ex) {
-                i--;
-                while (++i < cs.emitters.length) {
-                    cs.emitters[i].reset();
-                }
-                throw ex;
-            } finally {
-                this.updatingNode = oldNode;
-            }
-
-            cs.emitters = [];
-            cs.emitterIndex = {};
+        } else {
+            UpdatingNode = parent;
         }
-    };
-
-    function Emitter(graph, node, region) {
-        this.id = ++graph.nodeCount;
-        this.node = node;
-        this.region = region;
-
-        this.active = false;
-        this.outbound = [];
-    }
-
-    Emitter.prototype = {
-        damage: function damage() {
-            if (!this.outbound) return;
-            
-            this.active = true;
-
-            var i = -1, len = this.outbound.length, edge, to;
-            while (++i < len) {
-                edge = this.outbound[i];
-                if (edge && !edge.damaged && (!edge.boundary || edge.to.emitter.region(edge.to.emitter))) {
-                    to = edge.to;
-
-                    if (to.emitter.active)
-                        throw new Error("circular dependency"); // TODO: more helpful reporting
-
-                    edge.damaged = true;
-                    to.damage++;
-
-                    // if this is the first time node's been dirtied, then propagate
-                    if (to.damage === 1) {
-                        to.emitter.damage();
-                    }
-                }
-            }
-
-            this.active = false;
-        },
-
-        repair: function repair() {
-            if (!this.outbound) return;
-            
-            this.active = true;
-
-            var i = -1, len = this.outbound.length, edge, to;
-            while (++i < len) {
-                edge = this.outbound[i];
-                if (edge && edge.damaged) {
-                    to = edge.to;
-
-                    edge.damaged = false;
-                    to.damage--;
-
-                    // if node's inbound edges are now clean, update and propagate
-                    if (to.damage === 0) {
-                        to.update();
-                        if (to.emitter) to.emitter.repair();
-                    }
-                }
-            }
-
-            this.active = false;
-        },
-
-        reset: function reset() {
-            this.active = false;
-
-            var i = -1, len = this.outbound.length, edge, to;
-            while (++i < len) {
-                edge = this.outbound[i];
-                if (edge && edge.damaged) {
-                    to = edge.to;
-                    edge.damaged = false;
-                    to.damage = 0;
-
-                    to.emitter.reset();
-                }
-            }
-        },
-
-        dispose: function () {
-            this.node = null;
-            this.outbound = null;
-        }
-    };
-
-    function Node(graph, payload, region) {
-        this.graph = graph;
-        this.payload = payload;
-
-        this.emitter = new Emitter(graph, this, region);
-
-        this.value = undefined;
-        this.gen = 1;
-        this.damage = 0;
-
-        this.listening = true;
-        this.pinning = false;
-
-        this.inbound = [];
-        this.inboundIndex = [];
-
-        this.cleanups = [];
-        this.finalizers = [];
-    }
-
-    Node.prototype = {
-        update: function update() {
-            var i, len, edge;
-
-            this.graph.updatingNode = this;
-
-            this.cleanup();
-
-            this.gen++;
-
-            this.value = this.payload();
-
-            if (this.listening && this.inbound) {
-                // deactivate any edges that weren't refreshed
-                i = -1, len = this.inbound.length;
-                while (++i < len) {
-                    edge = this.inbound[i];
-                    if (edge.active && edge.gen < this.gen) {
-                        edge.deactivate();
-                    }
-                }
-            }
-        },
-
-        cleanup: function cleanup() {
-            var i = -1, len = this.cleanups.length;
-            while (++i < len) {
-                this.cleanups[i]();
-            }
-            this.cleanups = [];
-        },
-
-        dispose: function dispose() {
-            var i, len;
-
-            this.cleanup();
-
-            i = -1, len = this.finalizers.length;
-            while (++i < len) {
-                this.finalizers[i]();
-            }
-
-            i = -1, len = this.inbound.length;
-            while (++i < len) {
-                this.inbound[i].deactivate();
-            }
-
-            this.graph = null;
-            this.payload = null;
-            this.inbound = null;
-            this.inboundIndex = null;
-            this.cleanups = null;
-            this.finalizers = null;
-
-            this.emitter.dispose();
-            this.emitter = null;
-        }
-    };
-
-    function Edge(from, to, boundary) {
-        this.from = from;
-        this.to = to;
-        this.boundary = boundary;
-
-        this.active = true;
-        this.damaged = false;
-        this.gen = to.gen;
-
-        this.outboundOffset = from.outbound.length;
-
-        from.outbound.push(this);
-        to.inbound.push(this);
-        to.inboundIndex[from.id] = this;
-    }
-
-    Edge.prototype = {
-        activate: function activateEdge(from) {
-            if (!this.active) {
-                this.active = true;
-                from.outbound[this.outboundOffset] = this;
-                this.from = from;
-            }
-            this.gen = this.to.gen;
-        },
-
-        deactivate: function deactivateEdge() {
-            if (this.active) {
-                this.active = false;
-                if (this.from.outbound) this.from.outbound[this.outboundOffset] = null;
-                this.from = null;
-            }
-        }
-    };
-
-    function Changeset() {
-        this.emitters = [],
-        this.emitterIndex = {};
-    }
-
-    Changeset.prototype = {
-        add: function add(emitter) {
-            if (!this.emitterIndex[emitter.id]) {
-                this.emitters.push(emitter);
-                this.emitterIndex[emitter.id] = emitter;
-            }
-        }
-    };
-
-    return Graph;
-});
-
-define('core', ['graph'], function (Graph) {
-    var graph = new Graph();
-
-    return {
-        data:           data,
-        FormulaOptions: FormulaOptions,
-        formula:        formula,
-        region:         region,
-        freeze:         freeze,
-        peek:           peek,
-        pin:            pin,
-        cleanup:        cleanup,
-        finalize:       finalize
-    }
-
-    function data(value) {
-        var entry = graph.addEntryPoint(null, null);
-
-        data.toJSON = signalToJSON;
-
-        return data;
-
-        function data(newValue) {
-            if (arguments.length > 0) {
-                value = newValue;
-                graph.reportChange(entry);
-            } else {
-                graph.addEdge(entry);
-            }
-            return value;
-        }
-    }
-
-    function FormulaOptions() {
-        this.sources = null;
-        this.pin     = false;
-        this.init    = null;
-        this.region  = null;
-    }
-
-    function formula(fn, options) {
-        var node = graph.addNode(fn, options, dispose);
 
         formula.dispose = dispose;
         //formula.toString = toString;
@@ -436,15 +60,37 @@ define('core', ['graph'], function (Graph) {
 
         function formula() {
             if (!node) return;
-            graph.addEdge(node.emitter);
-            if (node.damage !== 0) graph.backtrack(node);
-            return node.value;
+            addEdge(node);
+            if (node.marks !== 0) backtrack(node);
+            return node.payload.value;
         }
 
         function dispose() {
             if (!node) return;
-            node.dispose();
-            node = undefined;
+            var i, len;
+
+            cleanup(payload);
+
+            i = -1, len = payload.finalizers.length;
+            while (++i < len) {
+                payload.finalizers[i]();
+            }
+
+            payload.fn = null;
+            payload.value = null;
+            payload.finalizers = null;
+            payload = null;
+
+            i = -1, len = node.inbound.length;
+            while (++i < len) {
+                deactivate(node.inbound[i]);
+            }
+
+            node.payload = null;
+            node.inbound = null;
+            node.inboundIndex = null;
+            node.outbound = null;
+            node = null;
         }
 
         //function toString() {
@@ -452,151 +98,54 @@ define('core', ['graph'], function (Graph) {
         //}
     }
 
-    function signalToJSON() {
-        return this();
-    }
+    S.data = function data(value) {
+        var node = new Node(++NodeCount, null, UpdatingNode ? UpdatingNode.region : null);
 
-    function region() {
-        var cs = graph.addChangeset();
+        data.toJSON = signalToJSON;
 
-        region.go = go;
+        return data;
 
-        return region;
+        function data(newValue) {
+            var oldNode;
+            if (arguments.length > 0) {
+                value = newValue;
+                if (Freezing) {
+                    Freezing(node);
+                } else {
+                    mark(node);
 
-        function region(emitter) {
-            cs.add(emitter);
-        }
-
-        function go() {
-            graph.flushChangeset(cs);
-        }
-    }
-
-    function peek(fn) {
-        if (graph.updatingNode && graph.updatingNode.listening) {
-            graph.updatingNode.listening = false;
-
-            try {
-                return fn();
-            } finally {
-                graph.updatingNode.listening = true;
-            }
-        } else {
-            return fn();
-        }
-    }
-
-    function pin(fn) {
-        if (graph.updatingNode && !graph.updatingNode.pinning) {
-            graph.updatingNode.pinning = true;
-
-            try {
-                return fn();
-            } finally {
-                graph.updatingNode.pinning = false;
-            }
-        } else {
-            return fn();
-        }
-    }
-
-    function freeze(fn) {
-        graph.freeze(fn);
-    }
-
-    function cleanup(fn) {
-        if (graph.updatingNode) {
-            graph.updatingNode.cleanups.push(fn);
-        } else {
-            throw new Error("S.cleanup() must be called from within an S.formula.  Cannot call it at toplevel.");
-        }
-    }
-
-    function finalize(fn) {
-        if (graph.updatingNode) {
-            graph.updatingNode.finalizers.push(fn);
-        } else {
-            throw new Error("S.finalize() must be called from within an S.formula.  Cannot call it at toplevel.");
-        }
-    }
-});
-
-define('schedulers', ['core'], function (core) {
-
-    return {
-        pause:    pause,
-        throttle: throttle,
-        debounce: debounce,
-        when:     when
-    };
-
-    function pause(region) {
-        return region;
-    }
-
-    function throttle(t) {
-        var region = core.region(),
-            last = 0,
-            scheduled = false;
-
-        return function throttle(emitter) {
-            var now = Date.now();
-
-            region(emitter);
-
-            if ((now - last) > t) {
-                last = now;
-                region.go();
+                    oldNode = UpdatingNode, UpdatingNode = null;
+                    try {
+                        update(node);
+                    } catch (ex) {
+                        reset(node);
+                        throw ex;
+                    } finally {
+                        UpdatingNode = oldNode;
+                    }
+                }
             } else {
-                setTimeout(function throttled() {
-                    last = Date.now();
-                    region.go();
-                }, t - (now - last));
+                addEdge(node);
             }
-        };
-    }
-
-    function debounce(t) {
-        var region = core.region(),
-            last = 0,
-            tout = 0;
-
-        return function debounce(emitter) {
-            var now = Date.now();
-
-            region(emitter);
-
-            if (now > last) {
-                last = now;
-                if (tout) clearTimeout(tout);
-
-                tout = setTimeout(region.go, t);
-            }
-        };
-    }
-
-    function when(preds) {
-        var len = preds.length;
-        return function when() {
-            var i = -1;
-            while (++i < len) {
-                if (preds[i]() === undefined) return false;
-            }
-            return true;
+            return value;
         }
     }
-});
 
-define('options', ['core', 'schedulers'], function (core, schedulers) {
+    /// Options
+    function FormulaOptions() {
+        this.sources = null;
+        this.pin     = false;
+        this.init    = null;
+        this.region  = null;
+    }
 
     function FormulaOptionsBuilder() {
-        this.options = new core.FormulaOptions();
+        this.options = new FormulaOptions();
     }
 
     FormulaOptionsBuilder.prototype = {
-        on: function (l) {
-            l = !l ? [] : !Array.isArray(l) ? [l] : l;
-            this.options.sources = maybeConcat(this.options.sources, l);
+        on: function (/* ...sources */) {
+            this.options.sources = Array.prototype.slice.apply(arguments);
             return this;
         },
         once: function () {
@@ -607,92 +156,371 @@ define('options', ['core', 'schedulers'], function (core, schedulers) {
             this.options.pin = true;
             return this;
         },
-        when: function (l) {
-            l = !l ? [] : !Array.isArray(l) ? [l] : l;
-            this.options.sources = maybeConcat(this.options.sources, l);
-            this.options.region = this.options.init = schedulers.when(l);
+        defer: function () { return this; },
+        throttle: function throttle(t) {
+            var region = S.region(),
+                last = 0,
+                scheduled = false;
+
+            this.options.region = function throttle(emitter) {
+                var now = Date.now();
+
+                region(emitter);
+
+                if ((now - last) > t) {
+                    last = now;
+                    region.go();
+                } else {
+                    setTimeout(function throttled() {
+                        last = Date.now();
+                        region.go();
+                    }, t - (now - last));
+                }
+            };
+
             return this;
         },
-        defer: function () { return this; }
-    };
+        debounce: function debounce(t) {
+            var region = S.region(),
+                last = 0,
+                tout = 0;
 
-    // add methods for schedulers
-    'throttle debounce pause'.split(' ').map(function (method) {
-        FormulaOptionsBuilder.prototype[method] = function (v) {
-            this.options.region = schedulers[method](v);
+            this.options.region = function debounce(node) {
+                var now = Date.now();
+
+                region(node);
+
+                if (now > last) {
+                    last = now;
+                    if (tout) clearTimeout(tout);
+
+                    tout = setTimeout(region.go, t);
+                }
+            };
+
             return this;
-        };
-    });
+        },
+        pause: function (region) {
+            this.options.region = region;
+            return this;
+        },
+        when: function when(/* ...preds */) {
+            var preds = Array.prototype.slice.apply(arguments);
+                len = preds.length;
 
-    return {
-        FormulaOptionsBuilder: FormulaOptionsBuilder
+            this.options.sources = preds;
+            this.options.region = this.options.init = function when() {
+                var i = -1;
+                while (++i < len) {
+                    if (preds[i]() === undefined) return false;
+                }
+                return true;
+            }
+
+            return this;
+        }
     };
 
-    function maybeConcat(a, b) { return a ? a.concat(b) : b; }
-});
-
-define('misc', [], function () {
-    return {
-        proxy: proxy
-    };
-
-    function proxy(getter, setter) {
-        return function proxy(value) {
-            if (arguments.length !== 0) setter(value);
-            return getter();
-        };
+    for (var prop in FormulaOptionsBuilder.prototype) {
+        S[prop] = (function (prop) { return function (/*...*/) {
+                var options = new FormulaOptionsBuilder();
+                return options[prop].apply(options, arguments);
+        }; })(prop);
     }
-});
 
-define('S', ['core', 'options', 'schedulers', 'misc'], function (core, options, schedulers, misc) {
-    // build our top-level object S
-    function S(fn /*, ...args */) {
-        var _fn, _args;
-        if (arguments.length > 1) {
-            _fn = fn;
-            _args = Array.prototype.slice.call(arguments, 1);
-            fn = function () { return _fn.apply(null, _args); };
+    FormulaOptionsBuilder.prototype.S = S;
+
+    function signalToJSON() {
+        return this();
+    }
+
+    S.region = function region() {
+        var nodes = [],
+            nodeIndex = {};
+
+        region.go = go;
+
+        return region;
+
+        function region(node) {
+            if (!nodeIndex[node.id]) {
+                nodes.push(node);
+                nodeIndex[node.id] = node;
+            }
         }
 
-        return core.formula(fn, new core.FormulaOptions());
+        function go() {
+            var i, node, oldNode;
+
+            i = -1;
+            while (++i < nodes.length) {
+                mark(nodes[i]);
+            }
+
+            oldNode = UpdatingNode, UpdatingNode = null;
+
+            i = -1;
+            try {
+                while (++i < nodes.length) {
+                    update(nodes[i]);
+                }
+            } catch (ex) {
+                i--;
+                while (++i < nodes.length) {
+                    reset(nodes[i]);
+                }
+                throw ex;
+            } finally {
+                UpdatingNode = oldNode;
+            }
+
+            nodes = [];
+            nodeIndex = {};
+        }
     }
 
-    S.data      = core.data;
-    S.region    = core.region;
-    S.peek      = core.peek;
-    S.freeze    = core.freeze;
-    S.cleanup   = core.cleanup;
-    S.finalize  = core.finalize;
+    S.peek = function peek(fn) {
+        if (UpdatingNode && UpdatingNode.payload.listening) {
+            UpdatingNode.payload.listening = false;
 
-    // add methods to S for formula options builder
-    'on once when throttle debounce pause defer'.split(' ').map(function (method) {
-        S[method] = function (v) { return new options.FormulaOptionsBuilder()[method](v); };
-    });
+            try {
+                return fn();
+            } finally {
+                UpdatingNode.payload.listening = true;
+            }
+        } else {
+            return fn();
+        }
+    }
 
-    // S.pin is either an option for a formula being created or the marker of a region where all subs are pinned
     S.pin = function pin(fn) {
         if (arguments.length === 0) {
-            return new options.FormulaOptionsBuilder().pin();
+            return new FormulaOptionsBuilder().pin();
+        } else if (UpdatingNode && !UpdatingNode.payload.pinning) {
+            UpdatingNode.payload.pinning = true;
+
+            try {
+                return fn();
+            } finally {
+                UpdatingNode.payload.pinning = false;
+            }
         } else {
-            core.pin(fn);
+            return fn();
         }
     }
 
-    // enable creation of formula from options builder
-    options.FormulaOptionsBuilder.prototype.S = function S(fn /*, args */) {
-        var _fn, _args;
-        if (arguments.length > 1) {
-            _fn = fn;
-            _args = Array.prototype.slice.call(arguments, 1);
-            fn = function () { return _fn.apply(null, _args); };
+    S.cleanup = function cleanup(fn) {
+        if (UpdatingNode) {
+            UpdatingNode.payload.cleanups.push(fn);
+        } else {
+            throw new Error("S.cleanup() must be called from within an S.formula.  Cannot call it at toplevel.");
         }
-
-        return core.formula(fn, this.options);
     }
 
-    S.proxy = misc.proxy;
+    S.finalize = function finalize(fn) {
+        if (UpdatingNode) {
+            UpdatingNode.payload.finalizers.push(fn);
+        } else {
+            throw new Error("S.finalize() must be called from within an S.formula.  Cannot call it at toplevel.");
+        }
+    }
 
-    return S;
-})
+    S.freeze = function freeze(fn) {
+        if (Freezing) {
+            fn();
+        } else {
+            var freeze = Freezing = S.region();
 
-});
+            try {
+                fn();
+            } finally {
+                Freezing = null;
+            }
+
+            freeze.go();
+        }
+    }
+
+    /// Dependency Graph
+    function Node(id, payload, region) {
+        this.id = id;
+        this.payload = payload;
+        this.region = region;
+
+        this.marks = 0;
+        this.active = false;
+
+        this.inbound = [];
+        this.inboundIndex = [];
+        this.outbound = [];
+    }
+
+    function Edge(from, to, boundary) {
+        this.from = from;
+        this.to = to;
+        this.boundary = boundary;
+
+        this.active = true;
+        this.damaged = false;
+        this.gen = to.payload.gen;
+
+        this.outboundOffset = from.outbound.length;
+
+        from.outbound.push(this);
+        to.inbound.push(this);
+        to.inboundIndex[from.id] = this;
+    }
+
+    function Payload(fn) {
+        this.fn = fn;
+
+        this.gen = 1;
+        this.value = undefined;
+
+        this.listening = true;
+        this.pinning = false;
+
+        this.cleanups = [];
+        this.finalizers = [];
+    }
+
+    function addEdge(from) {
+        var to = UpdatingNode,
+            edge = null;
+
+        if (to && to.payload.listening) {
+            edge = to.inboundIndex[from.id];
+            if (edge) activate(edge);
+            else new Edge(from, to, to.region && from.region !== to.region);
+        }
+    }
+
+    function mark(node) {
+        node.active = true;
+
+        var i = -1, len = node.outbound.length, edge, to;
+        while (++i < len) {
+            edge = node.outbound[i];
+            if (edge && !edge.marked && (!edge.boundary || edge.to.region(edge.to))) {
+                to = edge.to;
+
+                if (to.active)
+                    throw new Error("circular dependency"); // TODO: more helpful reporting
+
+                edge.marked = true;
+                to.marks++;
+
+                // if this is the first time node's been marked, then propagate
+                if (to.marks === 1) {
+                    mark(to);
+                }
+            }
+        }
+
+        node.active = false;
+    }
+
+    function update(node) {
+        var i, len, edge, to, payload;
+
+        node.active = true;
+
+        if (node.payload) {
+            payload = node.payload;
+
+            UpdatingNode = node;
+
+            cleanup(payload);
+
+            payload.gen++;
+
+            payload.value = payload.fn();
+
+            if (payload.listening && node.inbound) {
+                i = -1, len = node.inbound.length;
+                while (++i < len) {
+                    edge = node.inbound[i];
+                    if (edge.active && edge.gen < payload.gen) {
+                        deactivate(edge);
+                    }
+                }
+            }
+        }
+
+        i = -1, len = node.outbound.length;
+        while (++i < len) {
+            edge = node.outbound[i];
+            if (edge && edge.marked) {
+                to = edge.to;
+
+                edge.marked = false;
+                to.marks--;
+
+                if (to.marks === 0) {
+                    update(to);
+                }
+            }
+        }
+
+        node.active = false;
+    }
+
+    function backtrack(node) {
+        var oldNode = UpdatingNode;
+
+        var i = -1, len = node.inbound.length, edge;
+        while (++i < len) {
+            edge = node.inbound[i];
+            if (edge && edge.marked) {
+                if (edge.from.marked) {
+                    // keep working backwards through the marked nodes ...
+                    backtrack(edge.from);
+                } else {
+                    // ... until we find clean state, from which to start updating
+                    update(edge.from);
+                }
+            }
+        }
+
+        UpdatingNode = oldNode;
+    }
+
+    function reset(node) {
+        node.active = false;
+
+        var i = -1, len = node.outbound.length, edge, to;
+        while (++i < len) {
+            edge = node.outbound[i];
+            if (edge && edge.damaged) {
+                to = edge.to;
+                edge.damaged = false;
+                to.damage = 0;
+
+                reset(to);
+            }
+        }
+    }
+
+    function cleanup(payload) {
+        var i = -1, len = payload.cleanups.length;
+        while (++i < len) {
+            payload.cleanups[i]();
+        }
+        payload.cleanups = [];
+    }
+
+    function activate(edge) {
+        if (!edge.active) {
+            edge.active = true;
+            from.outbound[edge.outboundOffset] = edge;
+            edge.from = from;
+        }
+        edge.gen = edge.to.payload.gen;
+    }
+
+    function deactivate(edge) {
+        edge.active = false;
+        if (edge.from.outbound) edge.from.outbound[edge.outboundOffset] = null;
+        edge.from = null;
+    }
+})();

@@ -1,8 +1,8 @@
 describe("S.on(...)", function () {
     it("registers a dependency", function () {
         var d = S.data(1),
-            spy = jasmine.createSpy("spy"),
-            s = S.on(d).S(function () { spy(); });
+            spy = jasmine.createSpy(),
+            f = S.on(d).S(function () { spy(); });
 
         spy.calls.reset();
 
@@ -23,23 +23,19 @@ describe("S.on(...)", function () {
         expect(spy.calls.count()).toBe(0);
     });
 
-    it ("allows multiple dependencies, either in one specification or many", function () {
+    it ("allows multiple dependencies", function () {
         var a = S.data(1),
             b = S.data(2),
             c = S.data(3),
-            spy1 = jasmine.createSpy("spy1"),
-            spy2 = jasmine.createSpy("spy2"),
-            s1 = S.on([a, b, c]).S(function () { spy1(); }),
-            s2 = S.on(a).on(b).on(c).S(function () { spy2(); });
+            spy = jasmine.createSpy(),
+            f = S.on(a, b, c).S(function () { spy(); });
 
-        spy1.calls.reset();
-        spy2.calls.reset();
+        spy.calls.reset();
 
         a(4);
         b(5);
         c(6);
 
-        expect(spy1.calls.count()).toBe(3);
-        expect(spy1.calls.count()).toBe(3);
+        expect(spy.calls.count()).toBe(3);
     });
 });
