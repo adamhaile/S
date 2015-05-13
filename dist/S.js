@@ -366,7 +366,7 @@
         this.boundary = boundary;
 
         this.active = true;
-        this.damaged = false;
+        this.marked = false;
         this.gen = to.payload.gen;
 
         this.outboundOffset = from.outbound.length;
@@ -496,10 +496,10 @@
         var i = -1, len = node.outbound.length, edge, to;
         while (++i < len) {
             edge = node.outbound[i];
-            if (edge && edge.damaged) {
+            if (edge && edge.marked) {
                 to = edge.to;
-                edge.damaged = false;
-                to.damage = 0;
+                edge.marked = false;
+                to.marks = 0;
 
                 reset(to);
             }
