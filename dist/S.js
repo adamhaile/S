@@ -17,7 +17,7 @@
         if (arguments.length > 1) {
             _fn = fn;
             _args = Array.prototype.slice.call(arguments, 1);
-            fn = function () { return _fn.apply(null, _args); };
+            fn = function S() { return _fn.apply(null, _args); };
         }
 
         var options = this instanceof FormulaOptionsBuilder ? this.options : new FormulaOptions(),
@@ -42,7 +42,7 @@
         if (!options.init || options.init(node)) {
             node.active = true;
             try {
-                node.payload.value = node.payload.fn();
+                node.payload.value = fn();
             } catch (ex) {
                 reset(node);
                 throw ex;
@@ -116,7 +116,7 @@
             }
             return value;
         }
-    }
+    };
 
     function reportChange(node) {
         var oldNode;
@@ -165,8 +165,7 @@
         defer: function () { return this; },
         throttle: function throttle(t) {
             var region = S.region(),
-                last = 0,
-                scheduled = false;
+                last = 0;
 
             this.options.region = function throttle(emitter) {
                 var now = Date.now();
@@ -211,7 +210,7 @@
             return this;
         },
         when: function when(/* ...preds */) {
-            var preds = Array.prototype.slice.apply(arguments);
+            var preds = Array.prototype.slice.apply(arguments),
                 len = preds.length;
 
             this.options.sources = preds;
@@ -221,7 +220,7 @@
                     if (preds[i]() === undefined) return false;
                 }
                 return true;
-            }
+            };
 
             return this;
         }
@@ -256,7 +255,7 @@
         }
 
         function go() {
-            var i, node, oldNode;
+            var i, oldNode;
 
             i = -1;
             while (++i < nodes.length) {
@@ -283,7 +282,7 @@
             nodes = [];
             nodeIndex = {};
         }
-    }
+    };
 
     S.peek = function peek(fn) {
         if (UpdatingNode && UpdatingNode.payload.listening) {
@@ -297,7 +296,7 @@
         } else {
             return fn();
         }
-    }
+    };
 
     S.pin = function pin(fn) {
         if (arguments.length === 0) {
@@ -313,7 +312,7 @@
         } else {
             return fn();
         }
-    }
+    };
 
     S.cleanup = function cleanup(fn) {
         if (UpdatingNode) {
@@ -321,7 +320,7 @@
         } else {
             throw new Error("S.cleanup() must be called from within an S.formula.  Cannot call it at toplevel.");
         }
-    }
+    };
 
     S.finalize = function finalize(fn) {
         if (UpdatingNode) {
@@ -329,7 +328,7 @@
         } else {
             throw new Error("S.finalize() must be called from within an S.formula.  Cannot call it at toplevel.");
         }
-    }
+    };
 
     S.freeze = function freeze(fn) {
         if (Freezing) {
@@ -345,9 +344,9 @@
 
             freeze.go();
         }
-    }
+    };
 
-    /// Dependency Graph
+    /// Graph classes and operations
     function Node(id, payload, region) {
         this.id = id;
         this.payload = payload;
@@ -396,7 +395,7 @@
 
         if (to && to.payload.listening) {
             edge = to.inboundIndex[from.id];
-            if (edge) activate(edge);
+            if (edge) activate(edge, from);
             else new Edge(from, to, to.region && from.region !== to.region);
         }
     }
@@ -515,7 +514,7 @@
         payload.cleanups = [];
     }
 
-    function activate(edge) {
+    function activate(edge, from) {
         if (!edge.active) {
             edge.active = true;
             from.outbound[edge.outboundOffset] = edge;
