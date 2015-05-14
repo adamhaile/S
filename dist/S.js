@@ -72,10 +72,12 @@
             var i, len;
 
             cleanup(payload);
+            if (!node) return;
 
             i = -1, len = payload.finalizers.length;
             while (++i < len) {
                 payload.finalizers[i]();
+                if (!node) return;
             }
 
             payload.fn = null;
@@ -456,7 +458,7 @@
             }
         }
 
-        node.cur = -1, len = node.outbound.length;
+        node.cur = -1, len = node.outbound ? node.outbound.length : 0;
         while (++node.cur < len) {
             edge = node.outbound[node.cur];
             if (edge && edge.marked) {
@@ -540,8 +542,8 @@
     }
 
     function cleanup(payload) {
-        var i = -1, len = payload.cleanups.length;
-        while (++i < len) {
+        var i = -1;
+        while (payload.cleanups && ++i < payload.cleanups.length) {
             payload.cleanups[i]();
         }
         payload.cleanups = [];
