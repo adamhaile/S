@@ -40,14 +40,14 @@
         }
 
         if (!options.init || options.init(node)) {
-            node.active = true;
+            node.trigger = parent || node;
             try {
                 node.payload.value = fn();
             } catch (ex) {
                 reset(node);
                 throw ex;
             } finally {
-                node.active = false;
+                node.trigger = null;
                 UpdatingNode = parent;
             }
         } else {
@@ -63,7 +63,7 @@
         function formula() {
             if (!node) return;
             addEdge(node);
-            if (node.marks !== 0) backtrack(node);
+            if (node.marks !== 0) backtrack(node, UpdatingNode);
             return node.payload.value;
         }
 
@@ -109,6 +109,7 @@
 
         function data(newValue) {
             if (arguments.length > 0) {
+                if (UpdatingNode) finishUpdate(UpdatingNode);
                 value = newValue;
                 reportChange(node);
             } else {
@@ -127,7 +128,7 @@
 
             oldNode = UpdatingNode, UpdatingNode = null;
             try {
-                update(node);
+                update(node, oldNode || node);
             } catch (ex) {
                 reset(node);
                 throw ex;
@@ -267,7 +268,7 @@
             i = -1;
             try {
                 while (++i < nodes.length) {
-                    update(nodes[i]);
+                    update(nodes[i], nodes[i]);
                 }
             } catch (ex) {
                 i--;
@@ -353,7 +354,8 @@
         this.region = region;
 
         this.marks = 0;
-        this.active = false;
+        this.trigger = null;
+        this.cur = 0;
 
         this.inbound = [];
         this.inboundIndex = [];
@@ -400,8 +402,9 @@
         }
     }
 
+    /// mark the node and all downstream nodes as within the range to be updated
     function mark(node) {
-        node.active = true;
+        node.trigger = node;
 
         var i = -1, len = node.outbound.length, edge, to;
         while (++i < len) {
@@ -409,7 +412,7 @@
             if (edge && !edge.marked && (!edge.boundary || edge.to.region(edge.to))) {
                 to = edge.to;
 
-                if (to.active)
+                if (to.trigger)
                     throw new Error("circular dependency"); // TODO: more helpful reporting
 
                 edge.marked = true;
@@ -422,13 +425,14 @@
             }
         }
 
-        node.active = false;
+        node.trigger = null;
     }
 
-    function update(node) {
+    /// update the given node by re-executing any payload, updating inbound links, then updating all downstream nodes
+    function update(node, trigger) {
         var i, len, edge, to, payload;
 
-        node.active = true;
+        node.trigger = trigger;
 
         if (node.payload) {
             payload = node.payload;
@@ -452,9 +456,9 @@
             }
         }
 
-        i = -1, len = node.outbound.length;
-        while (++i < len) {
-            edge = node.outbound[i];
+        node.cur = -1, len = node.outbound.length;
+        while (++node.cur < len) {
+            edge = node.outbound[node.cur];
             if (edge && edge.marked) {
                 to = edge.to;
 
@@ -462,46 +466,75 @@
                 to.marks--;
 
                 if (to.marks === 0) {
-                    update(to);
+                    update(to, node);
                 }
             }
         }
 
-        node.active = false;
+        node.trigger = null;
     }
 
-    function backtrack(node) {
-        var oldNode = UpdatingNode;
-
+    /// update the given node by backtracking its dependencies to clean state and updating from there
+    function backtrack(node, orig) {
         var i = -1, len = node.inbound.length, edge;
         while (++i < len) {
             edge = node.inbound[i];
             if (edge && edge.marked) {
                 if (edge.from.marked) {
                     // keep working backwards through the marked nodes ...
-                    backtrack(edge.from);
+                    backtrack(edge.from, orig);
                 } else {
                     // ... until we find clean state, from which to start updating
-                    update(edge.from);
+                    resume(edge.from, orig);
                 }
             }
         }
-
-        UpdatingNode = oldNode;
+    }
+    
+    function resume(node, orig) {
+        var oldNode = UpdatingNode;
+        try {
+            update(node, orig);
+        } catch (ex) {
+            reset(node);
+            throw ex;
+        } finally {
+            UpdatingNode = oldNode;
+        }
     }
 
+    /// reset the given node and all downstream nodes to initial state: unmarked, not hot
     function reset(node) {
-        node.active = false;
+        node.marks = 0;
+        node.trigger = null;
+        node.cur = 0;
 
-        var i = -1, len = node.outbound.length, edge, to;
+        var i = -1, len = node.outbound.length, edge;
         while (++i < len) {
             edge = node.outbound[i];
             if (edge && edge.marked) {
-                to = edge.to;
                 edge.marked = false;
-                to.marks = 0;
+                reset(edge.to);
+            }
+        }
+    }
 
-                reset(to);
+    function finishUpdate(node) {
+        var len, edge, to;
+        while (node !== node.trigger && (node = node.trigger)) {
+            len = node.outbound.length;
+            while (++node.cur < len) {
+                edge = node.outbound[node.cur];
+                if (edge && edge.marked) {
+                    to = edge.to;
+                    
+                    edge.marked = false;
+                    to.marks--;
+                    
+                    if (to.marks === 0) {
+                        update(to, node);
+                    }
+                }
             }
         }
     }
