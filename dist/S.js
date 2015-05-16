@@ -24,13 +24,21 @@
             parent = UpdatingNode,
             region = options.region || (parent && parent.region) || null,
             payload = new Payload(fn),
-            node = new Node(++NodeCount, payload, region);
+            node = new Node(++NodeCount, payload, region),
+            disposing = false;
 
         UpdatingNode = node;
 
         if (options.sources) {
             i = -1, len = options.sources.length;
-            while (++i < len) options.sources[i]();
+            while (++i < len) {
+                try {
+                    options.sources[i]();
+                } catch (ex) {
+                    UpdatingNode = parent;
+                    throw ex;
+                }
+            }
             payload.listening = false;
         }
 
@@ -43,9 +51,6 @@
             node.trigger = parent || node;
             try {
                 node.payload.value = fn();
-            } catch (ex) {
-                reset(node);
-                throw ex;
             } finally {
                 node.trigger = null;
                 UpdatingNode = parent;
@@ -64,31 +69,32 @@
             if (!node) return;
             addEdge(node);
             if (node.marks !== 0) backtrack(node, UpdatingNode);
+            if (!node) return;
             return node.payload.value;
         }
 
         function dispose() {
-            if (!node) return;
+            if (disposing) return;
+            disposing = true;
+            
             var i, len;
 
+            i = -1, len = node.inbound.length;
+            while (++i < len) {
+                deactivate(node.inbound[i]);
+            }
+            
             cleanup(payload);
-            if (!node) return;
 
             i = -1, len = payload.finalizers.length;
             while (++i < len) {
                 payload.finalizers[i]();
-                if (!node) return;
             }
 
             payload.fn = null;
             payload.value = null;
             payload.finalizers = null;
             payload = null;
-
-            i = -1, len = node.inbound.length;
-            while (++i < len) {
-                deactivate(node.inbound[i]);
-            }
 
             node.payload = null;
             node.inbound = null;
@@ -294,7 +300,7 @@
             try {
                 return fn();
             } finally {
-                UpdatingNode.payload.listening = true;
+                if (UpdatingNode.payload) UpdatingNode.payload.listening = true;
             }
         } else {
             return fn();
@@ -310,7 +316,7 @@
             try {
                 return fn();
             } finally {
-                UpdatingNode.payload.pinning = false;
+                if (UpdatingNode.payload) UpdatingNode.payload.pinning = false;
             }
         } else {
             return fn();
@@ -397,7 +403,7 @@
         var to = UpdatingNode,
             edge = null;
 
-        if (to && to.payload.listening) {
+        if (to && to.payload && to.payload.listening) {
             edge = to.inboundIndex[from.id];
             if (edge) activate(edge, from);
             else new Edge(from, to, to.region && from.region !== to.region);
@@ -432,7 +438,7 @@
 
     /// update the given node by re-executing any payload, updating inbound links, then updating all downstream nodes
     function update(node, trigger) {
-        var i, len, edge, to, payload;
+        var i, len, edge, to, payload, fn;
 
         node.trigger = trigger;
 
@@ -442,17 +448,20 @@
             UpdatingNode = node;
 
             cleanup(payload);
-
-            payload.gen++;
-
-            payload.value = payload.fn();
-
-            if (payload.listening && node.inbound) {
-                i = -1, len = node.inbound.length;
-                while (++i < len) {
-                    edge = node.inbound[i];
-                    if (edge.active && edge.gen < payload.gen) {
-                        deactivate(edge);
+            
+            if (node.payload) {
+                payload.gen++;
+    
+                fn = payload.fn;
+                payload.value = fn();
+    
+                if (payload.listening && node.inbound) {
+                    i = -1, len = node.inbound.length;
+                    while (++i < len) {
+                        edge = node.inbound[i];
+                        if (edge.active && edge.gen < payload.gen) {
+                            deactivate(edge);
+                        }
                     }
                 }
             }
@@ -542,11 +551,11 @@
     }
 
     function cleanup(payload) {
-        var i = -1;
-        while (payload.cleanups && ++i < payload.cleanups.length) {
-            payload.cleanups[i]();
-        }
+        var i = -1, fns = payload.cleanups, len = fns.length;
         payload.cleanups = [];
+        while (++i < len) {
+            fns[i]();
+        }
     }
 
     function activate(edge, from) {

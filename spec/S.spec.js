@@ -1,3 +1,5 @@
+/* global S, describe, it, expect, beforeEach, jasmine */
+
 describe("S()", function () {
     describe("creation", function () {
         var f;
@@ -74,7 +76,7 @@ describe("S()", function () {
         beforeEach(function () {
             i = S.data(true);
             t = S.data(1);
-            e = S.data(2)
+            e = S.data(2);
             spy = jasmine.createSpy();
             f = S(function () { spy(); return i() ? t() : e(); });
             spy.calls.reset();
@@ -134,7 +136,7 @@ describe("S()", function () {
 
         beforeEach(function () {
             spy = jasmine.createSpy();
-            f = S(function () { spy(); d = S.data(1); })
+            f = S(function () { spy(); d = S.data(1); });
         });
 
         it("does not register a dependency", function () {
@@ -227,7 +229,7 @@ describe("S()", function () {
     });
 
     describe("with converging dependencies", function () {
-        var d, f1, f2, f3, f4, f5;
+        var d, f1, f2, f3, f4, f5, spy, g;
 
         beforeEach(function () {
             //         d
@@ -259,7 +261,7 @@ describe("S()", function () {
     });
 
     describe("with complex converging dependencies", function () {
-        var d, f1, f2, f3, g1, g2, g3, h;
+        var d, f1, f2, f3, g1, g2, g3, spy, h;
 
         beforeEach(function () {
             //     d
