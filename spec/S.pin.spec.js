@@ -1,3 +1,5 @@
+/* globals S, describe, it, expect */
+
 describe("S.pin", function () {
     it("called with no arg (as a formula option) ties a subformula to the lifespan (not update cycle) of its parent formula", function () {
         var outerTrigger = S.data(null),

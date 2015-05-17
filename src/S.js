@@ -47,15 +47,13 @@
             else parent.payload.cleanups.push(dispose);
         }
 
-        if (!options.init || options.init(node)) {
-            node.trigger = parent || node;
-            try {
+        node.trigger = parent || node;
+        try {
+            if (!options.init || options.init(node)) {
                 node.payload.value = fn();
-            } finally {
-                node.trigger = null;
-                UpdatingNode = parent;
             }
-        } else {
+        } finally {
+            node.trigger = null;
             UpdatingNode = parent;
         }
 
@@ -235,12 +233,12 @@
         }
     };
 
-    for (var prop in FormulaOptionsBuilder.prototype) {
-        S[prop] = (function (prop) { return function (/*...*/) {
+    'on once defer throttle debounce pause when'.split(' ').map(function (prop) {
+        S[prop] = function (/*...*/) {
                 var options = new FormulaOptionsBuilder();
                 return options[prop].apply(options, arguments);
-        }; })(prop);
-    }
+        };
+    });
 
     FormulaOptionsBuilder.prototype.S = S;
 
@@ -294,7 +292,7 @@
     };
 
     S.peek = function peek(fn) {
-        if (UpdatingNode && UpdatingNode.payload.listening) {
+        if (UpdatingNode && UpdatingNode.payload && UpdatingNode.payload.listening) {
             UpdatingNode.payload.listening = false;
 
             try {
@@ -310,7 +308,7 @@
     S.pin = function pin(fn) {
         if (arguments.length === 0) {
             return new FormulaOptionsBuilder().pin();
-        } else if (UpdatingNode && !UpdatingNode.payload.pinning) {
+        } else if (UpdatingNode && UpdatingNode.payload && !UpdatingNode.payload.pinning) {
             UpdatingNode.payload.pinning = true;
 
             try {
@@ -324,7 +322,7 @@
     };
 
     S.cleanup = function cleanup(fn) {
-        if (UpdatingNode) {
+        if (UpdatingNode && UpdatingNode.payload) {
             UpdatingNode.payload.cleanups.push(fn);
         } else {
             throw new Error("S.cleanup() must be called from within an S.formula.  Cannot call it at toplevel.");
@@ -332,7 +330,7 @@
     };
 
     S.finalize = function finalize(fn) {
-        if (UpdatingNode) {
+        if (UpdatingNode && UpdatingNode.payload) {
             UpdatingNode.payload.finalizers.push(fn);
         } else {
             throw new Error("S.finalize() must be called from within an S.formula.  Cannot call it at toplevel.");
@@ -487,7 +485,7 @@
 
     /// update the given node by backtracking its dependencies to clean state and updating from there
     function backtrack(node, orig) {
-        var i = -1, len = node.inbound.length, edge;
+        var i = -1, len = node.inbound.length, edge, oldNode;
         while (++i < len) {
             edge = node.inbound[i];
             if (edge && edge.marked) {
@@ -496,24 +494,14 @@
                     backtrack(edge.from, orig);
                 } else {
                     // ... until we find clean state, from which to start updating
-                    resume(edge.from, orig);
+                    oldNode = UpdatingNode;
+                    update(edge.from, orig);
+                    UpdatingNode = oldNode;
                 }
             }
         }
     }
     
-    function resume(node, orig) {
-        var oldNode = UpdatingNode;
-        try {
-            update(node, orig);
-        } catch (ex) {
-            reset(node);
-            throw ex;
-        } finally {
-            UpdatingNode = oldNode;
-        }
-    }
-
     /// reset the given node and all downstream nodes to initial state: unmarked, not hot
     function reset(node) {
         node.marks = 0;
