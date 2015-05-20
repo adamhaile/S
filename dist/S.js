@@ -25,7 +25,7 @@
             region = options.region || (parent && parent.region) || null,
             payload = new Payload(fn),
             node = new Node(++NodeCount, payload, region),
-            disposing = false;
+            disposed = false;
 
         UpdatingNode = node;
 
@@ -53,35 +53,34 @@
                 node.payload.value = fn();
             }
         } finally {
-            node.trigger = null;
+            if (!disposed) node.trigger = null;
             UpdatingNode = parent;
         }
 
         formula.dispose = dispose;
-        //formula.toString = toString;
         formula.toJSON = signalToJSON;
 
         return formula;
 
         function formula() {
-            if (!node) return;
+            if (disposed) return;
             addEdge(node);
             if (node.marks !== 0) backtrack(node, UpdatingNode);
-            if (!node) return;
+            if (disposed) return;
             return node.payload.value;
         }
 
         function dispose() {
-            if (disposing) return;
-            disposing = true;
-            
+            if (disposed) return;
+            disposed = true;
+
             var i, len;
 
             i = -1, len = node.inbound.length;
             while (++i < len) {
                 deactivate(node.inbound[i]);
             }
-            
+
             cleanup(payload);
 
             i = -1, len = payload.finalizers.length;
@@ -100,10 +99,6 @@
             node.outbound = null;
             node = null;
         }
-
-        //function toString() {
-        //    return "[formula: " + (value !== undefined ? value + " - " : "") + fn + "]";
-        //}
     }
 
     S.data = function data(value) {
@@ -446,13 +441,13 @@
             UpdatingNode = node;
 
             cleanup(payload);
-            
+
             if (node.payload) {
                 payload.gen++;
-    
+
                 fn = payload.fn;
                 payload.value = fn();
-    
+
                 if (payload.listening && node.inbound) {
                     i = -1, len = node.inbound.length;
                     while (++i < len) {
@@ -501,7 +496,7 @@
             }
         }
     }
-    
+
     /// reset the given node and all downstream nodes to initial state: unmarked, not hot
     function reset(node) {
         node.marks = 0;
@@ -526,10 +521,10 @@
                 edge = node.outbound[node.cur];
                 if (edge && edge.marked) {
                     to = edge.to;
-                    
+
                     edge.marked = false;
                     to.marks--;
-                    
+
                     if (to.marks === 0) {
                         update(to, node);
                     }

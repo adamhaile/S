@@ -45,23 +45,23 @@ describe("S()", function () {
     });
 
     describe("with a dependency on an S.data", function () {
-        var spy, d, f;
+        var d, fevals, f;
 
         beforeEach(function () {
-            d = S.data(1),
-            spy = jasmine.createSpy(),
-            f = S(function () { spy(); return d(); });
-            spy.calls.reset();
+            d = S.data(1);
+            fevals = 0;
+            f = S(function () { fevals++; return d(); });
+            fevals = 0;
         });
 
         it("updates when S.data is set", function () {
             d(1);
-            expect(spy.calls.count()).toBe(1);
+            expect(fevals).toBe(1);
         });
 
         it("does not update when S.data is read", function () {
             d();
-            expect(spy.calls.count()).toBe(0);
+            expect(fevals).toBe(0);
         });
 
         it("updates return value", function () {
@@ -71,41 +71,41 @@ describe("S()", function () {
     });
 
     describe("with changing dependencies", function () {
-        var i, t, e, spy, f;
+        var i, t, e, fevals, f;
 
         beforeEach(function () {
             i = S.data(true);
             t = S.data(1);
             e = S.data(2);
-            spy = jasmine.createSpy();
-            f = S(function () { spy(); return i() ? t() : e(); });
-            spy.calls.reset();
+            fevals = 0;
+            f = S(function () { fevals++; return i() ? t() : e(); });
+            fevals = 0;
         });
 
         it("updates on active dependencies", function () {
             t(5);
-            expect(spy.calls.count()).toBe(1);
+            expect(fevals).toBe(1);
             expect(f()).toBe(5);
         });
 
         it("does not update on inactive dependencies", function () {
             e(5);
-            expect(spy.calls.count()).toBe(0);
+            expect(fevals).toBe(0);
             expect(f()).toBe(1);
         });
 
         it("deactivates obsolete dependencies", function () {
             i(false);
-            spy.calls.reset();
+            fevals = 0;
             t(5);
-            expect(spy.calls.count()).toBe(0);
+            expect(fevals).toBe(0);
         });
 
         it("activates new dependencies", function () {
             i(false);
-            spy.calls.reset();
+            fevals = 0;
             e(5);
-            expect(spy.calls.count()).toBe(1);
+            expect(fevals).toBe(1);
         });
 
         it("insures that new dependencies are updated before dependee", function () {
@@ -132,17 +132,17 @@ describe("S()", function () {
     });
 
     describe("that creates an S.data", function () {
-        var d, f, spy;
+        var d, f, fevals;
 
         beforeEach(function () {
-            spy = jasmine.createSpy();
-            f = S(function () { spy(); d = S.data(1); });
+            fevals = 0;
+            f = S(function () { fevals++; d = S.data(1); });
         });
 
         it("does not register a dependency", function () {
-            spy.calls.reset();
+            fevals = 0;
             d(2);
-            expect(spy.calls.count()).toBe(0);
+            expect(fevals).toBe(0);
         });
     });
 
@@ -167,34 +167,34 @@ describe("S()", function () {
     });
 
     describe("propagation", function () {
-        var d, evalCounter, f, watcherCounter, watcher;
+        var d, fcount, f, watchercount, watcher;
 
         beforeEach(function () {
             d = S.data(1),
-            evalCounter = jasmine.createSpy(),
-            f = S(function () { evalCounter(); return d(); }),
-            watcherCounter = jasmine.createSpy(),
-            watcher = S(function () { watcherCounter(); return f(); });
+            fcount = 0,
+            f = S(function () { fcount++; return d(); }),
+            watchercount = 0,
+            watcher = S(function () { watchercount++; return f(); });
         });
 
         it("does not cause re-evaluation", function () {
-            expect(evalCounter.calls.count()).toBe(1);
+            expect(fcount).toBe(1);
         });
 
         it("does not occur from a read", function () {
             f();
-            expect(watcherCounter.calls.count()).toBe(1);
+            expect(watchercount).toBe(1);
         });
 
         it("does not occur from a read of the watcher", function () {
             watcher();
-            expect(watcherCounter.calls.count()).toBe(1);
+            expect(watchercount).toBe(1);
         });
 
         it("occurs when formula updates", function () {
             d(1);
-            expect(evalCounter.calls.count()).toBe(2);
-            expect(watcherCounter.calls.count()).toBe(2);
+            expect(fcount).toBe(2);
+            expect(watchercount).toBe(2);
             expect(watcher()).toBe(1);
         });
     });
@@ -229,7 +229,7 @@ describe("S()", function () {
     });
 
     describe("with converging dependencies", function () {
-        var d, f1, f2, f3, f4, f5, spy, g;
+        var d, f1, f2, f3, f4, f5, gcount, g;
 
         beforeEach(function () {
             //         d
@@ -249,19 +249,19 @@ describe("S()", function () {
             f4 = S(function () { return d(); });
             f5 = S(function () { return d(); });
 
-            spy = jasmine.createSpy("callCounter");
-            g = S(function () { spy(); return f1() + f2() + f3() + f4() + f5(); });
+            gcount = 0;
+            g = S(function () { gcount++; return f1() + f2() + f3() + f4() + f5(); });
         });
 
         it("only propagates once", function () {
-            spy.calls.reset();
+            gcount = 0;
             d(0);
-            expect(spy.calls.count()).toBe(1);
+            expect(gcount).toBe(1);
         });
     });
 
     describe("with complex converging dependencies", function () {
-        var d, f1, f2, f3, g1, g2, g3, spy, h;
+        var d, f1, f2, f3, g1, g2, g3, hcount, h;
 
         beforeEach(function () {
             //     d
@@ -287,35 +287,14 @@ describe("S()", function () {
             g2 = S(function () { return f1() + f2() + f3(); });
             g3 = S(function () { return f1() + f2() + f3(); });
 
-            spy = jasmine.createSpy("callCounter");
-            h  = S(function () { spy(); return g1() + g2() + g3(); });
+            hcount = 0;
+            h  = S(function () { hcount++; return g1() + g2() + g3(); });
         });
 
         it("only propagates once", function () {
-            spy.calls.reset();
+            hcount = 0;
             d(0);
-            // two layers of 3 nodes each = 3 x 3 = 9
-            expect(spy.calls.count()).toBe(1);
-        });
-    });
-
-    describe("dispose", function () {
-        var d, f, spy;
-
-        beforeEach(function () {
-            d = S.data(1);
-            spy = jasmine.createSpy("spy");
-            f = S(function () { spy(); d(); });
-        });
-
-        it("disables updates", function () {
-            spy.calls.reset();
-            d(2);
-            expect(spy.calls.count()).toBe(1);
-            f.dispose();
-            spy.calls.reset();
-            d(3);
-            expect(spy.calls.count()).toBe(0);
+            expect(hcount).toBe(1);
         });
     });
 });
