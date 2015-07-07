@@ -191,7 +191,7 @@ describe("S()", function () {
             expect(watchercount).toBe(1);
         });
 
-        it("occurs when formula updates", function () {
+        it("occurs when computation updates", function () {
             d(1);
             expect(fcount).toBe(2);
             expect(watchercount).toBe(2);

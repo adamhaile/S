@@ -20,7 +20,7 @@
             fn = function S() { return _fn.apply(null, _args); };
         }
 
-        var options = this instanceof FormulaOptionsBuilder ? this.options : new FormulaOptions(),
+        var options = this instanceof ComputationOptionsBuilder ? this.options : new ComputationOptions(),
             parent = UpdatingNode,
             region = options.region || (parent && parent.region) || null,
             payload = new Payload(fn),
@@ -57,12 +57,12 @@
             UpdatingNode = parent;
         }
 
-        formula.dispose = dispose;
-        formula.toJSON = signalToJSON;
+        computation.dispose = dispose;
+        computation.toJSON = signalToJSON;
 
-        return formula;
+        return computation;
 
-        function formula() {
+        function computation() {
             if (disposed) return;
             addEdge(node);
             if (node.marks !== 0) backtrack(node, UpdatingNode);
@@ -140,18 +140,18 @@
     }
 
     /// Options
-    function FormulaOptions() {
+    function ComputationOptions() {
         this.sources = null;
         this.pin     = false;
         this.init    = null;
         this.region  = null;
     }
 
-    function FormulaOptionsBuilder() {
-        this.options = new FormulaOptions();
+    function ComputationOptionsBuilder() {
+        this.options = new ComputationOptions();
     }
 
-    FormulaOptionsBuilder.prototype = {
+    ComputationOptionsBuilder.prototype = {
         on: function (/* ...sources */) {
             this.options.sources = Array.prototype.slice.apply(arguments);
             return this;
@@ -230,12 +230,12 @@
 
     'on once defer throttle debounce pause when'.split(' ').map(function (prop) {
         S[prop] = function (/*...*/) {
-                var options = new FormulaOptionsBuilder();
+                var options = new ComputationOptionsBuilder();
                 return options[prop].apply(options, arguments);
         };
     });
 
-    FormulaOptionsBuilder.prototype.S = S;
+    ComputationOptionsBuilder.prototype.S = S;
 
     function signalToJSON() {
         return this();
@@ -302,7 +302,7 @@
 
     S.pin = function pin(fn) {
         if (arguments.length === 0) {
-            return new FormulaOptionsBuilder().pin();
+            return new ComputationOptionsBuilder().pin();
         } else if (UpdatingNode && UpdatingNode.payload && !UpdatingNode.payload.pinning) {
             UpdatingNode.payload.pinning = true;
 
@@ -320,15 +320,7 @@
         if (UpdatingNode && UpdatingNode.payload) {
             UpdatingNode.payload.cleanups.push(fn);
         } else {
-            throw new Error("S.cleanup() must be called from within an S.formula.  Cannot call it at toplevel.");
-        }
-    };
-
-    S.finalize = function finalize(fn) {
-        if (UpdatingNode && UpdatingNode.payload) {
-            UpdatingNode.payload.finalizers.push(fn);
-        } else {
-            throw new Error("S.finalize() must be called from within an S.formula.  Cannot call it at toplevel.");
+            throw new Error("S.cleanup() must be called from within an S.computation.  Cannot call it at toplevel.");
         }
     };
 
@@ -506,7 +498,7 @@
         var i = -1, len = node.outbound.length, edge;
         while (++i < len) {
             edge = node.outbound[i];
-            if (edge && edge.marked) {
+            if (edge && (edge.marked || edge.to.trigger)) {
                 edge.marked = false;
                 reset(edge.to);
             }
@@ -551,6 +543,7 @@
     }
 
     function deactivate(edge) {
+        if (!edge.active) return;
         edge.active = false;
         if (edge.from.outbound) edge.from.outbound[edge.outboundOffset] = null;
         edge.from = null;

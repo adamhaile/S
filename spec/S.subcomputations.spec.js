@@ -1,6 +1,6 @@
-describe("S() with subformulas", function () {
+describe("S() with subcomputations", function () {
 
-    it("does not register a dependency on the subformula", function () {
+    it("does not register a dependency on the subcomputation", function () {
         var d = S.data(1),
             spy = jasmine.createSpy("spy"),
             gspy = jasmine.createSpy("gspy"),
