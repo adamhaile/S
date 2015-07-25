@@ -242,7 +242,8 @@
     }
 
     S.region = function region() {
-        var nodes = [],
+        var running = false,
+            nodes = [],
             nodeIndex = {};
 
         region.go = go;
@@ -250,14 +251,17 @@
         return region;
 
         function region(node) {
-            if (!nodeIndex[node.id]) {
+            if (!running && !nodeIndex[node.id]) {
                 nodes.push(node);
                 nodeIndex[node.id] = node;
             }
+            return running;
         }
 
         function go() {
             var i, oldNode;
+
+            running = true;
 
             i = -1;
             while (++i < nodes.length) {
@@ -279,6 +283,7 @@
                 throw ex;
             } finally {
                 UpdatingNode = oldNode;
+                running = false;
             }
 
             nodes = [];
