@@ -1,46 +1,52 @@
 # S.js
 
-S.js is a tiny library (2kb gzipped) for performing simple, clean, fast reactive programming in Javascript.
+```javascript
+> var name = S.data("S.js"),
+      hello = S(() => "hello " + name()),
+      print = S(() => console.log(hello()));
+hello S.js
+> name("world")
+hello world
+```
+S.js is a tiny library for performing **simple, clean, fast reactive programming in Javascript**.  It takes its name from **signal**, a reactive term for a value that changes over time.
 
-### Simple
-- The core of S is just two functions, S() and S.data()
-- S is inspired by the *Scheme* school of design: a few simple primitives which can be combined to produce advanced behavior
-
-### Clean
-- S seeks to avoid unexpected or surprising corner cases
-- S has an extensive and growing behavior-based test suite
-
-### Fast
-- Reactive programming works best when it's ubiquitous (all your data), but to do that, it must be fast
-- Benchmarks put S 5-100 times faster than most well-known libraries at propagating updates
-
-S.js takes its name from *signal*, a reactive term for a value that changes over time.  In S there are two kinds of signals, *data signals* and *computations*.  *Data signals* are the leaves in the dependency tree: they're where data (and change) enter the system.  *Computations* read signals to generate derived values and/or useful side-effects.  When a data signal changes, S propagates that to the computations which reference it, then to the upstream computations which reference those computations, and so on, until the system has finished reacting to the change.  In this way, an S application implements its behavior by creating and maintaining a tree of signals.  
-
-S works by wrapping your functions and data in lightweight closures.  As your program runs, these closures communicate with each other to build a live dependency graph of your application.  When a piece of data changes, S uses this graph to update the affected computations.
+S is a "scratch my own itch" project.  The main goals are to make it **useful** and to **deepen my own understanding** of reactive program design.  It's been a ton of fun, and I'm proud enough of the result to share.
 
 ## What is it good for?
 
-S helps build applications which respond ("react") to changing data.  The state-of-the-art for handling change in most Javascript systems is events: objects holding changing data publish change events, and objects responding to changes subscribe callbacks to those change events.  This system works in simple cases, but starts to show its short-comings as our applications become more complex and multi-layered:
+S helps build applications which respond ("react") to changing data.  The state-of-the-art for handling change in most Javascript systems is event subscription: objects holding changing data publish change events, and objects responding to changes subscribe callbacks to those change events.  This system works in simple cases, but starts to show its shortcomings as our applications become more complex and multilayered:
 
 1. **It violates DRY:** we have to name all the pieces of data touched by our code twice, once in the body of a calculation, then again to wire up all change events.  Errors occur if we miss a subscription.
 
-2. **It's redundant:** events systems propagate changes in depth-first order, meaning that if there are two paths in the dependency graph to reach a target from an initial change event, then that target will be run twice.
+2. **It's redundant:** events systems propagate changes in depth-first order, meaning that if there are two paths in the dependency graph to the same target, then that target will be run twice.
 
-3. **It's inconsistent:** in situations where a target is run twice, the first time it is run, it sees an inconsistent world, where some of its dependencies have been updated while others have not yet.
+3. **It's inconsistent:** in situations where a target is run twice, the first time it is run, it sees an inconsistent world, where some of its dependencies have been updated while others haven't yet.
 
-4. **It's leaky:** removing stale subscriptions is an error-prone task, because event systems are leaky by default.
+4. **It's leaky:** removing stale subscriptions is an error-prone task, because event-subscription systems are leaky by default.
 
+Rather than event subscription, S is inspired by research in reactive programming.  If event subscription is a way to bolt change on top of OOP design, reactive systems consider change a core principle, providing basic primitives and system features for responding to and reasoning about change.  Consequently, S performs better against the concerns listed above.  In S:
 
-
-1. **Dependencies are automatic:** S "watches" the execution of your code and automatically registers a dependency when a piece of data is read.  Dependencies are assured to be exact with no need to manually re-list them.
+1. **Dependencies are automatic:** S "watches" the execution of your code and automatically registers a dependency when a piece of data is read.  S insures that dependencies are exact with no need to manually re-list them.
 
 2. **Updates are 1-1 with changes:** No matter how many paths converge on a target, S will run that target only once per change.
 
-3. **Updates occur only after all dependencies have been updated:** S runs updates in topological order, guaranteeing that when a piece of code executes, all the data it references has already been updated.
+3. **Updates don't run until all their depenencies have:** S runs updates in topological order, guaranteeing that when a piece of code executes, all the data it references has already been updated.
 
-4. **Stale subscriptions are disposed by default:**
+4. **Stale subscriptions are disposed by default:** S doesn't just create subscriptions automatically, it also removes them.  S goes even further, removing entire nodes from the dependency graph when they become stale.  In most cases, an S application is leak-free without a single manual unsubscription.
 
-5. **S is fast:** 
+A few other qualities merit mention:
+
+5. **S is fast:** reactive programming works best when it's ubiquitous, but to be ubiquitous it must introduce minimal performance overhead.  S was benchmarked continuously during development, with the result that S is 5-100x faster at dispatching updates than most established systems.
+
+6. **S is expressive:** with S, we don't need to write one chunk of code to initialize our application, another to handle updating it, and a third to wire it all together; instead, we can write a single, declarative description of our application, and S handles the updating for us.
+
+7. **S is ergonomic:** short and intelligible stack traces, meaningful function names, helpful (hopefully!) errors.
+
+## How does S work?
+
+In S there are two kinds of signals, data signals and computations.  **Data signals** are the leaves in the dependency tree: they're where data (and change) enter the system.  **Computations** read signals to generate derived values and/or useful side-effects.  When a data signal changes, S propagates that to the computations which reference it, then to the upstream computations which reference those computations, and so on, until the system has finished reacting to the change.  In this way, an S application implements its behavior by creating and maintaining a tree of signals.  
+
+S works by wrapping your functions and data in **lightweight closures**.  As your program runs, these closures communicate with each other to build a live dependency graph of your application.  When a piece of data changes, S uses this graph to update the affected computations.
 
 ## For Newcomers to Reactive Programming: An Inductive Example
 
