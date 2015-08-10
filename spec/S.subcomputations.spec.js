@@ -58,23 +58,23 @@ describe("S() with subcomputations", function () {
         });
     });
 
-    describe("with child and region", function () {
-        var d, f, g, r;
+    describe("with child and gate", function () {
+        var d, f, g, c;
 
         beforeEach(function () {
             d = S.data(1);
-            r = S.region();
-            f = S.pause(r).S(function () {
+            c = S.collector();
+            f = S.gate(c).S(function () {
                 g = S(function () {
                     return d();
                 });
             });
         });
 
-        it("applies region to child", function () {
+        it("applies gate to child", function () {
             d(2);
             expect(g()).toBe(1);
-            r.go();
+            c.go();
             expect(g()).toBe(2);
         });
     });

@@ -22,9 +22,9 @@
 
         var options = this instanceof ComputationOptionsBuilder ? this.options : new ComputationOptions(),
             parent = UpdatingNode,
-            region = options.region || (parent && parent.region) || null,
+            gate = options.gate || (parent && parent.gate) || null,
             payload = new Payload(fn),
-            node = new Node(++NodeCount, payload, region),
+            node = new Node(++NodeCount, payload, gate),
             disposed = false;
 
         UpdatingNode = node;
@@ -102,7 +102,7 @@
     }
 
     S.data = function data(value) {
-        var node = new Node(++NodeCount, null, UpdatingNode ? UpdatingNode.region : null);
+        var node = new Node(++NodeCount, null, UpdatingNode ? UpdatingNode.gate : null);
 
         data.toJSON = signalToJSON;
 
@@ -144,7 +144,7 @@
         this.sources = null;
         this.pin     = false;
         this.init    = null;
-        this.region  = null;
+        this.gate    = null;
     }
 
     function ComputationOptionsBuilder() {
@@ -156,59 +156,12 @@
             this.options.sources = Array.prototype.slice.apply(arguments);
             return this;
         },
-        once: function () {
-            this.options.sources = [];
-            return this;
-        },
         pin: function () {
             this.options.pin = true;
             return this;
         },
-        defer: function () { return this; },
-        throttle: function throttle(t) {
-            var region = S.region(),
-                last = 0;
-
-            this.options.region = function throttle(emitter) {
-                var now = Date.now();
-
-                region(emitter);
-
-                if ((now - last) > t) {
-                    last = now;
-                    region.go();
-                } else {
-                    setTimeout(function throttled() {
-                        last = Date.now();
-                        region.go();
-                    }, t - (now - last));
-                }
-            };
-
-            return this;
-        },
-        debounce: function debounce(t) {
-            var region = S.region(),
-                last = 0,
-                tout = 0;
-
-            this.options.region = function debounce(node) {
-                var now = Date.now();
-
-                region(node);
-
-                if (now > last) {
-                    last = now;
-                    if (tout) clearTimeout(tout);
-
-                    tout = setTimeout(region.go, t);
-                }
-            };
-
-            return this;
-        },
-        pause: function (region) {
-            this.options.region = region;
+        gate: function (gate) {
+            this.options.gate = gate;
             return this;
         },
         when: function when(/* ...preds */) {
@@ -216,7 +169,7 @@
                 len = preds.length;
 
             this.options.sources = preds;
-            this.options.region = this.options.init = function when() {
+            this.options.gate = this.options.init = function when() {
                 var i = -1;
                 while (++i < len) {
                     if (preds[i]() === undefined) return false;
@@ -228,7 +181,7 @@
         }
     };
 
-    'on once defer throttle debounce pause when'.split(' ').map(function (prop) {
+    ['on', 'gate', 'when'].map(function (prop) {
         S[prop] = function (/*...*/) {
                 var options = new ComputationOptionsBuilder();
                 return options[prop].apply(options, arguments);
@@ -241,23 +194,27 @@
         return this();
     }
 
-    S.region = function region() {
-        var nodes = [],
+    S.collector = function collector() {
+        var running = false,
+            nodes = [],
             nodeIndex = {};
 
-        region.go = go;
+        collector.go = go;
 
-        return region;
+        return collector;
 
-        function region(node) {
-            if (!nodeIndex[node.id]) {
+        function collector(node) {
+            if (!running && !nodeIndex[node.id]) {
                 nodes.push(node);
                 nodeIndex[node.id] = node;
             }
+            return running;
         }
 
         function go() {
             var i, oldNode;
+
+            running = true;
 
             i = -1;
             while (++i < nodes.length) {
@@ -279,6 +236,7 @@
                 throw ex;
             } finally {
                 UpdatingNode = oldNode;
+                running = false;
             }
 
             nodes = [];
@@ -286,6 +244,46 @@
         }
     };
 
+    S.throttle = function throttle(t) {
+        var col = S.collector(),
+            last = 0;
+
+        return function throttle(emitter) {
+            var now = Date.now();
+
+            col(emitter);
+
+            if ((now - last) > t) {
+                last = now;
+                col.go();
+            } else {
+                setTimeout(function throttled() {
+                    last = Date.now();
+                    col.go();
+                }, t - (now - last));
+            }
+        };
+    };
+        
+    S.debounce = function debounce(t) {
+        var col = S.collector(),
+            last = 0,
+            tout = 0;
+
+        return function debounce(node) {
+            var now = Date.now();
+
+            col(node);
+
+            if (now > last) {
+                last = now;
+                if (tout) clearTimeout(tout);
+
+                tout = setTimeout(col.go, t);
+            }
+        };
+    }
+        
     S.peek = function peek(fn) {
         if (UpdatingNode && UpdatingNode.payload && UpdatingNode.payload.listening) {
             UpdatingNode.payload.listening = false;
@@ -328,7 +326,7 @@
         if (Freezing) {
             fn();
         } else {
-            var freeze = Freezing = S.region();
+            var freeze = Freezing = S.collector();
 
             try {
                 fn();
@@ -341,10 +339,10 @@
     };
 
     /// Graph classes and operations
-    function Node(id, payload, region) {
+    function Node(id, payload, gate) {
         this.id = id;
         this.payload = payload;
-        this.region = region;
+        this.gate = gate;
 
         this.marks = 0;
         this.trigger = null;
@@ -391,7 +389,7 @@
         if (to && to.payload && to.payload.listening) {
             edge = to.inboundIndex[from.id];
             if (edge) activate(edge, from);
-            else new Edge(from, to, to.region && from.region !== to.region);
+            else new Edge(from, to, to.gate && from.gate !== to.gate);
         }
     }
 
@@ -402,7 +400,7 @@
         var i = -1, len = node.outbound.length, edge, to;
         while (++i < len) {
             edge = node.outbound[i];
-            if (edge && !edge.marked && (!edge.boundary || edge.to.region(edge.to))) {
+            if (edge && !edge.marked && (!edge.boundary || edge.to.gate(edge.to))) {
                 to = edge.to;
 
                 if (to.trigger)
