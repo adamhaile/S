@@ -2,38 +2,35 @@
     "use strict";
 
     // UMD exporter
-    if (typeof module === 'object' && typeof module.exports === 'object') module.exports = S; // CommonJS
-    else if (typeof define === 'function') define([], function () { return S; }); // AMD
-    else (eval || false)("this").S = S; // fallback to global object
+    if (typeof module === 'object' && typeof module.exports === 'object') {
+        module.exports = S; // CommonJS
+    } else if (typeof define === 'function') {
+        define([], function () { return S; }); // AMD
+    } else {
+        (eval || false)("this").S = S; // fallback to global object
+    }
 
     // "Globals" used to keep track of current system state
     var NodeCount = 0,
         UpdatingNode = null,
         Freezing = null;
 
-    function S(fn /*, ...args */) {
-        // wrap any included args into fn call
-        var _fn, _args, i, len;
-        if (arguments.length > 1) {
-            _fn = fn;
-            _args = Array.prototype.slice.call(arguments, 1);
-            fn = function S() { return _fn.apply(null, _args); };
-        }
-
-        var options = this instanceof ComputationOptionsBuilder ? this.options : new ComputationOptions(),
+    function S(fn) {
+        var options = this instanceof ComputationOptions ? this : new ComputationOptions(),
             parent = UpdatingNode,
-            gate = options.gate || (parent && parent.gate) || null,
+            gate = options._gate || (parent && parent.gate) || null,
             payload = new Payload(fn),
             node = new Node(++NodeCount, payload, gate),
-            disposed = false;
+            disposed = false,
+            i, len;
 
         UpdatingNode = node;
 
-        if (options.sources) {
-            i = -1, len = options.sources.length;
+        if (options._sources) {
+            i = -1, len = options._sources.length;
             while (++i < len) {
                 try {
-                    options.sources[i]();
+                    options._sources[i]();
                 } catch (ex) {
                     UpdatingNode = parent;
                     throw ex;
@@ -43,13 +40,13 @@
         }
 
         if (parent) {
-            if (parent.payload.pinning || options.pin) parent.payload.finalizers.push(dispose);
+            if (parent.payload.pinning || options._pin) parent.payload.finalizers.push(dispose);
             else parent.payload.cleanups.push(dispose);
         }
 
         node.trigger = parent || node;
         try {
-            if (!options.init || options.init(node)) {
+            if (!options._init || options._init(node)) {
                 node.payload.value = fn();
             }
         } finally {
@@ -141,54 +138,43 @@
 
     /// Options
     function ComputationOptions() {
-        this.sources = null;
-        this.pin     = false;
-        this.init    = null;
-        this.gate    = null;
+        this._sources = null;
+        this._pin     = false;
+        this._init    = null;
+        this._gate    = null;
     }
 
-    function ComputationOptionsBuilder() {
-        this.options = new ComputationOptions();
-    }
-
-    ComputationOptionsBuilder.prototype = {
-        on: function (/* ...sources */) {
-            this.options.sources = Array.prototype.slice.apply(arguments);
-            return this;
-        },
-        pin: function () {
-            this.options.pin = true;
-            return this;
-        },
-        gate: function (gate) {
-            this.options.gate = gate;
-            return this;
-        },
-        when: function when(/* ...preds */) {
-            var preds = Array.prototype.slice.apply(arguments),
-                len = preds.length;
-
-            this.options.sources = preds;
-            this.options.gate = this.options.init = function when() {
-                var i = -1;
-                while (++i < len) {
-                    if (preds[i]() === undefined) return false;
-                }
-                return true;
-            };
-
-            return this;
-        }
+    ComputationOptions.prototype = {
+        pin : function ()     { this._pin  = true; return this; },
+        gate: function (gate) { this._gate = gate; return this; },
+        S   : S
     };
 
-    ['on', 'gate', 'when'].map(function (prop) {
-        S[prop] = function (/*...*/) {
-                var options = new ComputationOptionsBuilder();
-                return options[prop].apply(options, arguments);
-        };
-    });
+    S.on = function on(/* ...signals */) {
+        var options = new ComputationOptions();
+        options._sources = Array.prototype.slice.apply(arguments);
+        return options;
+    };
 
-    ComputationOptionsBuilder.prototype.S = S;
+    S.when = function when(/* ...promises */) {
+        var options = new ComputationOptions(),
+            preds = Array.prototype.slice.apply(arguments),
+            len = preds.length;
+
+        options._sources = preds;
+        options._gate = options._init = function when() {
+            var i = -1;
+            while (++i < len) {
+                if (preds[i]() === undefined) return false;
+            }
+            return true;
+        };
+
+        return options;
+    };
+
+    S.gate = function gate(g) { return new ComputationOptions().gate(g); };
+    S.pin  = function pin()   { return new ComputationOptions().pin();   };
 
     function signalToJSON() {
         return this();
@@ -282,7 +268,7 @@
                 tout = setTimeout(col.go, t);
             }
         };
-    }
+    };
         
     S.peek = function peek(fn) {
         if (UpdatingNode && UpdatingNode.payload && UpdatingNode.payload.listening) {
@@ -292,22 +278,6 @@
                 return fn();
             } finally {
                 if (UpdatingNode.payload) UpdatingNode.payload.listening = true;
-            }
-        } else {
-            return fn();
-        }
-    };
-
-    S.pin = function pin(fn) {
-        if (arguments.length === 0) {
-            return new ComputationOptionsBuilder().pin();
-        } else if (UpdatingNode && UpdatingNode.payload && !UpdatingNode.payload.pinning) {
-            UpdatingNode.payload.pinning = true;
-
-            try {
-                return fn();
-            } finally {
-                if (UpdatingNode.payload) UpdatingNode.payload.pinning = false;
             }
         } else {
             return fn();
@@ -421,7 +391,7 @@
 
     /// update the given node by re-executing any payload, updating inbound links, then updating all downstream nodes
     function update(node, trigger) {
-        var i, len, edge, to, payload, fn;
+        var i, len, edge, to, payload;
 
         node.trigger = trigger;
 
@@ -435,8 +405,7 @@
             if (node.payload) {
                 payload.gen++;
 
-                fn = payload.fn;
-                payload.value = fn();
+                payload.value = payload.fn();
 
                 if (payload.listening && node.inbound) {
                     i = -1, len = node.inbound.length;

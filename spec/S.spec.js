@@ -158,14 +158,6 @@ describe("S()", function () {
         });
     });
 
-    describe("with parameters", function () {
-        it("passes parameters to given function", function () {
-            var f = S(function (x, y) { return x + y; }, 1, 2);
-
-            expect(f()).toBe(3);
-        });
-    });
-
     describe("propagation", function () {
         var d, fcount, f, watchercount, watcher;
 
