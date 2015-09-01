@@ -320,8 +320,10 @@
 
         this.inbound = [];
         this.inboundIndex = [];
+        this.inboundActive = 0;
         this.outbound = [];
-        this.outboundGen = 0;
+        this.outboundActive = 0;
+        this.outboundCompaction = 0;
     }
 
     function Edge(from, to, boundary) {
@@ -334,11 +336,13 @@
         this.gen = to.payload.gen;
 
         this.outboundOffset = from.outbound.length;
-        this.outboundGen = from.outboundGend;
+        this.outboundCompaction = from.outboundCompaction;
 
         from.outbound.push(this);
         to.inbound.push(this);
         to.inboundIndex[from.id] = this;
+        from.outboundActive++;
+        to.inboundActive++;
     }
 
     function Payload(fn) {
@@ -393,7 +397,7 @@
 
     /// update the given node by re-executing any payload, updating inbound links, then updating all downstream nodes
     function update(node, trigger) {
-        var i, len, edge, to, payload, live, clean, cleanIndex;
+        var i, len, edge, to, payload;
 
         node.trigger = trigger;
 
@@ -410,64 +414,38 @@
                 payload.value = payload.fn();
 
                 if (payload.listening && node.inbound) {
-                    i = -1, len = node.inbound.length, live = 0;
+                    i = -1, len = node.inbound.length;
                     while (++i < len) {
                         edge = node.inbound[i];
-                        if (edge.active) {
-                            if (edge.gen < payload.gen) {
-                                deactivate(edge);
-                            } else {
-                                live++;
-                            }
+                        if (edge.active && edge.gen < payload.gen) {
+                            deactivate(edge);
                         }
                     }
                     
-                    if (len / live > 4) {
-                        i = -1, clean = [], cleanIndex = [];
-                        while (++i < len) {
-                            edge = node.inbound[i];
-                            if (edge.active) {
-                                clean.push(edge);
-                                cleanIndex[edge.from.id] = edge;
-                            }
-                        }
-                        node.inbound = clean;
-                        node.inboundIndex = cleanIndex;
+                    if (len > 10 && len / node.inboundActive > 4) {
+                        compactInbound(node);
                     }
                 }
             }
         }
 
-        node.cur = -1, len = node.outbound ? node.outbound.length : 0, live = 0;
+        node.cur = -1, len = node.outbound ? node.outbound.length : 0;
         while (++node.cur < len) {
             edge = node.outbound[node.cur];
-            if (edge) {
-                live++;
-                if (edge.marked) {
-                    to = edge.to;
-    
-                    edge.marked = false;
-                    to.marks--;
-    
-                    if (to.marks === 0) {
-                        update(to, node);
-                    }
+            if (edge && edge.marked) {
+                to = edge.to;
+
+                edge.marked = false;
+                to.marks--;
+
+                if (to.marks === 0) {
+                    update(to, node);
                 }
             }
         }
-        
-        if (len / live > 4) {
-            node.outboundGen++;
-            i = -1, clean = [];
-            while (++i < len) {
-                edge = node.outbound[i];
-                if (edge) {
-                    edge.outboundOffset = clean.length;
-                    edge.outboundGen = node.outboundGen;
-                    clean.push(edge);
-                }
-            }
-            node.outbound = clean;
+                    
+        if (len > 10 && len / node.outboundActive > 4) {
+            compactOutbound(node);
         }
 
         node.trigger = null;
@@ -539,13 +517,15 @@
     function activate(edge, from) {
         if (!edge.active) {
             edge.active = true;
-            if (edge.outboundGen === from.outboundGen) {
+            if (edge.outboundCompaction === from.outboundCompaction) {
                 from.outbound[edge.outboundOffset] = edge;
             } else {
-                edge.outboundGen = from.outboundGen;
+                edge.outboundCompaction = from.outboundCompaction;
                 edge.outboundOffset = from.outbound.length;
                 from.outbound.push(edge);
             }
+            edge.to.inboundActive++;
+            from.outboundActive++;
             edge.from = from;
         }
         edge.gen = edge.to.payload.gen;
@@ -553,8 +533,37 @@
 
     function deactivate(edge) {
         if (!edge.active) return;
+        var from = edge.from, to = edge.to;
         edge.active = false;
-        if (edge.from.outbound) edge.from.outbound[edge.outboundOffset] = null;
+        if (from.outbound) from.outbound[edge.outboundOffset] = null;
+        from.outboundActive--;
+        to.inboundActive--;
         edge.from = null;
+    }
+    
+    function compactInbound(node) {
+        var i = -1, len = node.inbound.length, compact = [], compactIndex = [], edge;
+        while (++i < len) {
+            edge = node.inbound[i];
+            if (edge.active) {
+                compact.push(edge);
+                compactIndex[edge.from.id] = edge;
+            }
+        }
+        node.inbound = compact;
+        node.inboundIndex = compactIndex;
+    }
+    
+    function compactOutbound(node) {
+        var i = -1, len = node.outbound.length, compact = [], compaction = ++node.outboundCompaction, edge;
+        while (++i < len) {
+            edge = node.outbound[i];
+            if (edge) {
+                edge.outboundOffset = compact.length;
+                edge.outboundCompaction = compaction;
+                compact.push(edge);
+            }
+        }
+        node.outbound = compact;
     }
 })();
