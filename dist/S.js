@@ -2,12 +2,13 @@
     "use strict";
 
     // UMD exporter
+    /* globals define */
     if (typeof module === 'object' && typeof module.exports === 'object') {
         module.exports = S; // CommonJS
     } else if (typeof define === 'function') {
         define([], function () { return S; }); // AMD
     } else {
-        (eval || false)("this").S = S; // fallback to global object
+        (eval || function () {})("this").S = S; // fallback to global object
     }
 
     // "Globals" used to keep track of current system state
@@ -16,7 +17,7 @@
         Freezing = null;
 
     function S(fn) {
-        var options = this instanceof ComputationOptions ? this : new ComputationOptions(),
+        var options = this instanceof ComputationBuilder ? this : new ComputationBuilder(),
             parent = UpdatingNode,
             gate = options._gate || (parent && parent.gate) || null,
             payload = new Payload(fn),
@@ -137,27 +138,27 @@
     }
 
     /// Options
-    function ComputationOptions() {
+    function ComputationBuilder() {
         this._sources = null;
         this._pin     = false;
         this._init    = null;
         this._gate    = null;
     }
 
-    ComputationOptions.prototype = {
+    ComputationBuilder.prototype = {
         pin : function ()     { this._pin  = true; return this; },
         gate: function (gate) { this._gate = gate; return this; },
         S   : S
     };
 
     S.on = function on(/* ...signals */) {
-        var options = new ComputationOptions();
+        var options = new ComputationBuilder();
         options._sources = Array.prototype.slice.apply(arguments);
         return options;
     };
 
     S.when = function when(/* ...promises */) {
-        var options = new ComputationOptions(),
+        var options = new ComputationBuilder(),
             preds = Array.prototype.slice.apply(arguments),
             len = preds.length;
 
@@ -173,8 +174,7 @@
         return options;
     };
 
-    S.gate = function gate(g) { return new ComputationOptions().gate(g); };
-    S.pin  = function pin()   { return new ComputationOptions().pin();   };
+    S.gate = function gate(g) { return new ComputationBuilder().gate(g); };
 
     function signalToJSON() {
         return this();
@@ -308,6 +308,22 @@
         }
     };
 
+    S.pin = function freeze(fn) {
+        if (arguments.length === 0) {
+            return new ComputationBuilder().pin();
+        } else if (!UpdatingNode || !UpdatingNode.payload || UpdatingNode.payload.pinning) {
+            return fn();
+        } else {
+            UpdatingNode.payload.pinning = true;
+
+            try {
+                return fn();
+            } finally {
+                UpdatingNode.payload.pinning = false;
+            }
+        }
+    };
+    
     /// Graph classes and operations
     function Node(id, payload, gate) {
         this.id = id;
@@ -457,7 +473,7 @@
         while (++i < len) {
             edge = node.inbound[i];
             if (edge && edge.marked) {
-                if (edge.from.marked) {
+                if (edge.from.marks) {
                     // keep working backwards through the marked nodes ...
                     backtrack(edge.from, orig);
                 } else {
@@ -476,7 +492,7 @@
         node.trigger = null;
         node.cur = 0;
 
-        var i = -1, len = node.outbound.length, edge;
+        var i = -1, len = node.outbound ? node.outbound.length : 0, edge;
         while (++i < len) {
             edge = node.outbound[i];
             if (edge && (edge.marked || edge.to.trigger)) {
@@ -489,7 +505,7 @@
     function finishUpdate(node) {
         var len, edge, to;
         while (node !== node.trigger && (node = node.trigger)) {
-            len = node.outbound.length;
+            len = node.outbound ? node.outbound.length : 0;
             while (++node.cur < len) {
                 edge = node.outbound[node.cur];
                 if (edge && edge.marked) {

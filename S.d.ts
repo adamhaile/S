@@ -1,37 +1,39 @@
 interface Signal<T> {
 	() : T;
-	toJSON : () => T;
 }
 
 interface DataSignal<T> extends Signal<T> {
 	(v : T) : T;
+	toJSON : () => T;
 }
 
-interface Formula<T> extends Signal<T> {
+interface Computation<T> extends Signal<T> {
 	dispose() : void;
+	toJSON : () => T;
 }
 
 interface S {
-	<T>(fn : () => T) : Formula<T>;
+	<T>(fn : () => T) : Computation<T>;
 	data<T>(v : T) : DataSignal<T>;
-	on(...signals : Signal<any>[]) : FormulaOptions;
-	when(...signals : Signal<any>[]) : FormulaOptions;
+	on(...signals : Signal<any>[]) : ComputationBuilder;
+	when(...signals : Signal<any>[]) : ComputationBuilder;
 	peek<T>(fn : () => T) : T;
 	freeze<T>(fn : () => T) : T;
-	gate(gate : Gate) : FormulaOptions;
+	gate(gate : Gate) : ComputationBuilder;
 	collector() : Collector;
-	debounce(t : number) : Gate;
-	throttle(t : number) : Gate;
-	pin() : FormulaOptions;
+	debounce(msecs : number) : Gate;
+	throttle(msecs : number) : Gate;
+	pin() : ComputationBuilder;
+	pin<T>(fn : () => T) : T;
 	cleanup(fn : () => void) : void;
 }
 
 interface GateToken { }
 
-interface FormulaOptions {
-	S<T>(fn : () => T) : Formula<T>
-	gate(gate : Gate) : FormulaOptions;
-	pin() : FormulaOptions;
+interface ComputationBuilder {
+	S<T>(fn : () => T) : Computation<T>
+	gate(gate : Gate) : ComputationBuilder;
+	pin() : ComputationBuilder;
 }
 
 interface Gate {
