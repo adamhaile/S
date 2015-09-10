@@ -11,14 +11,102 @@
         (eval || function () {})("this").S = S; // fallback to global object
     }
 
+    function _Frame() {
+        this.len = 0;
+        this.values = [];
+        this.nodes = [];
+        this.nodes2 = [];
+    }
+    
+    _Frame.prototype = {
+        add: function add(node, value) {
+            this.values[this.len] = value;
+            this.nodes[this.len] = node;
+            this.len++;
+        }
+    };
+    
     // "Globals" used to keep track of current system state
     var NodeCount = 0,
         UpdatingNode = null,
-        Freezing = null;
+        Framing = false,
+        Frame = new _Frame();
 
+    function runFrames() {
+        var nodes, i, len, node, count = 0;
+        
+        // for each frame ...
+        while ((nodes = Frame.nodes, len = Frame.len) !== 0) {
+            // ... set nodes' values, clear their entry in the values array, and mark them
+            i = -1;
+            while (++i < len) {
+                node = nodes[i];
+                node.value = Frame.values[i], Frame.values[i] = null;
+                mark(node);
+            }
+            
+            // reset frame
+            Frame.nodes = Frame.nodes2;
+            Frame.nodes2 = nodes;
+            Frame.len = 0;
+            
+            // run all updates in frame
+            Framing = true;
+            i = -1;
+            try {
+                while (++i < len) {
+                    node = nodes[i];
+                    update(node);
+                    nodes[i] = null
+                }
+            } finally {
+                // in case we had an error, make sure all remaining marked nodes are reset
+                i--;
+                while (++i < len) {
+                    reset(nodes[i]);
+                    nodes[i] = null;
+                }
+                Framing = false;
+                UpdatingNode = null;
+            }
+            
+            if (++count > 1e5) {
+                i = -1;
+                while (++i < Frame.len) {
+                    Frame.nodes[i] = null;
+                }
+                Frame.len = 0;
+                throw new Error("Runaway frames detected");
+            }
+        }
+    }
+    
+    function runSingleChange(node, value) {
+        var success = false;
+        
+        node.value = value;
+        mark(node);
+        
+        Framing = true;
+        
+        try {
+            update(node);
+            success = true;
+        } finally {
+            if (!success) {
+                reset(node);
+            }
+            Framing = false;
+            UpdatingNode = null;
+        }
+        
+        if (Frame.len !== 0) runFrames();
+    }
+    
     function S(fn) {
         var options = this instanceof ComputationBuilder ? this : new ComputationBuilder(),
             parent = UpdatingNode,
+            framing = Framing,
             gate = options._gate || (parent && parent.gate) || null,
             payload = new Payload(fn),
             node = new Node(++NodeCount, payload, gate),
@@ -43,17 +131,21 @@
         if (parent) {
             if (parent.payload.pinning || options._pin) parent.payload.finalizers.push(dispose);
             else parent.payload.cleanups.push(dispose);
-        }
+        } 
+        
+        if (!framing) Framing = true;
 
-        node.trigger = parent || node;
         try {
             if (!options._init || options._init(node)) {
-                node.payload.value = fn();
+                node.value = fn();
             }
         } finally {
-            if (!disposed) node.trigger = null;
             UpdatingNode = parent;
+            if (!framing) Framing = false;
         }
+
+        if (!framing && Frame.len !== 0)
+            runFrames();
 
         computation.dispose = dispose;
         computation.toJSON = signalToJSON;
@@ -65,7 +157,7 @@
             addEdge(node);
             if (node.marks !== 0) backtrack(node, UpdatingNode);
             if (disposed) return;
-            return node.payload.value;
+            return node.value;
         }
 
         function dispose() {
@@ -87,10 +179,10 @@
             }
 
             payload.fn = null;
-            payload.value = null;
             payload.finalizers = null;
             payload = null;
 
+            node.value = null;
             node.payload = null;
             node.inbound = null;
             node.inboundIndex = null;
@@ -101,41 +193,23 @@
 
     S.data = function data(value) {
         var node = new Node(++NodeCount, null, UpdatingNode ? UpdatingNode.gate : null);
-
+        
+        node.value = value;
+        
         data.toJSON = signalToJSON;
 
         return data;
 
-        function data(newValue) {
+        function data(value) {
             if (arguments.length > 0) {
-                if (UpdatingNode) finishUpdate(UpdatingNode);
-                value = newValue;
-                reportChange(node);
+                if (Framing) Frame.add(node, value);
+                else runSingleChange(node, value);
             } else {
                 addEdge(node);
             }
-            return value;
+            return node.value;
         }
     };
-
-    function reportChange(node) {
-        var oldNode;
-        if (Freezing) {
-            Freezing(node);
-        } else {
-            mark(node);
-
-            oldNode = UpdatingNode, UpdatingNode = null;
-            try {
-                update(node, oldNode || node);
-            } catch (ex) {
-                reset(node);
-                throw ex;
-            } finally {
-                UpdatingNode = oldNode;
-            }
-        }
-    }
 
     /// Options
     function ComputationBuilder() {
@@ -212,7 +286,7 @@
             i = -1;
             try {
                 while (++i < nodes.length) {
-                    update(nodes[i], nodes[i]);
+                    update(nodes[i]);
                 }
             } catch (ex) {
                 i--;
@@ -293,18 +367,18 @@
     };
 
     S.freeze = function freeze(fn) {
-        if (Freezing) {
+        if (Framing) {
             fn();
         } else {
-            var freeze = Freezing = S.collector();
+            Framing = true;
 
             try {
                 fn();
             } finally {
-                Freezing = null;
+                Framing = false;
             }
-
-            freeze.go();
+            
+            runFrames();
         }
     };
 
@@ -327,11 +401,12 @@
     /// Graph classes and operations
     function Node(id, payload, gate) {
         this.id = id;
+        this.value = undefined;
         this.payload = payload;
         this.gate = gate;
 
         this.marks = 0;
-        this.trigger = null;
+        this.updating = false;
         this.cur = 0;
 
         this.inbound = [];
@@ -365,7 +440,6 @@
         this.fn = fn;
 
         this.gen = 1;
-        this.value = undefined;
 
         this.listening = true;
         this.pinning = false;
@@ -387,15 +461,15 @@
 
     /// mark the node and all downstream nodes as within the range to be updated
     function mark(node) {
-        node.trigger = node;
+        node.updating = true;
 
         var i = -1, len = node.outbound.length, edge, to;
         while (++i < len) {
             edge = node.outbound[i];
-            if (edge && !edge.marked && (!edge.boundary || edge.to.gate(edge.to))) {
+            if (edge && (!edge.boundary || edge.to.gate(edge.to))) {
                 to = edge.to;
 
-                if (to.trigger)
+                if (to.updating)
                     throw new Error("circular dependency"); // TODO: more helpful reporting
 
                 edge.marked = true;
@@ -408,14 +482,14 @@
             }
         }
 
-        node.trigger = null;
+        node.updating = false;
     }
 
     /// update the given node by re-executing any payload, updating inbound links, then updating all downstream nodes
-    function update(node, trigger) {
+    function update(node) {
         var i, len, edge, to, payload;
 
-        node.trigger = trigger;
+        node.updating = true;
 
         if (node.payload) {
             payload = node.payload;
@@ -427,7 +501,7 @@
             if (node.payload) {
                 payload.gen++;
 
-                payload.value = payload.fn();
+                node.value = payload.fn();
 
                 if (payload.listening && node.inbound) {
                     i = -1, len = node.inbound.length;
@@ -448,14 +522,14 @@
         node.cur = -1, len = node.outbound ? node.outbound.length : 0;
         while (++node.cur < len) {
             edge = node.outbound[node.cur];
-            if (edge && edge.marked) {
+            if (edge && edge.marked) { // due to gating and backtracking, not all outbound edges are marked
                 to = edge.to;
 
                 edge.marked = false;
                 to.marks--;
 
                 if (to.marks === 0) {
-                    update(to, node);
+                    update(to);
                 }
             }
         }
@@ -463,61 +537,41 @@
         if (len > 10 && len / node.outboundActive > 4) {
             compactOutbound(node);
         }
-
-        node.trigger = null;
+        
+        node.updating = false;
     }
 
     /// update the given node by backtracking its dependencies to clean state and updating from there
-    function backtrack(node, orig) {
+    function backtrack(node) {
         var i = -1, len = node.inbound.length, edge, oldNode;
         while (++i < len) {
             edge = node.inbound[i];
             if (edge && edge.marked) {
                 if (edge.from.marks) {
                     // keep working backwards through the marked nodes ...
-                    backtrack(edge.from, orig);
+                    backtrack(edge.from);
                 } else {
                     // ... until we find clean state, from which to start updating
                     oldNode = UpdatingNode;
-                    update(edge.from, orig);
+                    update(edge.from); // does this double-run edge.from?
                     UpdatingNode = oldNode;
                 }
             }
         }
     }
 
-    /// reset the given node and all downstream nodes to initial state: unmarked, not hot
+    /// reset the given node and all downstream nodes to initial state: unmarked, not updating
     function reset(node) {
         node.marks = 0;
-        node.trigger = null;
+        node.updating = false;
         node.cur = 0;
 
         var i = -1, len = node.outbound ? node.outbound.length : 0, edge;
         while (++i < len) {
             edge = node.outbound[i];
-            if (edge && (edge.marked || edge.to.trigger)) {
+            if (edge && (edge.marked || edge.to.updating)) {
                 edge.marked = false;
                 reset(edge.to);
-            }
-        }
-    }
-
-    function finishUpdate(node) {
-        var len, edge, to;
-        while (node !== node.trigger && (node = node.trigger)) {
-            len = node.outbound ? node.outbound.length : 0;
-            while (++node.cur < len) {
-                edge = node.outbound[node.cur];
-                if (edge && edge.marked) {
-                    to = edge.to;
-
-                    edge.marked = false;
-                    to.marks--;
-
-                    if (to.marks === 0) {
-                        update(to, node);
-                    }
-                }
             }
         }
     }

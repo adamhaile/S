@@ -14,13 +14,13 @@ describe("S.computations which modify S.data", function () {
             a2 = S.data(1),
             b1 = S.on(a1)    .S(function () { seq += "(b1:" + a2(); a2(a2() + 1); seq += ")"; }),
             b2 = S.on(a1, a2).S(function () { seq += "(b2:" + a2()                    +  ")"; }),
-            c1 = S.on(b1, a2).S(function () { seq += "(c1:" + a2()                    +  ")"; });
+            c1 = S.on(b1, b2).S(function () { seq += "(c1:" + a2()                    +  ")"; });
 
         a2(1);
         seq = "";
         a1(true);
 
-        expect(seq).toBe("(b1:1(b2:1)(b2:2))(c1:2)");
+        expect(seq).toBe("(b1:1)(b2:1)(c1:1)(b2:2)(c1:2)");
     });
 
     it("strings all mutations onto the call stack", function () {
@@ -70,7 +70,7 @@ describe("S.computations which modify S.data", function () {
         seq = "";
         d1(x++);
 
-        expect(seq).toBe("c5c5c4");
+        expect(seq).toBe("c4c5c4c5");
     });
 
 })
