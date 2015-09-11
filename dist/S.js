@@ -1,40 +1,24 @@
+/// <reference path="../S.d.ts" />
 (function () {
     "use strict";
-
-    // UMD exporter
-    /* globals define */
-    if (typeof module === 'object' && typeof module.exports === 'object') {
-        module.exports = S; // CommonJS
-    } else if (typeof define === 'function') {
-        define([], function () { return S; }); // AMD
-    } else {
-        (eval || function () {})("this").S = S; // fallback to global object
-    }
-
-    function _Frame() {
-        this.len = 0;
-        this.values = [];
-        this.nodes = [];
-        this.nodes2 = [];
-    }
-    
-    _Frame.prototype = {
-        add: function add(node, value) {
+    var _Frame = (function () {
+        function _Frame() {
+            this.len = 0;
+            this.values = [];
+            this.nodes = [];
+            this.nodes2 = [];
+        }
+        _Frame.prototype.add = function (node, value) {
             this.values[this.len] = value;
             this.nodes[this.len] = node;
             this.len++;
-        }
-    };
-    
+        };
+        return _Frame;
+    })();
     // "Globals" used to keep track of current system state
-    var NodeCount = 0,
-        UpdatingNode = null,
-        Framing = false,
-        Frame = new _Frame();
-
+    var NodeCount = 0, UpdatingNode = null, Framing = false, Frame = new _Frame();
     function runFrames() {
         var nodes, i, len, node, count = 0;
-        
         // for each frame ...
         while ((nodes = Frame.nodes, len = Frame.len) !== 0) {
             // ... set nodes' values, clear their entry in the values array, and mark them
@@ -44,12 +28,10 @@
                 node.value = Frame.values[i], Frame.values[i] = null;
                 mark(node);
             }
-            
             // reset frame
             Frame.nodes = Frame.nodes2;
             Frame.nodes2 = nodes;
             Frame.len = 0;
-            
             // run all updates in frame
             Framing = true;
             i = -1;
@@ -57,9 +39,10 @@
                 while (++i < len) {
                     node = nodes[i];
                     update(node);
-                    nodes[i] = null
+                    nodes[i] = null;
                 }
-            } finally {
+            }
+            finally {
                 // in case we had an error, make sure all remaining marked nodes are reset
                 i--;
                 while (++i < len) {
@@ -69,7 +52,6 @@
                 Framing = false;
                 UpdatingNode = null;
             }
-            
             if (++count > 1e5) {
                 i = -1;
                 while (++i < Frame.len) {
@@ -80,108 +62,91 @@
             }
         }
     }
-    
     function runSingleChange(node, value) {
         var success = false;
-        
         node.value = value;
         mark(node);
-        
         Framing = true;
-        
         try {
             update(node);
             success = true;
-        } finally {
+        }
+        finally {
             if (!success) {
                 reset(node);
             }
             Framing = false;
             UpdatingNode = null;
         }
-        
-        if (Frame.len !== 0) runFrames();
+        if (Frame.len !== 0)
+            runFrames();
     }
-    
-    function S(fn) {
-        var options = this instanceof ComputationBuilder ? this : new ComputationBuilder(),
-            parent = UpdatingNode,
-            framing = Framing,
-            gate = options._gate || (parent && parent.gate) || null,
-            payload = new Payload(fn),
-            node = new Node(++NodeCount, payload, gate),
-            disposed = false,
-            i, len;
-
+    var S = function S(fn) {
+        var options = this instanceof ComputationBuilder ? this : new ComputationBuilder(), parent = UpdatingNode, framing = Framing, gate = options._gate || (parent && parent.gate) || null, payload = new Payload(fn), node = new Node(++NodeCount, payload, gate), disposed = false, i, len, computation;
         UpdatingNode = node;
-
         if (options._sources) {
             i = -1, len = options._sources.length;
             while (++i < len) {
                 try {
                     options._sources[i]();
-                } catch (ex) {
+                }
+                catch (ex) {
                     UpdatingNode = parent;
                     throw ex;
                 }
             }
             payload.listening = false;
         }
-
         if (parent) {
-            if (parent.payload.pinning || options._pin) parent.payload.finalizers.push(dispose);
-            else parent.payload.cleanups.push(dispose);
-        } 
-        
-        if (!framing) Framing = true;
-
+            if (parent.payload.pinning || options._pin)
+                parent.payload.finalizers.push(dispose);
+            else
+                parent.payload.cleanups.push(dispose);
+        }
+        if (!framing)
+            Framing = true;
         try {
             if (!options._init || options._init(node)) {
                 node.value = fn();
             }
-        } finally {
-            UpdatingNode = parent;
-            if (!framing) Framing = false;
         }
-
+        finally {
+            UpdatingNode = parent;
+            if (!framing)
+                Framing = false;
+        }
         if (!framing && Frame.len !== 0)
             runFrames();
-
+        computation = function computation() {
+            if (disposed)
+                return;
+            addEdge(node);
+            if (node.marks !== 0)
+                backtrack(node);
+            if (disposed)
+                return;
+            return node.value;
+        };
         computation.dispose = dispose;
         computation.toJSON = signalToJSON;
-
         return computation;
-
-        function computation() {
-            if (disposed) return;
-            addEdge(node);
-            if (node.marks !== 0) backtrack(node, UpdatingNode);
-            if (disposed) return;
-            return node.value;
-        }
-
         function dispose() {
-            if (disposed) return;
+            if (disposed)
+                return;
             disposed = true;
-
             var i, len;
-
             i = -1, len = node.inbound.length;
             while (++i < len) {
                 deactivate(node.inbound[i]);
             }
-
             cleanup(payload);
-
             i = -1, len = payload.finalizers.length;
             while (++i < len) {
                 payload.finalizers[i]();
             }
-
             payload.fn = null;
             payload.finalizers = null;
             payload = null;
-
             node.value = null;
             node.payload = null;
             node.inbound = null;
@@ -189,320 +154,290 @@
             node.outbound = null;
             node = null;
         }
-    }
-
+    };
     S.data = function data(value) {
-        var node = new Node(++NodeCount, null, UpdatingNode ? UpdatingNode.gate : null);
-        
+        var node = new Node(++NodeCount, null, UpdatingNode ? UpdatingNode.gate : null), data;
         node.value = value;
-        
-        data.toJSON = signalToJSON;
-
-        return data;
-
-        function data(value) {
+        data = function data(value) {
             if (arguments.length > 0) {
-                if (Framing) Frame.add(node, value);
-                else runSingleChange(node, value);
-            } else {
+                if (Framing)
+                    Frame.add(node, value);
+                else
+                    runSingleChange(node, value);
+            }
+            else {
                 addEdge(node);
             }
             return node.value;
-        }
+        };
+        data.toJSON = signalToJSON;
+        return data;
     };
-
     /// Options
     function ComputationBuilder() {
         this._sources = null;
-        this._pin     = false;
-        this._init    = null;
-        this._gate    = null;
+        this._pin = false;
+        this._init = null;
+        this._gate = null;
     }
-
     ComputationBuilder.prototype = {
-        pin : function ()     { this._pin  = true; return this; },
+        pin: function () { this._pin = true; return this; },
         gate: function (gate) { this._gate = gate; return this; },
-        S   : S
+        S: S
     };
-
-    S.on = function on(/* ...signals */) {
+    S.on = function on() {
+        var signals = [];
+        for (var _i = 0; _i < arguments.length; _i++) {
+            signals[_i - 0] = arguments[_i];
+        }
         var options = new ComputationBuilder();
-        options._sources = Array.prototype.slice.apply(arguments);
+        options._sources = signals;
         return options;
     };
-
-    S.when = function when(/* ...promises */) {
-        var options = new ComputationBuilder(),
-            preds = Array.prototype.slice.apply(arguments),
-            len = preds.length;
-
+    S.when = function when() {
+        var preds = [];
+        for (var _i = 0; _i < arguments.length; _i++) {
+            preds[_i - 0] = arguments[_i];
+        }
+        var options = new ComputationBuilder(), len = preds.length;
         options._sources = preds;
         options._gate = options._init = function when() {
             var i = -1;
             while (++i < len) {
-                if (preds[i]() === undefined) return false;
+                if (preds[i]() === undefined)
+                    return false;
             }
             return true;
         };
-
         return options;
     };
-
-    S.gate = function gate(g) { return new ComputationBuilder().gate(g); };
-
+    S.gate = function gate(g) {
+        return new ComputationBuilder().gate(g);
+    };
     function signalToJSON() {
         return this();
     }
-
     S.collector = function collector() {
-        var running = false,
-            nodes = [],
-            nodeIndex = {};
-
-        collector.go = go;
-
-        return collector;
-
-        function collector(node) {
+        var running = false, nodes = [], nodeIndex = {}, collector;
+        collector = function collector(token) {
+            var node = token;
             if (!running && !nodeIndex[node.id]) {
                 nodes.push(node);
                 nodeIndex[node.id] = node;
             }
             return running;
-        }
-
+        };
+        collector.go = go;
+        return collector;
         function go() {
             var i, oldNode;
-
             running = true;
-
             i = -1;
             while (++i < nodes.length) {
                 mark(nodes[i]);
             }
-
             oldNode = UpdatingNode, UpdatingNode = null;
-
             i = -1;
             try {
                 while (++i < nodes.length) {
                     update(nodes[i]);
                 }
-            } catch (ex) {
+            }
+            catch (ex) {
                 i--;
                 while (++i < nodes.length) {
                     reset(nodes[i]);
                 }
                 throw ex;
-            } finally {
+            }
+            finally {
                 UpdatingNode = oldNode;
                 running = false;
             }
-
             nodes = [];
             nodeIndex = {};
         }
     };
-
     S.throttle = function throttle(t) {
-        var col = S.collector(),
-            last = 0;
-
+        var col = S.collector(), last = 0;
         return function throttle(emitter) {
             var now = Date.now();
-
             col(emitter);
-
             if ((now - last) > t) {
                 last = now;
                 col.go();
-            } else {
+            }
+            else {
                 setTimeout(function throttled() {
                     last = Date.now();
                     col.go();
                 }, t - (now - last));
             }
+            return false;
         };
     };
-        
     S.debounce = function debounce(t) {
-        var col = S.collector(),
-            last = 0,
-            tout = 0;
-
+        var col = S.collector(), last = 0, tout = 0;
         return function debounce(node) {
             var now = Date.now();
-
             col(node);
-
             if (now > last) {
                 last = now;
-                if (tout) clearTimeout(tout);
-
+                if (tout)
+                    clearTimeout(tout);
                 tout = setTimeout(col.go, t);
             }
+            return false;
         };
     };
-        
     S.peek = function peek(fn) {
         if (UpdatingNode && UpdatingNode.payload && UpdatingNode.payload.listening) {
             UpdatingNode.payload.listening = false;
-
             try {
                 return fn();
-            } finally {
-                if (UpdatingNode.payload) UpdatingNode.payload.listening = true;
             }
-        } else {
+            finally {
+                if (UpdatingNode.payload)
+                    UpdatingNode.payload.listening = true;
+            }
+        }
+        else {
             return fn();
         }
     };
-
     S.cleanup = function cleanup(fn) {
         if (UpdatingNode && UpdatingNode.payload) {
             UpdatingNode.payload.cleanups.push(fn);
-        } else {
+        }
+        else {
             throw new Error("S.cleanup() must be called from within an S.computation.  Cannot call it at toplevel.");
         }
     };
-
     S.freeze = function freeze(fn) {
+        var result;
         if (Framing) {
             fn();
-        } else {
+        }
+        else {
             Framing = true;
-
             try {
-                fn();
-            } finally {
+                result = fn();
+            }
+            finally {
                 Framing = false;
             }
-            
             runFrames();
+            return result;
         }
     };
-
-    S.pin = function freeze(fn) {
+    // how to type this?
+    S.pin = function pin(fn) {
         if (arguments.length === 0) {
             return new ComputationBuilder().pin();
-        } else if (!UpdatingNode || !UpdatingNode.payload || UpdatingNode.payload.pinning) {
+        }
+        else if (!UpdatingNode || !UpdatingNode.payload || UpdatingNode.payload.pinning) {
             return fn();
-        } else {
+        }
+        else {
             UpdatingNode.payload.pinning = true;
-
             try {
                 return fn();
-            } finally {
+            }
+            finally {
                 UpdatingNode.payload.pinning = false;
             }
         }
     };
-    
     /// Graph classes and operations
-    function Node(id, payload, gate) {
-        this.id = id;
-        this.value = undefined;
-        this.payload = payload;
-        this.gate = gate;
-
-        this.marks = 0;
-        this.updating = false;
-        this.cur = 0;
-
-        this.inbound = [];
-        this.inboundIndex = [];
-        this.inboundActive = 0;
-        this.outbound = [];
-        this.outboundActive = 0;
-        this.outboundCompaction = 0;
-    }
-
-    function Edge(from, to, boundary) {
-        this.from = from;
-        this.to = to;
-        this.boundary = boundary;
-
-        this.active = true;
-        this.marked = false;
-        this.gen = to.payload.gen;
-
-        this.outboundOffset = from.outbound.length;
-        this.outboundCompaction = from.outboundCompaction;
-
-        from.outbound.push(this);
-        to.inbound.push(this);
-        to.inboundIndex[from.id] = this;
-        from.outboundActive++;
-        to.inboundActive++;
-    }
-
-    function Payload(fn) {
-        this.fn = fn;
-
-        this.gen = 1;
-
-        this.listening = true;
-        this.pinning = false;
-
-        this.cleanups = [];
-        this.finalizers = [];
-    }
-
+    var Node = (function () {
+        function Node(id, payload, gate) {
+            this.value = undefined;
+            this.marks = 0;
+            this.updating = false;
+            this.cur = 0;
+            this.inbound = [];
+            this.inboundIndex = [];
+            this.inboundActive = 0;
+            this.outbound = [];
+            this.outboundIndex = [];
+            this.outboundActive = 0;
+            this.outboundCompaction = 0;
+            this.id = id;
+            this.payload = payload;
+            this.gate = gate;
+        }
+        return Node;
+    })();
+    var Edge = (function () {
+        function Edge(from, to, boundary) {
+            this.active = true;
+            this.marked = false;
+            this.from = from;
+            this.to = to;
+            this.boundary = boundary;
+            this.gen = to.payload.gen;
+            this.outboundOffset = from.outbound.length;
+            this.outboundCompaction = from.outboundCompaction;
+            from.outbound.push(this);
+            to.inbound.push(this);
+            to.inboundIndex[from.id] = this;
+            from.outboundActive++;
+            to.inboundActive++;
+        }
+        return Edge;
+    })();
+    var Payload = (function () {
+        function Payload(fn) {
+            this.gen = 1;
+            this.listening = true;
+            this.pinning = false;
+            this.cleanups = [];
+            this.finalizers = [];
+            this.fn = fn;
+        }
+        return Payload;
+    })();
     function addEdge(from) {
-        var to = UpdatingNode,
-            edge = null;
-
+        var to = UpdatingNode, edge = null;
         if (to && to.payload && to.payload.listening) {
             edge = to.inboundIndex[from.id];
-            if (edge) activate(edge, from);
-            else new Edge(from, to, to.gate && from.gate !== to.gate);
+            if (edge)
+                activate(edge, from);
+            else
+                new Edge(from, to, to.gate && from.gate !== to.gate);
         }
     }
-
     /// mark the node and all downstream nodes as within the range to be updated
     function mark(node) {
         node.updating = true;
-
         var i = -1, len = node.outbound.length, edge, to;
         while (++i < len) {
             edge = node.outbound[i];
             if (edge && (!edge.boundary || edge.to.gate(edge.to))) {
                 to = edge.to;
-
                 if (to.updating)
                     throw new Error("circular dependency"); // TODO: more helpful reporting
-
                 edge.marked = true;
                 to.marks++;
-
                 // if this is the first time node's been marked, then propagate
                 if (to.marks === 1) {
                     mark(to);
                 }
             }
         }
-
         node.updating = false;
     }
-
     /// update the given node by re-executing any payload, updating inbound links, then updating all downstream nodes
     function update(node) {
         var i, len, edge, to, payload;
-
         node.updating = true;
-
         if (node.payload) {
             payload = node.payload;
-
             UpdatingNode = node;
-
             cleanup(payload);
-
             if (node.payload) {
                 payload.gen++;
-
                 node.value = payload.fn();
-
                 if (payload.listening && node.inbound) {
                     i = -1, len = node.inbound.length;
                     while (++i < len) {
@@ -511,36 +446,29 @@
                             deactivate(edge);
                         }
                     }
-                    
                     if (len > 10 && len / node.inboundActive > 4) {
                         compactInbound(node);
                     }
                 }
             }
         }
-
         node.cur = -1, len = node.outbound ? node.outbound.length : 0;
         while (++node.cur < len) {
             edge = node.outbound[node.cur];
-            if (edge && edge.marked) { // due to gating and backtracking, not all outbound edges are marked
+            if (edge && edge.marked) {
                 to = edge.to;
-
                 edge.marked = false;
                 to.marks--;
-
                 if (to.marks === 0) {
                     update(to);
                 }
             }
         }
-                    
         if (len > 10 && len / node.outboundActive > 4) {
             compactOutbound(node);
         }
-        
         node.updating = false;
     }
-
     /// update the given node by backtracking its dependencies to clean state and updating from there
     function backtrack(node) {
         var i = -1, len = node.inbound.length, edge, oldNode;
@@ -550,7 +478,8 @@
                 if (edge.from.marks) {
                     // keep working backwards through the marked nodes ...
                     backtrack(edge.from);
-                } else {
+                }
+                else {
                     // ... until we find clean state, from which to start updating
                     oldNode = UpdatingNode;
                     update(edge.from); // does this double-run edge.from?
@@ -559,13 +488,11 @@
             }
         }
     }
-
     /// reset the given node and all downstream nodes to initial state: unmarked, not updating
     function reset(node) {
         node.marks = 0;
         node.updating = false;
         node.cur = 0;
-
         var i = -1, len = node.outbound ? node.outbound.length : 0, edge;
         while (++i < len) {
             edge = node.outbound[i];
@@ -575,7 +502,6 @@
             }
         }
     }
-
     function cleanup(payload) {
         var i = -1, fns = payload.cleanups, len = fns.length;
         payload.cleanups = [];
@@ -583,13 +509,13 @@
             fns[i]();
         }
     }
-
     function activate(edge, from) {
         if (!edge.active) {
             edge.active = true;
             if (edge.outboundCompaction === from.outboundCompaction) {
                 from.outbound[edge.outboundOffset] = edge;
-            } else {
+            }
+            else {
                 edge.outboundCompaction = from.outboundCompaction;
                 edge.outboundOffset = from.outbound.length;
                 from.outbound.push(edge);
@@ -600,17 +526,17 @@
         }
         edge.gen = edge.to.payload.gen;
     }
-
     function deactivate(edge) {
-        if (!edge.active) return;
+        if (!edge.active)
+            return;
         var from = edge.from, to = edge.to;
         edge.active = false;
-        if (from.outbound) from.outbound[edge.outboundOffset] = null;
+        if (from.outbound)
+            from.outbound[edge.outboundOffset] = null;
         from.outboundActive--;
         to.inboundActive--;
         edge.from = null;
     }
-    
     function compactInbound(node) {
         var i = -1, len = node.inbound.length, compact = [], compactIndex = [], edge;
         while (++i < len) {
@@ -623,7 +549,6 @@
         node.inbound = compact;
         node.inboundIndex = compactIndex;
     }
-    
     function compactOutbound(node) {
         var i = -1, len = node.outbound.length, compact = [], compaction = ++node.outboundCompaction, edge;
         while (++i < len) {
@@ -635,5 +560,16 @@
             }
         }
         node.outbound = compact;
+    }
+    // UMD exporter
+    /* globals define */
+    if (typeof module === 'object' && typeof module.exports === 'object') {
+        module.exports = S; // CommonJS
+    }
+    else if (typeof define === 'function') {
+        define([], function () { return S; }); // AMD
+    }
+    else {
+        (eval || function () { })("this").S = S; // fallback to global object
     }
 })();

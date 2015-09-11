@@ -1,0 +1,11 @@
+{
+    "compilerOptions": {
+        "target": "ES6", //The key, of course.
+        "module": "amd",
+        "sourceMap": true
+    },
+    "exclude": [
+        "node_modules",
+        ".settings"
+    ]
+}

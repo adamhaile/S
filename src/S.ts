@@ -1,39 +1,32 @@
+/// <reference path="../S.d.ts" />
+
+declare var module : { exports : {} };
+declare var define : (deps: string[], fn: () => S) => void;
+
 (function () {
     "use strict";
-
-    // UMD exporter
-    /* globals define */
-    if (typeof module === 'object' && typeof module.exports === 'object') {
-        module.exports = S; // CommonJS
-    } else if (typeof define === 'function') {
-        define([], function () { return S; }); // AMD
-    } else {
-        (eval || function () {})("this").S = S; // fallback to global object
-    }
-
-    function _Frame() {
-        this.len = 0;
-        this.values = [];
-        this.nodes = [];
-        this.nodes2 = [];
-    }
     
-    _Frame.prototype = {
-        add: function add(node, value) {
+    class _Frame {
+        len = 0;
+        values : any[] = [];
+        nodes : Node<any>[] = [];
+        nodes2 : Node<any>[] = [];
+        
+        add<T>(node : Node<T>, value : T) {
             this.values[this.len] = value;
             this.nodes[this.len] = node;
             this.len++;
         }
-    };
+    }
     
     // "Globals" used to keep track of current system state
     var NodeCount = 0,
-        UpdatingNode = null,
+        UpdatingNode = <Node<any>>null,
         Framing = false,
         Frame = new _Frame();
 
     function runFrames() {
-        var nodes, i, len, node, count = 0;
+        var nodes : Node<any>[], i : number, len : number, node : Node<any>, count = 0;
         
         // for each frame ...
         while ((nodes = Frame.nodes, len = Frame.len) !== 0) {
@@ -57,7 +50,7 @@
                 while (++i < len) {
                     node = nodes[i];
                     update(node);
-                    nodes[i] = null
+                    nodes[i] = null;
                 }
             } finally {
                 // in case we had an error, make sure all remaining marked nodes are reset
@@ -81,7 +74,7 @@
         }
     }
     
-    function runSingleChange(node, value) {
+    function runSingleChange(node : Node<any>, value : any) {
         var success = false;
         
         node.value = value;
@@ -103,15 +96,16 @@
         if (Frame.len !== 0) runFrames();
     }
     
-    function S(fn) {
+    var S = <S>function S<T>(fn : () => T) : Computation<T> {
         var options = this instanceof ComputationBuilder ? this : new ComputationBuilder(),
             parent = UpdatingNode,
             framing = Framing,
             gate = options._gate || (parent && parent.gate) || null,
-            payload = new Payload(fn),
-            node = new Node(++NodeCount, payload, gate),
+            payload = new Payload<T>(fn),
+            node = new Node<T>(++NodeCount, payload, gate),
             disposed = false,
-            i, len;
+            i, len,
+            computation : Computation<T>;
 
         UpdatingNode = node;
 
@@ -147,18 +141,18 @@
         if (!framing && Frame.len !== 0)
             runFrames();
 
+        computation = <Computation<T>>function computation() {
+            if (disposed) return;
+            addEdge(node);
+            if (node.marks !== 0) backtrack(node);
+            if (disposed) return;
+            return node.value;
+        }
+
         computation.dispose = dispose;
         computation.toJSON = signalToJSON;
 
         return computation;
-
-        function computation() {
-            if (disposed) return;
-            addEdge(node);
-            if (node.marks !== 0) backtrack(node, UpdatingNode);
-            if (disposed) return;
-            return node.value;
-        }
 
         function dispose() {
             if (disposed) return;
@@ -191,16 +185,13 @@
         }
     }
 
-    S.data = function data(value) {
-        var node = new Node(++NodeCount, null, UpdatingNode ? UpdatingNode.gate : null);
+    S.data = function data<T>(value : T) : DataSignal<T> {
+        var node = new Node<T>(++NodeCount, null, UpdatingNode ? UpdatingNode.gate : null),
+            data : DataSignal<T>;
         
         node.value = value;
-        
-        data.toJSON = signalToJSON;
 
-        return data;
-
-        function data(value) {
+        data = <DataSignal<T>>function data(value : T) {
             if (arguments.length > 0) {
                 if (Framing) Frame.add(node, value);
                 else runSingleChange(node, value);
@@ -209,6 +200,10 @@
             }
             return node.value;
         }
+        
+        data.toJSON = signalToJSON;
+
+        return data;
     };
 
     /// Options
@@ -225,15 +220,14 @@
         S   : S
     };
 
-    S.on = function on(/* ...signals */) {
+    S.on = function on(...signals : Signal<any>[]) {
         var options = new ComputationBuilder();
-        options._sources = Array.prototype.slice.apply(arguments);
+        options._sources = signals;
         return options;
     };
 
-    S.when = function when(/* ...promises */) {
+    S.when = function when(...preds : Signal<any>[]) {
         var options = new ComputationBuilder(),
-            preds = Array.prototype.slice.apply(arguments),
             len = preds.length;
 
         options._sources = preds;
@@ -248,22 +242,22 @@
         return options;
     };
 
-    S.gate = function gate(g) { return new ComputationBuilder().gate(g); };
+    S.gate = function gate(g : Gate) { 
+        return new ComputationBuilder().gate(g); 
+    };
 
     function signalToJSON() {
         return this();
     }
 
-    S.collector = function collector() {
+    S.collector = function collector() : Collector {
         var running = false,
             nodes = [],
-            nodeIndex = {};
+            nodeIndex = {},
+            collector : Collector;
 
-        collector.go = go;
-
-        return collector;
-
-        function collector(node) {
+        collector = <Collector>function collector(token : GateToken) : boolean {
+            var node = <Node<any>>token;
             if (!running && !nodeIndex[node.id]) {
                 nodes.push(node);
                 nodeIndex[node.id] = node;
@@ -271,6 +265,10 @@
             return running;
         }
 
+        collector.go = go;
+
+        return collector;
+        
         function go() {
             var i, oldNode;
 
@@ -322,6 +320,8 @@
                     col.go();
                 }, t - (now - last));
             }
+            
+            return false;
         };
     };
         
@@ -341,10 +341,12 @@
 
                 tout = setTimeout(col.go, t);
             }
+            
+            return false;
         };
     };
         
-    S.peek = function peek(fn) {
+    S.peek = function peek<T>(fn : () => T) : T {
         if (UpdatingNode && UpdatingNode.payload && UpdatingNode.payload.listening) {
             UpdatingNode.payload.listening = false;
 
@@ -358,7 +360,7 @@
         }
     };
 
-    S.cleanup = function cleanup(fn) {
+    S.cleanup = function cleanup(fn : () => void) : void {
         if (UpdatingNode && UpdatingNode.payload) {
             UpdatingNode.payload.cleanups.push(fn);
         } else {
@@ -366,23 +368,28 @@
         }
     };
 
-    S.freeze = function freeze(fn) {
+    S.freeze = function freeze<T>(fn : () => T) : T {
+        var result : T;
+        
         if (Framing) {
             fn();
         } else {
             Framing = true;
 
             try {
-                fn();
+                result = fn();
             } finally {
                 Framing = false;
             }
             
             runFrames();
+            
+            return result;
         }
     };
 
-    S.pin = function freeze(fn) {
+    // how to type this?
+    S.pin = <any>function pin(fn) {
         if (arguments.length === 0) {
             return new ComputationBuilder().pin();
         } else if (!UpdatingNode || !UpdatingNode.payload || UpdatingNode.payload.pinning) {
@@ -399,53 +406,72 @@
     };
     
     /// Graph classes and operations
-    function Node(id, payload, gate) {
-        this.id = id;
-        this.value = undefined;
-        this.payload = payload;
-        this.gate = gate;
-
-        this.marks = 0;
-        this.updating = false;
-        this.cur = 0;
-
-        this.inbound = [];
-        this.inboundIndex = [];
-        this.inboundActive = 0;
-        this.outbound = [];
-        this.outboundActive = 0;
-        this.outboundCompaction = 0;
+    class Node<T> {
+        id : number;
+        value : T = undefined;
+        payload : Payload<T>;
+        gate : Gate;
+        marks = 0;
+        updating : boolean = false;
+        cur : number = 0;
+        inbound : Edge[] = [];
+        inboundIndex = [];
+        inboundActive = 0;
+        outbound : Edge[] = [];
+        outboundIndex = [];
+        outboundActive = 0;
+        outboundCompaction = 0;
+        
+        constructor(id : number, payload : Payload<T>, gate : Gate)  {
+            this.id = id;
+            this.payload = payload;
+            this.gate = gate;
+        }
     }
 
-    function Edge(from, to, boundary) {
-        this.from = from;
-        this.to = to;
-        this.boundary = boundary;
-
-        this.active = true;
-        this.marked = false;
-        this.gen = to.payload.gen;
-
-        this.outboundOffset = from.outbound.length;
-        this.outboundCompaction = from.outboundCompaction;
-
-        from.outbound.push(this);
-        to.inbound.push(this);
-        to.inboundIndex[from.id] = this;
-        from.outboundActive++;
-        to.inboundActive++;
+    class Edge {
+        from : Node<any>;
+        to : Node<any>;
+        boundary : boolean;
+        
+        active = true;
+        marked = false;
+        gen : number;
+        
+        outboundOffset : number;
+        outboundCompaction : number;
+        
+        constructor(from : Node<any>, to : Node<any>, boundary) {
+            this.from = from;
+            this.to = to;
+            this.boundary = boundary;
+    
+            this.gen = to.payload.gen;
+    
+            this.outboundOffset = from.outbound.length;
+            this.outboundCompaction = from.outboundCompaction;
+    
+            from.outbound.push(this);
+            to.inbound.push(this);
+            to.inboundIndex[from.id] = this;
+            from.outboundActive++;
+            to.inboundActive++;
+        }
     }
 
-    function Payload(fn) {
-        this.fn = fn;
+    class Payload<T> {
+        fn : () => T;
+        gen = 1;
 
-        this.gen = 1;
+        listening = true;
+        pinning = false;
 
-        this.listening = true;
-        this.pinning = false;
-
-        this.cleanups = [];
-        this.finalizers = [];
+        cleanups = [];
+        finalizers = [];
+        
+        constructor(fn : () => T) {
+            this.fn = fn;
+        }
     }
 
     function addEdge(from) {
@@ -460,10 +486,10 @@
     }
 
     /// mark the node and all downstream nodes as within the range to be updated
-    function mark(node) {
+    function mark(node : Node<any>) {
         node.updating = true;
 
-        var i = -1, len = node.outbound.length, edge, to;
+        var i = -1, len = node.outbound.length, edge : Edge, to : Node<any>;
         while (++i < len) {
             edge = node.outbound[i];
             if (edge && (!edge.boundary || edge.to.gate(edge.to))) {
@@ -486,8 +512,8 @@
     }
 
     /// update the given node by re-executing any payload, updating inbound links, then updating all downstream nodes
-    function update(node) {
-        var i, len, edge, to, payload;
+    function update(node : Node<any>) {
+        var i : number, len : number, edge : Edge, to : Node<any>, payload : Payload<any>;
 
         node.updating = true;
 
@@ -636,4 +662,15 @@
         }
         node.outbound = compact;
     }
+
+    // UMD exporter
+    /* globals define */
+    if (typeof module === 'object' && typeof module.exports === 'object') {
+        module.exports = S; // CommonJS
+    } else if (typeof define === 'function') {
+        define([], function () { return S; }); // AMD
+    } else {
+        (eval || function () {})("this").S = S; // fallback to global object
+    }
+
 })();

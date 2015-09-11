@@ -1,0 +1,9 @@
+{
+    "version": "0.1.0",
+    "command": "/usr/local/lib/node_modules/typescript/bin/tsc",
+    "showOutput": "silent",
+    "windows": {"command": "tsc.exe"},
+    "isShellCommand": true,
+    "args": [], //do not pass any files to the compiler. This way it will use tsconfig.json where you can set target: "ES6"
+    "problemMatcher": "$tsc"
+}
