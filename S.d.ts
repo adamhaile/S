@@ -16,7 +16,6 @@ interface S {
 	<T>(fn : () => T) : Computation<T>;
 	data<T>(v : T) : DataSignal<T>;
 	on(...signals : Signal<any>[]) : ComputationBuilder;
-	when(...signals : Signal<any>[]) : ComputationBuilder;
 	peek<T>(fn : () => T) : T;
 	freeze<T>(fn : () => T) : T;
 	gate(gate : Gate) : ComputationBuilder;
