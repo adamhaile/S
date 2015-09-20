@@ -79,9 +79,9 @@ declare var define : (deps: string[], fn: () => S) => void;
             if (UpdatingComputation === _node) UpdatingComputation = null;
 
             if (receiver) {
-                i = -1, len = receiver.inbound.length;
+                i = -1, len = receiver.edges.length;
                 while (++i < len) {
-                    receiver.inbound[i].deactivate();
+                    receiver.edges[i].deactivate();
                 }
             }
 
@@ -163,16 +163,15 @@ declare var define : (deps: string[], fn: () => S) => void;
     };
 
     S.collector = function collector() : Collector {
-        var running = false,
-            nodes : ComputationNode[] = [],
-            nodeIndex : ComputationNode[] = [],
+        var node = new DataNode(null),
+            emitter = node.emitter = new Emitter(null),
+            running = false,
             collector : Collector;
 
         collector = <Collector>function collector(token : GateToken) : boolean {
             var node = <ComputationNode>token;
-            if (!running && !nodeIndex[node.receiver.id]) {
-                nodes.push(node);
-                nodeIndex[node.receiver.id] = node;
+            if (!running) {
+                emitter.addEdge(node);
             }
             return running;
         }
@@ -182,37 +181,11 @@ declare var define : (deps: string[], fn: () => S) => void;
         return collector;
         
         function go() {
-            var i : number, node : ComputationNode, oldNode : ComputationNode;
-
             running = true;
-
-            i = -1;
-            while (++i < nodes.length) {
-                node = nodes[i];
-                if (node.emitter) node.emitter.mark();
-            }
-
-            oldNode = UpdatingComputation, UpdatingComputation = null;
-
-            i = -1;
-            try {
-                while (++i < nodes.length) {
-                    nodes[i].update();
-                }
-            } catch (ex) {
-                i--;
-                while (++i < nodes.length) {
-                    node = nodes[i];
-                    if (node.emitter) node.emitter.reset();
-                }
-                throw ex;
-            } finally {
-                UpdatingComputation = oldNode;
-                running = false;
-            }
-
-            nodes = [];
-            nodeIndex = [];
+            
+            Resolver.run(node);
+            
+            running = false;
         }
     };
 
@@ -471,7 +444,11 @@ declare var define : (deps: string[], fn: () => S) => void;
         
         /// update the given node by re-executing any payload, updating inbound links, then updating all downstream nodes
         update() {
-            var i : number, len : number, edge : Edge, to : Receiver, cleanups = this.cleanups;
+            var i : number, 
+                len : number, 
+                edge : Edge, 
+                to : Receiver, 
+                cleanups = this.cleanups;
             
             this.cleanups = [];
             i = -1, len = cleanups.length;
@@ -488,15 +465,15 @@ declare var define : (deps: string[], fn: () => S) => void;
             if (this.emitter) this.emitter.propagate();
             
             if (this.receiver && this.listening) {
-                i = -1, len = this.receiver.inbound.length;
+                i = -1, len = this.receiver.edges.length;
                 while (++i < len) {
-                    edge = this.receiver.inbound[i];
+                    edge = this.receiver.edges[i];
                     if (edge.active && edge.gen < this.gen) {
                         edge.deactivate();
                     }
                 }
                 
-                if (len > 10 && len / this.receiver.inboundActive > 4)
+                if (len > 10 && len / this.receiver.active > 4)
                     this.receiver.compact();
             }
         }
@@ -512,20 +489,20 @@ declare var define : (deps: string[], fn: () => S) => void;
         id = Emitter.count++;
         node : ComputationNode;
         emitting = false;
-        outbound : Edge[] = [];
-        outboundIndex : Edge[] = [];
-        outboundActive = 0;
-        outboundCompaction = 0;
+        edges : Edge[] = [];
+        index : Edge[] = [];
+        active = 0;
+        compaction = 0;
         
         constructor(node : ComputationNode) {
             this.node = node;
         }
         
-        addEdge(to) {
+        addEdge(to : ComputationNode) {
             var edge : Edge = null;
             
             if (!to.receiver) to.receiver = new Receiver(to);
-            else edge = to.receiver.inboundIndex[this.id];
+            else edge = to.receiver.index[this.id];
             
             if (edge) edge.activate(this);
             else new Edge(this, to.receiver, to.gate && (this.node === null || to.gate !== this.node.gate));
@@ -533,23 +510,30 @@ declare var define : (deps: string[], fn: () => S) => void;
         
         /// mark the node and all downstream nodes as within the range to be updated
         mark() {
+            var edges = this.edges, 
+                i = -1, 
+                len = edges.length, 
+                edge : Edge, 
+                to : Receiver,
+                emitter: Emitter;
+            
             this.emitting = true;
-    
-            var outbound = this.outbound, i = -1, len = outbound.length, edge : Edge, to : Receiver;
+                
             while (++i < len) {
-                edge = outbound[i];
+                edge = edges[i];
                 if (edge && (!edge.boundary || edge.to.node.gate(edge.to.node))) {
                     to = edge.to;
+                    emitter = to.node.emitter;
     
-                    if (to.node.emitter && to.node.emitter.emitting)
+                    if (emitter && emitter.emitting)
                         throw new Error("circular dependency"); // TODO: more helpful reporting
     
                     edge.marked = true;
                     to.marks++;
     
                     // if this is the first time node's been marked, then propagate
-                    if (to.marks === 1 && to.node.emitter) {
-                        to.node.emitter.mark();
+                    if (to.marks === 1 && emitter) {
+                        emitter.mark();
                     }
                 }
             }
@@ -558,9 +542,13 @@ declare var define : (deps: string[], fn: () => S) => void;
         }
         
         propagate() {
-            var i = -1, len = this.outbound.length, edge : Edge, to : Receiver;
+            var i = -1, 
+                len = this.edges.length, 
+                edge : Edge, 
+                to : Receiver;
+                
             while (++i < len) {
-                edge = this.outbound[i];
+                edge = this.edges[i];
                 if (edge && edge.marked) { // due to gating and backtracking, not all outbound edges may be marked
                     to = edge.to;
     
@@ -573,15 +561,20 @@ declare var define : (deps: string[], fn: () => S) => void;
                 }
             }
                         
-            if (len > 10 && len / this.outboundActive > 4) 
+            if (len > 10 && len / this.active > 4) 
                 this.compact();
         }
         
         reset() {
-            var outbound = this.outbound, i = -1, len = outbound.length, edge : Edge;
+            var edges = this.edges, 
+                i = -1, 
+                len = edges.length, 
+                edge : Edge;
+                
             this.emitting = false;
+            
             while (++i < len) {
-                edge = outbound[i];
+                edge = edges[i];
                 if (edge) {
                     edge.marked = false;
                     edge.to.marks = 0;
@@ -593,21 +586,21 @@ declare var define : (deps: string[], fn: () => S) => void;
     
         compact() {
             var i = -1, 
-                len = this.outbound.length, 
-                compact : Edge[] = [], 
-                compaction = ++this.outboundCompaction, 
+                len = this.edges.length, 
+                edges : Edge[] = [], 
+                compaction = ++this.compaction, 
                 edge : Edge;
                 
             while (++i < len) {
-                edge = this.outbound[i];
+                edge = this.edges[i];
                 if (edge) {
-                    edge.outboundOffset = compact.length;
-                    edge.outboundCompaction = compaction;
-                    compact.push(edge);
+                    edge.slot = edges.length;
+                    edge.compaction = compaction;
+                    edges.push(edge);
                 }
             }
             
-            this.outbound = compact;
+            this.edges = edges;
         }
     }
     
@@ -617,9 +610,9 @@ declare var define : (deps: string[], fn: () => S) => void;
         id = Emitter.count++;
         node : ComputationNode;
         marks = 0;
-        inbound : Edge[] = [];
-        inboundIndex : Edge[] = [];
-        inboundActive = 0;
+        edges : Edge[] = [];
+        index : Edge[] = [];
+        active = 0;
         
         constructor(node : ComputationNode) {
             this.node = node;
@@ -627,9 +620,13 @@ declare var define : (deps: string[], fn: () => S) => void;
     
         /// update the given node by backtracking its dependencies to clean state and updating from there
         backtrack() {
-            var i = -1, len = this.inbound.length, oldNode = UpdatingComputation, edge : Edge;
+            var i = -1, 
+                len = this.edges.length, 
+                oldNode = UpdatingComputation, 
+                edge : Edge;
+                
             while (++i < len) {
-                edge = this.inbound[i];
+                edge = this.edges[i];
                 if (edge && edge.marked) {
                     if (edge.from.node && edge.from.node.receiver.marks) {
                         // keep working backwards through the marked nodes ...
@@ -645,21 +642,21 @@ declare var define : (deps: string[], fn: () => S) => void;
         
         compact() {
             var i = -1, 
-                len = this.inbound.length, 
-                compact : Edge[] = [], 
-                compactIndex : Edge[] = [], 
+                len = this.edges.length, 
+                edges : Edge[] = [], 
+                index : Edge[] = [], 
                 edge : Edge;
                 
             while (++i < len) {
-                edge = this.inbound[i];
+                edge = this.edges[i];
                 if (edge.active) {
-                    compact.push(edge);
-                    compactIndex[edge.from.id] = edge;
+                    edges.push(edge);
+                    index[edge.from.id] = edge;
                 }
             }
             
-            this.inbound = compact;
-            this.inboundIndex = compactIndex;
+            this.edges = edges;
+            this.index = index;
         }
     }
 
@@ -672,8 +669,8 @@ declare var define : (deps: string[], fn: () => S) => void;
         marked = false;
         gen : number;
         
-        outboundOffset : number;
-        outboundCompaction : number;
+        slot : number;
+        compaction : number;
         
         constructor(from : Emitter, to : Receiver, boundary : boolean) {
             this.from = from;
@@ -682,28 +679,28 @@ declare var define : (deps: string[], fn: () => S) => void;
     
             this.gen = to.node.gen;
     
-            this.outboundOffset = from.outbound.length;
-            this.outboundCompaction = from.outboundCompaction;
+            this.slot = from.edges.length;
+            this.compaction = from.compaction;
     
-            from.outbound.push(this);
-            to.inbound.push(this);
-            to.inboundIndex[from.id] = this;
-            from.outboundActive++;
-            to.inboundActive++;
+            from.edges.push(this);
+            to.edges.push(this);
+            to.index[from.id] = this;
+            from.active++;
+            to.active++;
         }
         
         activate(from : Emitter) {
             if (!this.active) {
                 this.active = true;
-                if (this.outboundCompaction === from.outboundCompaction) {
-                    from.outbound[this.outboundOffset] = this;
+                if (this.compaction === from.compaction) {
+                    from.edges[this.slot] = this;
                 } else {
-                    this.outboundCompaction = from.outboundCompaction;
-                    this.outboundOffset = from.outbound.length;
-                    from.outbound.push(this);
+                    this.compaction = from.compaction;
+                    this.slot = from.edges.length;
+                    from.edges.push(this);
                 }
-                this.to.inboundActive++;
-                from.outboundActive++;
+                this.to.active++;
+                from.active++;
                 this.from = from;
             }
             this.gen = this.to.node.gen;
@@ -713,9 +710,9 @@ declare var define : (deps: string[], fn: () => S) => void;
             if (!this.active) return;
             var from = this.from, to = this.to;
             this.active = false;
-            from.outbound[this.outboundOffset] = null;
-            from.outboundActive--;
-            to.inboundActive--;
+            from.edges[this.slot] = null;
+            from.active--;
+            to.active--;
             this.from = null;
         }
     }
@@ -731,5 +728,4 @@ declare var define : (deps: string[], fn: () => S) => void;
     } else {
         (eval || function () {})("this").S = S; // fallback to global object
     }
-
 })();

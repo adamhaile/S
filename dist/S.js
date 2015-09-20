@@ -62,9 +62,9 @@
             if (UpdatingComputation === _node)
                 UpdatingComputation = null;
             if (receiver) {
-                i = -1, len = receiver.inbound.length;
+                i = -1, len = receiver.edges.length;
                 while (++i < len) {
-                    receiver.inbound[i].deactivate();
+                    receiver.edges[i].deactivate();
                 }
             }
             _node.cleanups = [];
@@ -137,48 +137,20 @@
         return new ComputationBuilder().gate(g);
     };
     S.collector = function collector() {
-        var running = false, nodes = [], nodeIndex = [], collector;
+        var node = new DataNode(null), emitter = node.emitter = new Emitter(null), running = false, collector;
         collector = function collector(token) {
             var node = token;
-            if (!running && !nodeIndex[node.receiver.id]) {
-                nodes.push(node);
-                nodeIndex[node.receiver.id] = node;
+            if (!running) {
+                emitter.addEdge(node);
             }
             return running;
         };
         collector.go = go;
         return collector;
         function go() {
-            var i, node, oldNode;
             running = true;
-            i = -1;
-            while (++i < nodes.length) {
-                node = nodes[i];
-                if (node.emitter)
-                    node.emitter.mark();
-            }
-            oldNode = UpdatingComputation, UpdatingComputation = null;
-            i = -1;
-            try {
-                while (++i < nodes.length) {
-                    nodes[i].update();
-                }
-            }
-            catch (ex) {
-                i--;
-                while (++i < nodes.length) {
-                    node = nodes[i];
-                    if (node.emitter)
-                        node.emitter.reset();
-                }
-                throw ex;
-            }
-            finally {
-                UpdatingComputation = oldNode;
-                running = false;
-            }
-            nodes = [];
-            nodeIndex = [];
+            Resolver.run(node);
+            running = false;
         }
     };
     S.throttle = function throttle(t) {
@@ -418,14 +390,14 @@
             if (this.emitter)
                 this.emitter.propagate();
             if (this.receiver && this.listening) {
-                i = -1, len = this.receiver.inbound.length;
+                i = -1, len = this.receiver.edges.length;
                 while (++i < len) {
-                    edge = this.receiver.inbound[i];
+                    edge = this.receiver.edges[i];
                     if (edge.active && edge.gen < this.gen) {
                         edge.deactivate();
                     }
                 }
-                if (len > 10 && len / this.receiver.inboundActive > 4)
+                if (len > 10 && len / this.receiver.active > 4)
                     this.receiver.compact();
             }
         };
@@ -437,10 +409,10 @@
         function Emitter(node) {
             this.id = Emitter.count++;
             this.emitting = false;
-            this.outbound = [];
-            this.outboundIndex = [];
-            this.outboundActive = 0;
-            this.outboundCompaction = 0;
+            this.edges = [];
+            this.index = [];
+            this.active = 0;
+            this.compaction = 0;
             this.node = node;
         }
         Emitter.prototype.addEdge = function (to) {
@@ -448,7 +420,7 @@
             if (!to.receiver)
                 to.receiver = new Receiver(to);
             else
-                edge = to.receiver.inboundIndex[this.id];
+                edge = to.receiver.index[this.id];
             if (edge)
                 edge.activate(this);
             else
@@ -456,28 +428,29 @@
         };
         /// mark the node and all downstream nodes as within the range to be updated
         Emitter.prototype.mark = function () {
+            var edges = this.edges, i = -1, len = edges.length, edge, to, emitter;
             this.emitting = true;
-            var outbound = this.outbound, i = -1, len = outbound.length, edge, to;
             while (++i < len) {
-                edge = outbound[i];
+                edge = edges[i];
                 if (edge && (!edge.boundary || edge.to.node.gate(edge.to.node))) {
                     to = edge.to;
-                    if (to.node.emitter && to.node.emitter.emitting)
+                    emitter = to.node.emitter;
+                    if (emitter && emitter.emitting)
                         throw new Error("circular dependency"); // TODO: more helpful reporting
                     edge.marked = true;
                     to.marks++;
                     // if this is the first time node's been marked, then propagate
-                    if (to.marks === 1 && to.node.emitter) {
-                        to.node.emitter.mark();
+                    if (to.marks === 1 && emitter) {
+                        emitter.mark();
                     }
                 }
             }
             this.emitting = false;
         };
         Emitter.prototype.propagate = function () {
-            var i = -1, len = this.outbound.length, edge, to;
+            var i = -1, len = this.edges.length, edge, to;
             while (++i < len) {
-                edge = this.outbound[i];
+                edge = this.edges[i];
                 if (edge && edge.marked) {
                     to = edge.to;
                     edge.marked = false;
@@ -487,14 +460,14 @@
                     }
                 }
             }
-            if (len > 10 && len / this.outboundActive > 4)
+            if (len > 10 && len / this.active > 4)
                 this.compact();
         };
         Emitter.prototype.reset = function () {
-            var outbound = this.outbound, i = -1, len = outbound.length, edge;
+            var edges = this.edges, i = -1, len = edges.length, edge;
             this.emitting = false;
             while (++i < len) {
-                edge = outbound[i];
+                edge = edges[i];
                 if (edge) {
                     edge.marked = false;
                     edge.to.marks = 0;
@@ -504,16 +477,16 @@
             }
         };
         Emitter.prototype.compact = function () {
-            var i = -1, len = this.outbound.length, compact = [], compaction = ++this.outboundCompaction, edge;
+            var i = -1, len = this.edges.length, edges = [], compaction = ++this.compaction, edge;
             while (++i < len) {
-                edge = this.outbound[i];
+                edge = this.edges[i];
                 if (edge) {
-                    edge.outboundOffset = compact.length;
-                    edge.outboundCompaction = compaction;
-                    compact.push(edge);
+                    edge.slot = edges.length;
+                    edge.compaction = compaction;
+                    edges.push(edge);
                 }
             }
-            this.outbound = compact;
+            this.edges = edges;
         };
         Emitter.count = 0;
         return Emitter;
@@ -522,16 +495,16 @@
         function Receiver(node) {
             this.id = Emitter.count++;
             this.marks = 0;
-            this.inbound = [];
-            this.inboundIndex = [];
-            this.inboundActive = 0;
+            this.edges = [];
+            this.index = [];
+            this.active = 0;
             this.node = node;
         }
         /// update the given node by backtracking its dependencies to clean state and updating from there
         Receiver.prototype.backtrack = function () {
-            var i = -1, len = this.inbound.length, oldNode = UpdatingComputation, edge;
+            var i = -1, len = this.edges.length, oldNode = UpdatingComputation, edge;
             while (++i < len) {
-                edge = this.inbound[i];
+                edge = this.edges[i];
                 if (edge && edge.marked) {
                     if (edge.from.node && edge.from.node.receiver.marks) {
                         // keep working backwards through the marked nodes ...
@@ -546,16 +519,16 @@
             }
         };
         Receiver.prototype.compact = function () {
-            var i = -1, len = this.inbound.length, compact = [], compactIndex = [], edge;
+            var i = -1, len = this.edges.length, edges = [], index = [], edge;
             while (++i < len) {
-                edge = this.inbound[i];
+                edge = this.edges[i];
                 if (edge.active) {
-                    compact.push(edge);
-                    compactIndex[edge.from.id] = edge;
+                    edges.push(edge);
+                    index[edge.from.id] = edge;
                 }
             }
-            this.inbound = compact;
-            this.inboundIndex = compactIndex;
+            this.edges = edges;
+            this.index = index;
         };
         Receiver.count = 0;
         return Receiver;
@@ -568,27 +541,27 @@
             this.to = to;
             this.boundary = boundary;
             this.gen = to.node.gen;
-            this.outboundOffset = from.outbound.length;
-            this.outboundCompaction = from.outboundCompaction;
-            from.outbound.push(this);
-            to.inbound.push(this);
-            to.inboundIndex[from.id] = this;
-            from.outboundActive++;
-            to.inboundActive++;
+            this.slot = from.edges.length;
+            this.compaction = from.compaction;
+            from.edges.push(this);
+            to.edges.push(this);
+            to.index[from.id] = this;
+            from.active++;
+            to.active++;
         }
         Edge.prototype.activate = function (from) {
             if (!this.active) {
                 this.active = true;
-                if (this.outboundCompaction === from.outboundCompaction) {
-                    from.outbound[this.outboundOffset] = this;
+                if (this.compaction === from.compaction) {
+                    from.edges[this.slot] = this;
                 }
                 else {
-                    this.outboundCompaction = from.outboundCompaction;
-                    this.outboundOffset = from.outbound.length;
-                    from.outbound.push(this);
+                    this.compaction = from.compaction;
+                    this.slot = from.edges.length;
+                    from.edges.push(this);
                 }
-                this.to.inboundActive++;
-                from.outboundActive++;
+                this.to.active++;
+                from.active++;
                 this.from = from;
             }
             this.gen = this.to.node.gen;
@@ -598,9 +571,9 @@
                 return;
             var from = this.from, to = this.to;
             this.active = false;
-            from.outbound[this.outboundOffset] = null;
-            from.outboundActive--;
-            to.inboundActive--;
+            from.edges[this.slot] = null;
+            from.active--;
+            to.active--;
             this.from = null;
         };
         return Edge;
