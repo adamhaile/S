@@ -2,10 +2,10 @@
 (function () {
     "use strict";
     // "Globals" used to keep track of current system state
-    var Time = 1, UpdatingComputation = null, Resolver = null;
+    var Time = 1, Frozen = false, Changes = [], ChangeCount = 0, Updating = null;
     var S = function S(fn) {
-        var options = this instanceof ComputationBuilder ? this : null, parent = UpdatingComputation, frozen = Resolver.frozen, gate = (options && options._gate) || (parent && parent.gate) || null, node = new ComputationNode(fn, gate), i, len, computation;
-        UpdatingComputation = node;
+        var options = (this instanceof ComputationBuilder ? this : null), parent = Updating, frozen = Frozen, gate = (options && options._gate) || (parent && parent.gate) || null, node = new ComputationNode(fn, gate), computation;
+        Updating = node;
         if (options && options._sources) {
             initSources(options._sources, parent);
             node.listening = false;
@@ -16,26 +16,24 @@
             else
                 parent.cleanups.push(dispose);
         }
-        UpdatingComputation = node;
+        Updating = node;
         if (frozen) {
             node.value = fn();
-            UpdatingComputation = parent;
+            Updating = parent;
         }
         else {
-            Time++;
-            Resolver.frozen = true;
             node.value = initComputation(fn, parent);
         }
         computation = function computation() {
             if (!node)
                 return;
-            if (UpdatingComputation && UpdatingComputation.listening) {
+            if (Updating && Updating.listening) {
                 if (!node.emitter)
                     node.emitter = new Emitter(node);
-                node.emitter.addEdge(UpdatingComputation);
+                addEdge(node.emitter, Updating);
             }
             if (node.receiver && node.receiver.marks !== 0)
-                node.receiver.backtrack();
+                backtrack(node.receiver);
             if (!node)
                 return;
             return node.value;
@@ -46,30 +44,32 @@
         function dispose() {
             if (!node)
                 return;
-            var _node = node, receiver = _node.receiver, cleanups = _node.cleanups, i, len;
+            var receiver = node.receiver, emitter = node.emitter, cleanups = node.cleanups, finalizers = node.finalizers, i, len, edge;
+            if (Updating === node)
+                Updating = null;
             node = null;
-            if (UpdatingComputation === _node)
-                UpdatingComputation = null;
             if (receiver) {
                 i = -1, len = receiver.edges.length;
                 while (++i < len) {
-                    receiver.edges[i].deactivate();
+                    deactivate(receiver.edges[i]);
                 }
             }
-            _node.cleanups = [];
+            if (emitter) {
+                i = -1, len = emitter.edges.length;
+                while (++i < len) {
+                    edge = emitter.edges[i];
+                    if (edge)
+                        deactivate(edge);
+                }
+            }
             i = -1, len = cleanups.length;
             while (++i < len) {
                 cleanups[i]();
             }
-            i = -1, len = _node.finalizers.length;
+            i = -1, len = finalizers.length;
             while (++i < len) {
-                _node.finalizers[i]();
+                finalizers[i]();
             }
-            _node.value = null;
-            _node.fn = null;
-            _node.finalizers = null;
-            _node.receiver = null;
-            _node.emitter = null;
         }
     };
     function initSources(sources, parent) {
@@ -79,38 +79,56 @@
                 sources[i]();
         }
         finally {
-            UpdatingComputation = parent;
+            Updating = parent;
         }
     }
     function initComputation(fn, parent) {
         var result;
+        Time++;
+        Frozen = true;
         try {
             result = fn();
-            if (Resolver.len !== 0)
-                Resolver.run(null);
+            if (ChangeCount !== 0)
+                run(null);
         }
         finally {
-            UpdatingComputation = parent;
-            Resolver.frozen = false;
-            Resolver.len = 0;
+            Updating = parent;
+            Frozen = false;
+            ChangeCount = 0;
         }
         return result;
     }
     S.data = function data(value) {
         var node = new DataNode(value), data;
-        node.value = value;
         data = function data(value) {
             if (arguments.length > 0) {
-                Resolver.change(node, value);
+                if (Frozen) {
+                    if (node.age === Time) {
+                        if (value !== node.pending) {
+                            throw new Error("conflicting changes: " + value + " !== " + node.pending);
+                        }
+                    }
+                    else {
+                        node.age = Time;
+                        node.pending = value;
+                        Changes[ChangeCount++] = node;
+                    }
+                }
+                else {
+                    node.value = value;
+                    if (node.emitter)
+                        externalChange(node);
+                }
+                return value;
             }
             else {
-                if (UpdatingComputation && UpdatingComputation.listening) {
+                if (Updating && Updating.listening) {
                     if (!node.emitter)
                         node.emitter = new Emitter(null);
-                    node.emitter.addEdge(UpdatingComputation);
+                    addEdge(node.emitter, Updating);
                 }
+                return node.value;
             }
-            return node.value;
         };
         data.toJSON = signalToJSON;
         return data;
@@ -150,11 +168,12 @@
         return new ComputationBuilder().gate(g);
     };
     S.collector = function collector() {
-        var node = new DataNode(null), emitter = node.emitter = new Emitter(null), running = false, collector;
+        var node = new DataNode(null), emitter = new Emitter(null), running = false, collector;
+        node.emitter = emitter;
         collector = function collector(token) {
             var node = token;
             if (!running) {
-                emitter.addEdge(node);
+                addEdge(emitter, node);
             }
             return running;
         };
@@ -162,7 +181,7 @@
         return collector;
         function go() {
             running = true;
-            Resolver.enter(node);
+            externalChange(node);
             running = false;
         }
     };
@@ -199,13 +218,13 @@
         };
     };
     S.peek = function peek(fn) {
-        if (UpdatingComputation && UpdatingComputation.listening) {
-            UpdatingComputation.listening = false;
+        if (Updating && Updating.listening) {
+            Updating.listening = false;
             try {
                 return fn();
             }
             finally {
-                UpdatingComputation.listening = true;
+                Updating.listening = true;
             }
         }
         else {
@@ -213,8 +232,8 @@
         }
     };
     S.cleanup = function cleanup(fn) {
-        if (UpdatingComputation) {
-            UpdatingComputation.cleanups.push(fn);
+        if (Updating) {
+            Updating.cleanups.push(fn);
         }
         else {
             throw new Error("S.cleanup() must be called from within an S.computation.  Cannot call it at toplevel.");
@@ -222,20 +241,20 @@
     };
     S.freeze = function freeze(fn) {
         var result;
-        if (Resolver.frozen) {
+        if (Frozen) {
             result = fn();
         }
         else {
             Time++;
-            Resolver.frozen = true;
+            Frozen = true;
             try {
                 result = fn();
             }
             finally {
-                Resolver.frozen = false;
+                Frozen = false;
             }
-            if (Resolver.len > 0)
-                Resolver.enter(null);
+            if (ChangeCount > 0)
+                externalChange(null);
         }
         return result;
     };
@@ -244,104 +263,172 @@
         if (arguments.length === 0) {
             return new ComputationBuilder().pin();
         }
-        else if (!UpdatingComputation || UpdatingComputation.pinning) {
+        else if (!Updating || Updating.pinning) {
             return fn();
         }
         else {
-            UpdatingComputation.pinning = true;
+            Updating.pinning = true;
             try {
                 return fn();
             }
             finally {
-                UpdatingComputation.pinning = false;
+                Updating.pinning = false;
             }
         }
     };
-    // Run change propagation
-    var FrameResolver = (function () {
-        function FrameResolver() {
-            this.len = 0;
-            this.frozen = false;
-            this.changes = [];
-            this.changes2 = [];
+    function externalChange(change) {
+        try {
+            run(change);
         }
-        FrameResolver.prototype.change = function (data, value) {
-            if (this.frozen) {
-                if (data.age === Time) {
-                    if (value !== data.pending) {
-                        throw new Error("conflicting changes: " + value + " !== " + data.pending);
+        finally {
+            Frozen = false;
+            ChangeCount = 0;
+            Updating = null;
+        }
+    }
+    var _changes = [];
+    function run(change) {
+        var count = 0, changes, i, len;
+        Frozen = true;
+        if (change) {
+            Time++;
+            prepare(change.emitter);
+            notify(change.emitter);
+        }
+        // for each frame ...
+        while (ChangeCount !== 0) {
+            // prepare next frame
+            Time++;
+            changes = Changes, Changes = _changes, _changes = changes;
+            len = ChangeCount, ChangeCount = 0;
+            // ... set nodes' values, clear pending data, and mark them
+            i = -1;
+            while (++i < len) {
+                change = changes[i];
+                change.value = change.pending;
+                change.pending = undefined;
+                if (change.emitter)
+                    prepare(change.emitter);
+            }
+            // run all updates in frame
+            i = -1;
+            while (++i < len) {
+                change = changes[i];
+                if (change.emitter)
+                    notify(change.emitter);
+                changes[i] = null;
+            }
+            if (count++ > 1e5) {
+                throw new Error("Runaway frames detected");
+            }
+        }
+    }
+    /// mark the node and all downstream nodes as within the range to be updated
+    function prepare(emitter) {
+        var edges = emitter.edges, i = -1, len = edges.length, edge, to, toEmitter;
+        emitter.emitting = true;
+        while (++i < len) {
+            edge = edges[i];
+            if (edge && (!edge.boundary || edge.to.node.gate(edge.to.node))) {
+                to = edge.to;
+                toEmitter = to.node.emitter;
+                // if an earlier update threw an exception, marks may be dirty - clear it now
+                if (to.age < Time) {
+                    to.marks = 0;
+                    if (toEmitter) {
+                        toEmitter.emitting = false;
                     }
                 }
+                if (toEmitter && toEmitter.emitting)
+                    throw new Error("circular dependency"); // TODO: more helpful reporting
+                edge.marked = true;
+                to.marks++;
+                to.age = Time;
+                // if this is the first time to's been marked, then propagate
+                if (to.marks === 1 && toEmitter) {
+                    prepare(toEmitter);
+                }
+            }
+        }
+        emitter.emitting = false;
+    }
+    function notify(emitter) {
+        var i = -1, len = emitter.edges.length, edge, to;
+        while (++i < len) {
+            edge = emitter.edges[i];
+            if (edge && edge.marked) {
+                to = edge.to;
+                edge.marked = false;
+                to.marks--;
+                if (to.marks === 0) {
+                    update(to.node);
+                }
+            }
+        }
+        if (len > 10 && len / emitter.active > 4)
+            emitter.compact();
+    }
+    /// update the given node by re-executing any payload, updating inbound links, then updating all downstream nodes
+    function update(node) {
+        var emitter = node.emitter, receiver = node.receiver, i, len, edge, to;
+        i = -1, len = node.cleanups.length;
+        while (++i < len) {
+            node.cleanups[i]();
+        }
+        node.cleanups = [];
+        Updating = node;
+        node.value = node.fn();
+        if (emitter) {
+            // this is the content of notify(emitter), inserted to shorten call stack for ergonomics
+            i = -1, len = emitter.edges.length;
+            while (++i < len) {
+                edge = emitter.edges[i];
+                if (edge && edge.marked) {
+                    to = edge.to;
+                    edge.marked = false;
+                    to.marks--;
+                    if (to.marks === 0) {
+                        update(to.node);
+                    }
+                }
+            }
+            if (len > 10 && len / emitter.active > 4)
+                emitter.compact();
+        }
+        if ((receiver !== null) && node.listening) {
+            i = -1, len = receiver.edges.length;
+            while (++i < len) {
+                edge = receiver.edges[i];
+                if (edge.active && edge.age < Time) {
+                    deactivate(edge);
+                }
+            }
+            if (len > 10 && len / receiver.active > 4)
+                receiver.compact();
+        }
+    }
+    /// update the given node by backtracking its dependencies to clean state and updating from there
+    function backtrack(receiver) {
+        var i = -1, len = receiver.edges.length, oldNode = Updating, edge;
+        while (++i < len) {
+            edge = receiver.edges[i];
+            if (edge && edge.marked) {
+                if (edge.from.node && edge.from.node.receiver.marks) {
+                    // keep working backwards through the marked nodes ...
+                    backtrack(edge.from.node.receiver);
+                }
                 else {
-                    data.age = Time;
-                    data.pending = value;
-                    this.changes[this.len] = data;
-                    this.len++;
+                    // ... until we find clean state, from which to start updating
+                    notify(edge.from);
+                    Updating = oldNode;
                 }
             }
-            else {
-                data.value = value;
-                if (data.emitter)
-                    this.enter(data);
-            }
-        };
-        FrameResolver.prototype.enter = function (change) {
-            try {
-                this.run(change);
-            }
-            finally {
-                this.frozen = false;
-                this.len = 0;
-                UpdatingComputation = null;
-            }
-        };
-        FrameResolver.prototype.run = function (change) {
-            var changes, count = 0, i, len;
-            this.frozen = true;
-            if (change) {
-                Time++;
-                change.emitter.mark();
-                change.emitter.propagate();
-            }
-            // for each frame ...
-            while (this.len !== 0) {
-                // prepare next frame
-                Time++;
-                changes = this.changes;
-                this.changes = this.changes2;
-                this.changes2 = changes;
-                len = this.len;
-                this.len = 0;
-                // ... set nodes' values, clear pending data, and mark them
-                i = -1;
-                while (++i < len) {
-                    change = changes[i];
-                    change.value = change.pending;
-                    change.pending = undefined;
-                    if (change.emitter)
-                        change.emitter.mark();
-                }
-                // run all updates in frame
-                i = -1;
-                while (++i < len) {
-                    change = changes[i];
-                    if (change.emitter)
-                        change.emitter.propagate();
-                    changes[i] = null;
-                }
-                if (count++ > 1e5) {
-                    throw new Error("Runaway frames detected");
-                }
-            }
-        };
-        return FrameResolver;
-    })();
+        }
+    }
     /// Graph classes and operations
     var DataNode = (function () {
         function DataNode(value) {
             this.age = 0; // Data nodes start at a time prior to the present, or else they can't be set in the current frame
-            this.value = undefined;
-            this.pending = undefined;
             this.emitter = null;
             this.value = value;
         }
@@ -349,7 +436,6 @@
     })();
     var ComputationNode = (function () {
         function ComputationNode(fn, gate) {
-            this.value = undefined;
             this.emitter = null;
             this.receiver = null;
             this.listening = true;
@@ -359,31 +445,6 @@
             this.fn = fn;
             this.gate = gate;
         }
-        /// update the given node by re-executing any payload, updating inbound links, then updating all downstream nodes
-        ComputationNode.prototype.update = function () {
-            var i, len, edge, to, cleanups = this.cleanups;
-            this.cleanups = [];
-            i = -1, len = cleanups.length;
-            while (++i < len) {
-                cleanups[i]();
-            }
-            UpdatingComputation = this;
-            if (this.fn)
-                this.value = this.fn();
-            if (this.emitter)
-                this.emitter.propagate();
-            if (this.receiver && this.listening) {
-                i = -1, len = this.receiver.edges.length;
-                while (++i < len) {
-                    edge = this.receiver.edges[i];
-                    if (edge.active && edge.age < Time) {
-                        edge.deactivate();
-                    }
-                }
-                if (len > 10 && len / this.receiver.active > 4)
-                    this.receiver.compact();
-            }
-        };
         return ComputationNode;
     })();
     var Emitter = (function () {
@@ -396,61 +457,6 @@
             this.edgesAge = 0;
             this.node = node;
         }
-        Emitter.prototype.addEdge = function (to) {
-            var edge = null;
-            if (!to.receiver)
-                to.receiver = new Receiver(to);
-            else
-                edge = to.receiver.index[this.id];
-            if (edge)
-                edge.activate(this);
-            else
-                new Edge(this, to.receiver, to.gate && (this.node === null || to.gate !== this.node.gate));
-        };
-        /// mark the node and all downstream nodes as within the range to be updated
-        Emitter.prototype.mark = function () {
-            var edges = this.edges, i = -1, len = edges.length, edge, to, emitter;
-            this.emitting = true;
-            while (++i < len) {
-                edge = edges[i];
-                if (edge && (!edge.boundary || edge.to.node.gate(edge.to.node))) {
-                    to = edge.to;
-                    emitter = to.node.emitter;
-                    if (to.age < Time) {
-                        to.marks = 0;
-                        if (emitter) {
-                            emitter.emitting = false;
-                        }
-                    }
-                    if (emitter && emitter.emitting)
-                        throw new Error("circular dependency"); // TODO: more helpful reporting
-                    edge.marked = true;
-                    to.marks++;
-                    to.age = Time;
-                    // if this is the first time node's been marked, then propagate
-                    if (to.marks === 1 && emitter) {
-                        emitter.mark();
-                    }
-                }
-            }
-            this.emitting = false;
-        };
-        Emitter.prototype.propagate = function () {
-            var i = -1, len = this.edges.length, edge, to;
-            while (++i < len) {
-                edge = this.edges[i];
-                if (edge && edge.marked) {
-                    to = edge.to;
-                    edge.marked = false;
-                    to.marks--;
-                    if (to.marks === 0) {
-                        to.node.update();
-                    }
-                }
-            }
-            if (len > 10 && len / this.active > 4)
-                this.compact();
-        };
         Emitter.prototype.compact = function () {
             var i = -1, len = this.edges.length, edges = [], compaction = ++this.edgesAge, edge;
             while (++i < len) {
@@ -466,6 +472,17 @@
         Emitter.count = 0;
         return Emitter;
     })();
+    function addEdge(from, to) {
+        var edge = null;
+        if (!to.receiver)
+            to.receiver = new Receiver(to);
+        else
+            edge = to.receiver.index[from.id];
+        if (edge)
+            activate(edge, from);
+        else
+            new Edge(from, to.receiver, to.gate && (from.node === null || to.gate !== from.node.gate));
+    }
     var Receiver = (function () {
         function Receiver(node) {
             this.id = Emitter.count++;
@@ -476,24 +493,6 @@
             this.active = 0;
             this.node = node;
         }
-        /// update the given node by backtracking its dependencies to clean state and updating from there
-        Receiver.prototype.backtrack = function () {
-            var i = -1, len = this.edges.length, oldNode = UpdatingComputation, edge;
-            while (++i < len) {
-                edge = this.edges[i];
-                if (edge && edge.marked) {
-                    if (edge.from.node && edge.from.node.receiver.marks) {
-                        // keep working backwards through the marked nodes ...
-                        edge.from.node.receiver.backtrack();
-                    }
-                    else {
-                        // ... until we find clean state, from which to start updating
-                        edge.from.propagate();
-                        UpdatingComputation = oldNode;
-                    }
-                }
-            }
-        };
         Receiver.prototype.compact = function () {
             var i = -1, len = this.edges.length, edges = [], index = [], edge;
             while (++i < len) {
@@ -525,36 +524,35 @@
             from.active++;
             to.active++;
         }
-        Edge.prototype.activate = function (from) {
-            if (!this.active) {
-                this.active = true;
-                if (this.slotAge === from.edgesAge) {
-                    from.edges[this.slot] = this;
-                }
-                else {
-                    this.slotAge = from.edgesAge;
-                    this.slot = from.edges.length;
-                    from.edges.push(this);
-                }
-                this.to.active++;
-                from.active++;
-                this.from = from;
-            }
-            this.age = Time;
-        };
-        Edge.prototype.deactivate = function () {
-            if (!this.active)
-                return;
-            var from = this.from, to = this.to;
-            this.active = false;
-            from.edges[this.slot] = null;
-            from.active--;
-            to.active--;
-            this.from = null;
-        };
         return Edge;
     })();
-    Resolver = new FrameResolver();
+    function activate(edge, from) {
+        if (!edge.active) {
+            edge.active = true;
+            if (edge.slotAge === from.edgesAge) {
+                from.edges[edge.slot] = edge;
+            }
+            else {
+                edge.slotAge = from.edgesAge;
+                edge.slot = from.edges.length;
+                from.edges.push(edge);
+            }
+            edge.to.active++;
+            from.active++;
+            edge.from = from;
+        }
+        edge.age = Time;
+    }
+    function deactivate(edge) {
+        if (!edge.active)
+            return;
+        var from = edge.from, to = edge.to;
+        edge.active = false;
+        from.edges[edge.slot] = null;
+        from.active--;
+        to.active--;
+        edge.from = null;
+    }
     // UMD exporter
     /* globals define */
     if (typeof module === 'object' && typeof module.exports === 'object') {
