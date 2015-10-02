@@ -7,7 +7,7 @@ describe("S.pin", function () {
             outer,
             innerRuns = 0;
 
-        outer = S(function () {
+        outer = S(function (dispose) {
             // register dependency to outer trigger
             outerTrigger();
             // inner computation
@@ -17,6 +17,7 @@ describe("S.pin", function () {
                 // count total runs
                 innerRuns++;
             });
+            return dispose;
         });
 
         // at start, we have one inner computation, that's run once
@@ -35,7 +36,7 @@ describe("S.pin", function () {
         expect(innerRuns).toBe(3);
 
         // now dispose outer computation, which should dispose all inner children
-        outer.dispose();
+        outer()();
 
         innerRuns = 0;
         innerTrigger(null);
@@ -49,7 +50,7 @@ describe("S.pin", function () {
             outer,
             innerRuns = 0;
 
-        outer = S(function () {
+        outer = S(function (dispose) {
             // register dependency to outer trigger
             outerTrigger();
             // inner computation
@@ -67,6 +68,7 @@ describe("S.pin", function () {
                     innerRuns++;
                 });
             });
+            return dispose;
         });
 
         // at start, we have two subcomputations, that're run once each
@@ -85,7 +87,7 @@ describe("S.pin", function () {
         expect(innerRuns).toBe(6);
 
         // now dispose outer computation, which should dispose all inner children
-        outer.dispose();
+        outer()();
 
         innerRuns = 0;
         innerTrigger(null);

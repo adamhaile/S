@@ -4,16 +4,11 @@ interface Signal<T> {
 
 interface DataSignal<T> extends Signal<T> {
 	(v : T) : T;
-	toJSON : () => T;
-}
-
-interface Computation<T> extends Signal<T> {
-	dispose() : void;
-	toJSON : () => T;
 }
 
 interface S {
-	<T>(fn : () => T) : Computation<T>;
+	<T>(fn : () => T) : Signal<T>;
+	<T>(fn : (dispose : () => void) => T) : Signal<T>;
 	data<T>(v : T) : DataSignal<T>;
 	on(...signals : Signal<any>[]) : ComputationBuilder;
 	peek<T>(fn : () => T) : T;
@@ -27,13 +22,14 @@ interface S {
 	cleanup(fn : () => void) : void;
 }
 
-interface GateToken { }
-
 interface ComputationBuilder {
-	S<T>(fn : () => T) : Computation<T>
+	S<T>(fn : () => T) : Signal<T>;
+	S<T>(fn : (dispose : () => void) => T) : Signal<T>
 	gate(gate : Gate) : ComputationBuilder;
 	pin() : ComputationBuilder;
 }
+
+interface GateToken { }
 
 interface Gate {
 	(t : GateToken) : boolean;

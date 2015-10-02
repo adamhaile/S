@@ -4,7 +4,7 @@
     // "Globals" used to keep track of current system state
     var Time = 1, Frozen = false, Changes = [], ChangeCount = 0, Updating = null;
     var S = function S(fn) {
-        var options = (this instanceof ComputationBuilder ? this : null), parent = Updating, frozen = Frozen, gate = (options && options._gate) || (parent && parent.gate) || null, node = new ComputationNode(fn, gate), computation;
+        var options = (this instanceof ComputationBuilder ? this : null), parent = Updating, frozen = Frozen, gate = (options && options._gate) || (parent && parent.gate) || null, node = new ComputationNode(fn, gate, dispose);
         Updating = node;
         if (options && options._sources) {
             initSources(options._sources, parent);
@@ -18,13 +18,13 @@
         }
         Updating = node;
         if (frozen) {
-            node.value = fn();
+            node.value = fn(dispose);
             Updating = parent;
         }
         else {
-            node.value = initComputation(fn, parent);
+            node.value = initComputation(fn, parent, dispose);
         }
-        computation = function computation() {
+        return function computation() {
             if (!node)
                 return;
             if (Updating && Updating.listening) {
@@ -38,9 +38,6 @@
                 return;
             return node.value;
         };
-        computation.dispose = dispose;
-        computation.toJSON = signalToJSON;
-        return computation;
         function dispose() {
             if (!node)
                 return;
@@ -82,12 +79,12 @@
             Updating = parent;
         }
     }
-    function initComputation(fn, parent) {
+    function initComputation(fn, parent, dispose) {
         var result;
         Time++;
         Frozen = true;
         try {
-            result = fn();
+            result = fn(dispose);
             if (ChangeCount !== 0)
                 run(null);
         }
@@ -99,8 +96,8 @@
         return result;
     }
     S.data = function data(value) {
-        var node = new DataNode(value), data;
-        data = function data(value) {
+        var node = new DataNode(value);
+        return function data(value) {
             if (arguments.length > 0) {
                 if (Frozen) {
                     if (node.age === Time) {
@@ -130,12 +127,7 @@
                 return node.value;
             }
         };
-        data.toJSON = signalToJSON;
-        return data;
     };
-    function signalToJSON() {
-        return this();
-    }
     /// Options
     var ComputationBuilder = (function () {
         function ComputationBuilder() {
@@ -377,7 +369,7 @@
         }
         node.cleanups = [];
         Updating = node;
-        node.value = node.fn();
+        node.value = node.fn(node.dispose);
         if (emitter) {
             // this is the content of notify(emitter), inserted to shorten call stack for ergonomics
             i = -1, len = emitter.edges.length;
@@ -435,7 +427,7 @@
         return DataNode;
     })();
     var ComputationNode = (function () {
-        function ComputationNode(fn, gate) {
+        function ComputationNode(fn, gate, dispose) {
             this.emitter = null;
             this.receiver = null;
             this.listening = true;
@@ -444,6 +436,7 @@
             this.finalizers = [];
             this.fn = fn;
             this.gate = gate;
+            this.dispose = dispose;
         }
         return ComputationNode;
     })();

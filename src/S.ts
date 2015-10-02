@@ -13,13 +13,12 @@ declare var define : (deps: string[], fn: () => S) => void;
         ChangeCount = 0,
         Updating    = null as ComputationNode;
     
-    var S = <S>function S<T>(fn : () => T) : Computation<T> {
+    var S = <S>function S<T>(fn : (dispose? : () => void) => T) : Signal<T> {
         var options     = (this instanceof ComputationBuilder ? this : null) as ComputationBuilder,
             parent      = Updating,
             frozen      = Frozen,
             gate        = (options && options._gate) || (parent && parent.gate) || null,
-            node        = new ComputationNode(fn, gate),
-            computation : Computation<T>;
+            node        = new ComputationNode(fn, gate, dispose);
 
         Updating = node;
 
@@ -36,14 +35,14 @@ declare var define : (deps: string[], fn: () => S) => void;
         Updating = node;
         
         if (frozen) {
-            node.value = fn();
+            node.value = fn(dispose);
             
             Updating = parent;
         } else {
-            node.value = initComputation(fn, parent);
+            node.value = initComputation(fn, parent, dispose);
         }
 
-        computation = <Computation<T>>function computation() {
+        return function computation() {
             if (!node) return;
             if (Updating && Updating.listening) {
                 if (!node.emitter) node.emitter = new Emitter(node);
@@ -53,12 +52,7 @@ declare var define : (deps: string[], fn: () => S) => void;
             if (!node) return;
             return node.value;
         }
-
-        computation.dispose = dispose;
-        computation.toJSON = signalToJSON;
-
-        return computation;
-
+        
         function dispose() {
             if (!node) return;
             
@@ -73,7 +67,7 @@ declare var define : (deps: string[], fn: () => S) => void;
             if (Updating === node) Updating = null;
             
             node = null;
-
+    
             if (receiver) {
                 i = -1, len = receiver.edges.length;
                 while (++i < len) {
@@ -88,12 +82,12 @@ declare var define : (deps: string[], fn: () => S) => void;
                     if (edge) deactivate(edge);
                 }
             }
-
+    
             i = -1, len = cleanups.length;
             while (++i < len) {
                 cleanups[i]();
             }
-
+    
             i = -1, len = finalizers.length;
             while (++i < len) {
                 finalizers[i]();
@@ -112,14 +106,14 @@ declare var define : (deps: string[], fn: () => S) => void;
         }
     }
 
-    function initComputation<T>(fn : () => T, parent : ComputationNode) {
+    function initComputation<T>(fn : (dispose? : () => void) => T, parent : ComputationNode, dispose : () => void) {
         var result;
         
         Time++;
         Frozen = true;
             
         try {
-            result = fn();
+            result = fn(dispose);
     
             if (ChangeCount !== 0) run(null);
         } finally {
@@ -130,12 +124,11 @@ declare var define : (deps: string[], fn: () => S) => void;
         
         return result;
     }
-
+        
     S.data = function data<T>(value : T) : DataSignal<T> {
-        var node = new DataNode(value),
-            data : DataSignal<T>;
+        var node = new DataNode(value);
 
-        data = <DataSignal<T>>function data(value : T) {
+        return function data(value? : T) {
             if (arguments.length > 0) {
                 if (Frozen) {
                     if (node.age === Time) { // value has already been set once, check for conflicts
@@ -160,15 +153,7 @@ declare var define : (deps: string[], fn: () => S) => void;
                 return node.value;
             }
         }
-        
-        data.toJSON = signalToJSON;
-
-        return data;
     };
-
-    function signalToJSON() {
-        return this();
-    }
 
     /// Options
     class ComputationBuilder {
@@ -475,7 +460,7 @@ declare var define : (deps: string[], fn: () => S) => void;
         
         Updating = node;
 
-        node.value = node.fn();
+        node.value = node.fn(node.dispose);
 
         if (emitter) {
             // this is the content of notify(emitter), inserted to shorten call stack for ergonomics
@@ -549,9 +534,10 @@ declare var define : (deps: string[], fn: () => S) => void;
     }
     
     class ComputationNode {
-        fn         : () => any;
+        fn         : (dispose? : () => void) => any;
         value      : any;
         gate       : Gate;
+        dispose    : () => void;
         
         emitter    = null as Emitter;
         receiver   = null as Receiver;
@@ -562,9 +548,10 @@ declare var define : (deps: string[], fn: () => S) => void;
         cleanups   = [] as (() => void)[];
         finalizers = [] as (() => void)[];
         
-        constructor(fn : () => any, gate : Gate)  {
+        constructor(fn : () => any, gate : Gate, dispose : () => void)  {
             this.fn = fn;
             this.gate = gate;
+            this.dispose = dispose;
         }
     }
     
