@@ -2,30 +2,36 @@
 (function () {
     "use strict";
     // "Globals" used to keep track of current system state
-    var Time = 1, Frozen = false, Changes = [], ChangeCount = 0, Updating = null;
+    var Time = 1, Frozen = false, Changes = [], ChangeCount = 0, Updating = null, Jailbreaking = false, Jailbroken = null;
     var S = function S(fn) {
-        var options = (this instanceof ComputationBuilder ? this : null), parent = Updating, frozen = Frozen, gate = (options && options._gate) || (parent && parent.gate) || null, node = new ComputationNode(fn, gate, dispose);
+        var options = (this instanceof ComputationBuilder ? this : null), parent = Updating, frozen = Frozen, gate = (options && options._gate) || (parent && parent.gate) || null, node = new ComputationNode(fn, gate, computation);
         Updating = node;
-        if (options && options._sources) {
-            initSources(options._sources, parent);
+        if (options && options._watch) {
+            initSources(options._watch, parent);
             node.listening = false;
         }
-        if (parent) {
-            if (parent.pinning || (options && options._pin))
-                parent.finalizers.push(dispose);
-            else
-                parent.cleanups.push(dispose);
+        if (options && options._pin !== undefined) {
+            if (options._pin !== null)
+                options._pin.pins.push(node);
+        }
+        else if (parent) {
+            parent.children.push(node);
         }
         Updating = node;
         if (frozen) {
-            node.value = fn(dispose);
+            node.value = fn(computation);
             Updating = parent;
         }
         else {
-            node.value = initComputation(fn, parent, dispose);
+            node.value = initComputation(fn, parent, computation);
         }
-        return function computation() {
-            if (!node)
+        return computation;
+        function computation() {
+            if (Jailbreaking) {
+                Jailbroken = node;
+                return;
+            }
+            if (!node.fn)
                 return;
             if (Updating && Updating.listening) {
                 if (!node.emitter)
@@ -34,39 +40,9 @@
             }
             if (node.receiver && node.receiver.marks !== 0)
                 backtrack(node.receiver);
-            if (!node)
+            if (!node.fn)
                 return;
             return node.value;
-        };
-        function dispose() {
-            if (!node)
-                return;
-            var receiver = node.receiver, emitter = node.emitter, cleanups = node.cleanups, finalizers = node.finalizers, i, len, edge;
-            if (Updating === node)
-                Updating = null;
-            node = null;
-            if (receiver) {
-                i = -1, len = receiver.edges.length;
-                while (++i < len) {
-                    deactivate(receiver.edges[i]);
-                }
-            }
-            if (emitter) {
-                i = -1, len = emitter.edges.length;
-                while (++i < len) {
-                    edge = emitter.edges[i];
-                    if (edge)
-                        deactivate(edge);
-                }
-            }
-            i = -1, len = cleanups.length;
-            while (++i < len) {
-                cleanups[i]();
-            }
-            i = -1, len = finalizers.length;
-            while (++i < len) {
-                finalizers[i]();
-            }
         }
     };
     function initSources(sources, parent) {
@@ -79,14 +55,14 @@
             Updating = parent;
         }
     }
-    function initComputation(fn, parent, dispose) {
+    function initComputation(fn, parent, self) {
         var result;
         Time++;
         Frozen = true;
         try {
-            result = fn(dispose);
+            result = fn(self);
             if (ChangeCount !== 0)
-                run(null);
+                resolve(null);
         }
         finally {
             Updating = parent;
@@ -128,87 +104,109 @@
             }
         };
     };
+    S.sum = function sum(value) {
+        var node = new DataNode(value);
+        return function sum(updater) {
+            if (arguments.length > 0) {
+                if (Frozen) {
+                    if (node.age === Time) {
+                        node.pending = updater(node.pending);
+                    }
+                    else {
+                        node.age = Time;
+                        node.pending = updater(node.value);
+                        Changes[ChangeCount++] = node;
+                    }
+                }
+                else {
+                    node.value = value;
+                    if (node.emitter)
+                        externalChange(node);
+                }
+                return value;
+            }
+            else {
+                if (Updating && Updating.listening) {
+                    if (!node.emitter)
+                        node.emitter = new Emitter(null);
+                    addEdge(node.emitter, Updating);
+                }
+                return node.value;
+            }
+        };
+    };
+    function jailbreak(signal) {
+        Jailbreaking = true;
+        try {
+            signal();
+            return Jailbroken;
+        }
+        finally {
+            Jailbreaking = false;
+        }
+    }
     /// Options
     var ComputationBuilder = (function () {
         function ComputationBuilder() {
-            this._sources = null;
-            this._pin = false;
+            this._watch = null;
+            this._pin = undefined;
             this._gate = null;
+            this.S = S;
         }
-        ComputationBuilder.prototype.pin = function () {
-            this._pin = true;
+        ComputationBuilder.prototype.pin = function (signal) {
+            this._pin = signal ? jailbreak(signal) : null;
             return this;
         };
-        ComputationBuilder.prototype.gate = function (gate) {
-            this._gate = gate;
+        ComputationBuilder.prototype.async = function (fn) {
+            this._gate = async(fn);
             return this;
         };
-        ComputationBuilder.prototype.S = function (fn) { return S(fn); }; // temp value, just to get the right signature.  overwritten by actual S.
         return ComputationBuilder;
     })();
-    ComputationBuilder.prototype.S = S;
-    S.on = function on() {
+    S.watch = function watch() {
         var signals = [];
         for (var _i = 0; _i < arguments.length; _i++) {
             signals[_i - 0] = arguments[_i];
         }
         var options = new ComputationBuilder();
-        options._sources = signals;
+        options._watch = signals;
         return options;
     };
-    S.gate = function gate(g) {
-        return new ComputationBuilder().gate(g);
+    S.pin = function pin(s) {
+        return new ComputationBuilder().pin(s);
     };
-    S.collector = function collector() {
-        var node = new DataNode(null), emitter = new Emitter(null), running = false, collector;
+    S.async = function async(fn) {
+        return new ComputationBuilder().async(fn);
+    };
+    function async(scheduler) {
+        var node = new DataNode(null), emitter = new Emitter(null), scheduled = false, running = false, tick;
         node.emitter = emitter;
-        collector = function collector(token) {
-            var node = token;
-            if (!running) {
-                addEdge(emitter, node);
+        return function gate(node) {
+            var _tick;
+            if (running)
+                return true;
+            if (scheduled) {
+                if (tick)
+                    tick();
             }
-            return running;
+            else {
+                scheduled = true;
+                addEdge(emitter, node);
+                _tick = scheduler(go);
+                if (typeof _tick === 'function')
+                    tick = _tick;
+            }
+            return false;
         };
-        collector.go = go;
-        return collector;
         function go() {
+            if (running)
+                return;
             running = true;
             externalChange(node);
             running = false;
         }
-    };
-    S.throttle = function throttle(t) {
-        var col = S.collector(), last = 0;
-        return function throttle(emitter) {
-            var now = Date.now();
-            col(emitter);
-            if ((now - last) > t) {
-                last = now;
-                col.go();
-            }
-            else {
-                setTimeout(function throttled() {
-                    last = Date.now();
-                    col.go();
-                }, t - (now - last));
-            }
-            return false;
-        };
-    };
-    S.debounce = function debounce(t) {
-        var col = S.collector(), last = 0, tout = 0;
-        return function debounce(node) {
-            var now = Date.now();
-            col(node);
-            if (now > last) {
-                last = now;
-                if (tout)
-                    clearTimeout(tout);
-                tout = setTimeout(col.go, t);
-            }
-            return false;
-        };
-    };
+    }
+    ;
     S.peek = function peek(fn) {
         if (Updating && Updating.listening) {
             Updating.listening = false;
@@ -231,6 +229,11 @@
             throw new Error("S.cleanup() must be called from within an S.computation.  Cannot call it at toplevel.");
         }
     };
+    S.dispose = function dispose(signal) {
+        var node = jailbreak(signal);
+        if (node)
+            node.dispose();
+    };
     S.freeze = function freeze(fn) {
         var result;
         if (Frozen) {
@@ -250,27 +253,9 @@
         }
         return result;
     };
-    // how to type this?
-    S.pin = function pin(fn) {
-        if (arguments.length === 0) {
-            return new ComputationBuilder().pin();
-        }
-        else if (!Updating || Updating.pinning) {
-            return fn();
-        }
-        else {
-            Updating.pinning = true;
-            try {
-                return fn();
-            }
-            finally {
-                Updating.pinning = false;
-            }
-        }
-    };
     function externalChange(change) {
         try {
-            run(change);
+            resolve(change);
         }
         finally {
             Frozen = false;
@@ -279,7 +264,7 @@
         }
     }
     var _changes = [];
-    function run(change) {
+    function resolve(change) {
         var count = 0, changes, i, len;
         Frozen = true;
         if (change) {
@@ -363,13 +348,13 @@
     /// update the given node by re-executing any payload, updating inbound links, then updating all downstream nodes
     function update(node) {
         var emitter = node.emitter, receiver = node.receiver, i, len, edge, to;
-        i = -1, len = node.cleanups.length;
+        i = -1, len = node.children.length;
         while (++i < len) {
-            node.cleanups[i]();
+            node.children[i].dispose();
         }
-        node.cleanups = [];
+        node.children = [];
         Updating = node;
-        node.value = node.fn(node.dispose);
+        node.value = node.fn(node.self);
         if (emitter) {
             // this is the content of notify(emitter), inserted to shorten call stack for ergonomics
             i = -1, len = emitter.edges.length;
@@ -420,35 +405,66 @@
     /// Graph classes and operations
     var DataNode = (function () {
         function DataNode(value) {
+            this.value = value;
             this.age = 0; // Data nodes start at a time prior to the present, or else they can't be set in the current frame
             this.emitter = null;
-            this.value = value;
         }
         return DataNode;
     })();
     var ComputationNode = (function () {
-        function ComputationNode(fn, gate, dispose) {
+        function ComputationNode(fn, gate, self) {
+            this.fn = fn;
+            this.gate = gate;
+            this.self = self;
             this.emitter = null;
             this.receiver = null;
             this.listening = true;
             this.pinning = false;
+            this.children = [];
+            this.pins = [];
             this.cleanups = [];
-            this.finalizers = [];
-            this.fn = fn;
-            this.gate = gate;
-            this.dispose = dispose;
         }
+        ComputationNode.prototype.dispose = function () {
+            if (!this.fn)
+                return;
+            var i, len, edge;
+            if (Updating === this)
+                Updating = null;
+            this.fn = null;
+            if (this.receiver) {
+                i = -1, len = this.receiver.edges.length;
+                while (++i < len) {
+                    deactivate(this.receiver.edges[i]);
+                }
+            }
+            if (this.emitter) {
+                i = -1, len = this.emitter.edges.length;
+                while (++i < len) {
+                    edge = this.emitter.edges[i];
+                    if (edge)
+                        deactivate(edge);
+                }
+            }
+            i = -1, len = this.children.length;
+            while (++i < len) {
+                this.children[i].dispose();
+            }
+            i = -1, len = this.pins.length;
+            while (++i < len) {
+                this.pins[i].dispose();
+            }
+        };
         return ComputationNode;
     })();
     var Emitter = (function () {
         function Emitter(node) {
+            this.node = node;
             this.id = Emitter.count++;
             this.emitting = false;
             this.edges = [];
             this.index = [];
             this.active = 0;
             this.edgesAge = 0;
-            this.node = node;
         }
         Emitter.prototype.compact = function () {
             var i = -1, len = this.edges.length, edges = [], compaction = ++this.edgesAge, edge;
@@ -478,13 +494,13 @@
     }
     var Receiver = (function () {
         function Receiver(node) {
+            this.node = node;
             this.id = Emitter.count++;
             this.marks = 0;
             this.age = Time;
             this.edges = [];
             this.index = [];
             this.active = 0;
-            this.node = node;
         }
         Receiver.prototype.compact = function () {
             var i = -1, len = this.edges.length, edges = [], index = [], edge;
@@ -503,12 +519,12 @@
     })();
     var Edge = (function () {
         function Edge(from, to, boundary) {
-            this.age = Time;
-            this.active = true;
-            this.marked = false;
             this.from = from;
             this.to = to;
             this.boundary = boundary;
+            this.age = Time;
+            this.active = true;
+            this.marked = false;
             this.slot = from.edges.length;
             this.slotAge = from.edgesAge;
             from.edges.push(this);

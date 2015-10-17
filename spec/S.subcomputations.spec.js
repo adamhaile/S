@@ -16,17 +16,16 @@ describe("S() with subcomputations", function () {
     });
 
     describe("with child", function () {
-        var d, e, fspy, f, gspy, g, h, dispose;
+        var d, e, fspy, f, gspy, g, h;
 
         beforeEach(function () {
             d = S.data(1);
             e = S.data(2);
             fspy = jasmine.createSpy("fspy");
             gspy = jasmine.createSpy("gspy");
-            f = S(function (disp) {
+            f = S(function () {
                 fspy();
                 d();
-                dispose = disp;
                 g = S(function () {
                     gspy();
                     return e();
@@ -54,18 +53,18 @@ describe("S() with subcomputations", function () {
         });
 
         it("disposes child when it is disposed", function () {
-            dispose();
+            S.dispose(f);
             expect(g()).not.toBeDefined();
         });
     });
 
     describe("with child and gate", function () {
-        var d, f, g, c;
+        var d, f, g, go;
 
         beforeEach(function () {
             d = S.data(1);
-            c = S.collector();
-            f = S.gate(c).S(function () {
+            go = null;
+            f = S.async(function (g) { go = g; }).S(function () {
                 g = S(function () {
                     return d();
                 });
@@ -75,7 +74,7 @@ describe("S() with subcomputations", function () {
         it("applies gate to child", function () {
             d(2);
             expect(g()).toBe(1);
-            c.go();
+            go();
             expect(g()).toBe(2);
         });
     });

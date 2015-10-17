@@ -158,15 +158,15 @@ describe("S()", function () {
         });
     });
 
-    describe("propagation", function () {
-        var d, fcount, f, watchercount, watcher;
+    describe("with a dependency on a computation", function () {
+        var d, fcount, f, gcount, g;
 
         beforeEach(function () {
             d = S.data(1),
             fcount = 0,
             f = S(function () { fcount++; return d(); }),
-            watchercount = 0,
-            watcher = S(function () { watchercount++; return f(); });
+            gcount = 0,
+            g = S(function () { gcount++; return f(); });
         });
 
         it("does not cause re-evaluation", function () {
@@ -175,19 +175,19 @@ describe("S()", function () {
 
         it("does not occur from a read", function () {
             f();
-            expect(watchercount).toBe(1);
+            expect(gcount).toBe(1);
         });
 
         it("does not occur from a read of the watcher", function () {
-            watcher();
-            expect(watchercount).toBe(1);
+            g();
+            expect(gcount).toBe(1);
         });
 
         it("occurs when computation updates", function () {
-            d(1);
+            d(2);
             expect(fcount).toBe(2);
-            expect(watchercount).toBe(2);
-            expect(watcher()).toBe(1);
+            expect(gcount).toBe(2);
+            expect(g()).toBe(2);
         });
     });
 
@@ -221,9 +221,29 @@ describe("S()", function () {
     });
 
     describe("with converging dependencies", function () {
-        var d, f1, f2, f3, f4, f5, gcount, g;
+        it("propagates in topological order", function () {
+            //
+            //     c1
+            //    /  \
+            //   /    \
+            //  b1     b2
+            //   \    /
+            //    \  /
+            //     a1 
+            //
+            var seq = "",
+                a1 = S.data(true),
+                b1 = S.watch(a1)    .S(function () { seq += "b1"; }),
+                b2 = S.watch(a1)    .S(function () { seq += "b2"; }),
+                c1 = S.watch(b1, b2).S(function () { seq += "c1"; });
+    
+            seq = "";
+            a1(true);
+    
+            expect(seq).toBe("b1b2c1");
+        });
 
-        beforeEach(function () {
+        it("only propagates once with linear convergences", function () {
             //         d
             //         |
             // +---+---+---+---+
@@ -233,29 +253,21 @@ describe("S()", function () {
             // +---+---+---+---+
             //         v
             //         g
-            d = S.data(0);
+            var d = S.data(0),
+                f1 = S(function () { return d(); }),
+                f2 = S(function () { return d(); }),
+                f3 = S(function () { return d(); }),
+                f4 = S(function () { return d(); }),
+                f5 = S(function () { return d(); }),
+                gcount = 0,
+                g = S(function () { gcount++; return f1() + f2() + f3() + f4() + f5(); });
 
-            f1 = S(function () { return d(); });
-            f2 = S(function () { return d(); });
-            f3 = S(function () { return d(); });
-            f4 = S(function () { return d(); });
-            f5 = S(function () { return d(); });
-
-            gcount = 0;
-            g = S(function () { gcount++; return f1() + f2() + f3() + f4() + f5(); });
-        });
-
-        it("only propagates once", function () {
             gcount = 0;
             d(0);
             expect(gcount).toBe(1);
         });
-    });
 
-    describe("with complex converging dependencies", function () {
-        var d, f1, f2, f3, g1, g2, g3, hcount, h;
-
-        beforeEach(function () {
+        it("only propagates once with exponential convergence", function () {
             //     d
             //     |
             // +---+---+
@@ -269,21 +281,19 @@ describe("S()", function () {
             // +---+---+
             //     v
             //     h
-            d = S.data(0);
+            var d = S.data(0),
 
-            f1 = S(function () { return d(); });
-            f2 = S(function () { return d(); });
-            f3 = S(function () { return d(); });
+                f1 = S(function () { return d(); }),
+                f2 = S(function () { return d(); }),
+                f3 = S(function () { return d(); }),
+    
+                g1 = S(function () { return f1() + f2() + f3(); }),
+                g2 = S(function () { return f1() + f2() + f3(); }),
+                g3 = S(function () { return f1() + f2() + f3(); }),
+    
+                hcount = 0,
+                h  = S(function () { hcount++; return g1() + g2() + g3(); });
 
-            g1 = S(function () { return f1() + f2() + f3(); });
-            g2 = S(function () { return f1() + f2() + f3(); });
-            g3 = S(function () { return f1() + f2() + f3(); });
-
-            hcount = 0;
-            h  = S(function () { hcount++; return g1() + g2() + g3(); });
-        });
-
-        it("only propagates once", function () {
             hcount = 0;
             d(0);
             expect(hcount).toBe(1);

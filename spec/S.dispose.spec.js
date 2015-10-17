@@ -2,8 +2,7 @@ describe("S.dispose()", function () {
     it("disables updates and sets computation's value to undefined", function () {
         var c = 0,
 			d = S.data(0),
-			dispose,
-            f = S(function (disp) { c++; dispose = disp; return d(); });
+            f = S(function () { c++; return d(); });
 
 		expect(c).toBe(1);
 		expect(f()).toBe(0);
@@ -13,7 +12,7 @@ describe("S.dispose()", function () {
 		expect(c).toBe(2);
 		expect(f()).toBe(1);
 
-		dispose();
+		S.dispose(f);
 
 		d(2);
 
@@ -27,7 +26,7 @@ describe("S.dispose()", function () {
 		var c = 0,
 			d = S.data(0);
 			
-		S(function (dispose) { c++; if (d()) dispose(); d(); });
+		S(function (f) { c++; if (d()) S.dispose(f); d(); });
 
 		expect(c).toBe(1);
 
@@ -44,11 +43,11 @@ describe("S.dispose()", function () {
 		var c = 0,
 			d = S.data(0);
 			
-		S(function (dispose) {
+		S(function (f) {
 			c++;
 			d();
 			S(function () {
-				if (d()) dispose(); d();
+				if (d()) S.dispose(f); d();
 			});
 		});
 
@@ -66,8 +65,8 @@ describe("S.dispose()", function () {
 	it("works from a cleanup", function () {
 		var d = S.data(false);
 		
-		S.on(d).S(function (dispose) {
-			S.cleanup(function () { dispose(); });
+		S.watch(d).S(function (f) {
+			S.cleanup(function () { S.dispose(f); });
 		});
 
 		expect(function () { d(true); }).not.toThrow();

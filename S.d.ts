@@ -1,42 +1,35 @@
-interface Signal<T> {
-	() : T;
-}
-
-interface DataSignal<T> extends Signal<T> {
-	(v : T) : T;
-}
 
 interface S {
-	<T>(fn : () => T) : Signal<T>;
-	<T>(fn : (dispose : () => void) => T) : Signal<T>;
-	data<T>(v : T) : DataSignal<T>;
-	on(...signals : Signal<any>[]) : ComputationBuilder;
+	// Computation constructor
+	<T>(fn : () => T) : () => T;
+	<T>(fn : (self : () => T) => T) : () => T;
+
+	// Data signal constructor
+	data<T>(value : T) : (newvalue? : T) => T;
+	sum<T>(value : T) : (updater? : (value: T) => T) => T;
+
+	// Controlling dependencies
+	watch(...signals : (() => void)[]) : ComputationBuilder;
 	peek<T>(fn : () => T) : T;
+
+	// Controlling propagation granularity
 	freeze<T>(fn : () => T) : T;
-	gate(gate : Gate) : ComputationBuilder;
-	collector() : Collector;
-	debounce(msecs : number) : Gate;
-	throttle(msecs : number) : Gate;
-	pin() : ComputationBuilder;
-	pin<T>(fn : () => T) : T;
+
+	// Computation lifespan
+	pin(signal : () => void) : ComputationBuilder;
+	dispose(signal : () => void) : void;
+
+	// Scheduling
+	async(fn : (go : () => void) => void | (() => void)) : ComputationBuilder;
+
+	// Resource cleanup
 	cleanup(fn : () => void) : void;
 }
 
 interface ComputationBuilder {
-	S<T>(fn : () => T) : Signal<T>;
-	S<T>(fn : (dispose : () => void) => T) : Signal<T>
-	gate(gate : Gate) : ComputationBuilder;
-	pin() : ComputationBuilder;
-}
-
-interface GateToken { }
-
-interface Gate {
-	(t : GateToken) : boolean;
-}
-
-interface Collector extends Gate {
-	go() : void;
+	S<T>(fn : (self? : () => T) => T) : () => T
+	async(fn : (go : () => void) => () => void) : ComputationBuilder;
+	pin(signal : () => void) : ComputationBuilder;
 }
 
 declare var S : S;
