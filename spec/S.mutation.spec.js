@@ -3,7 +3,7 @@ describe("Computations which modify data", function () {
         var a = S.data(false),
             b = S.data(0),
             cb,
-            c = S.watch(a).S(function () { b(b() + 1); cb = b(); });
+            c = S(function () { if (a()) { b(1); cb = b(); a(false); } });
         
         b(0);
         a(true);
@@ -17,8 +17,8 @@ describe("Computations which modify data", function () {
             a = S.data(false),
             b = S.data(0),
             db,
-            c = S.watch(a).S(function () { seq += "c"; b(b() + 1); }),
-            d = S.watch(a).S(function () { seq += "d"; db = b(); });
+            c = S(function () { if (a()) { seq += "c"; b(1); a(false); } }),
+            d = S(function () { if (a()) { seq += "d"; db = b(); } });
         
         b(0);
         seq = "";
@@ -53,11 +53,11 @@ describe("Computations which modify data", function () {
         var seq = "",
             a1 = S.data(0),
             c1 = S.data(0),
-            b1 = S.watch(a1).S(function () { }),
-            b2 = S.watch(a1).S(function () { c1(a1()); }),
-            b3 = S.watch(a1).S(function () { }),
-            d1 = S.watch(b1, c1).S(function () { seq += "c4(" + c1() + ")"; }),
-            d2 = S.watch(b3, c1).S(function () { seq += "c5(" + c1() + ")"; });
+            b1 = S(function () { a1(); }),
+            b2 = S(function () { c1(a1()); }),
+            b3 = S(function () { a1(); }),
+            d1 = S(function () { b1(); seq += "c4(" + c1() + ")"; }),
+            d2 = S(function () { b3(); seq += "c5(" + c1() + ")"; });
 
         seq = "";
         a1(1);

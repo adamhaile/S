@@ -13,7 +13,7 @@ There are only two core steps to using S:
 1. Wrap the data that will be changing in S **data signals**: `S.data(&lt;value&gt;)`
 2. Wrap the things you want to keep up-to-date in S **computations**: `S(() => &lt; ... code ... &gt;)`
 
-Both constructors return a function, and you can read the current value by calling it &ndash; `signal()`.  For data signals, you can also set them by passing in a new value &ndash; `signal(&lt;new value&gt;)`.
+Both constructors return a function, and you can read the current value by calling it &ndash; `signal()`.  For data signals, you can also set the value by passing in a new one &ndash; `signal(&lt;new value&gt;)`.
 
 ## How does S work?
 S implements data signals and computations as **lightweight closures**, aka small first-class functions carrying a piece of state.  As your program runs, these closures communicate with each other to build up a **live dependency graph** of your program.  Then, when a data signal changes, S **traverses the graph** to determine which computations need to be updated and in what order.  This way, S keeps your program up-to-date automatically, without any need to register for change events or call update functions.

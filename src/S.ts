@@ -7,83 +7,69 @@ declare var define : (deps: string[], fn: () => S) => void;
     "use strict";
     
     // "Globals" used to keep track of current system state
-    var Time         = 1,
-        Frozen       = false,
-        Changes      = [] as DataNode<any>[],
-        ChangeCount  = 0,
-        Updating     = null as ComputationNode<any>,
-        Jailbreaking = false,
-        Jailbroken   = null as ComputationNode<any>;
+    var Time      = 1,
+        Batching  = 0,
+        Batch     = [] as DataNode<any>[],
+        Updating  = null as ComputationNode<any>,
+        Disposing = false,
+        Disposes  = [] as ComputationNode<any>[];
     
-    var S = <S>function S<T>(fn : (self? : () => T) => T) : () => T {
-        var options     = (this instanceof ComputationBuilder ? this : null) as ComputationBuilder,
-            parent      = Updating,
-            frozen      = Frozen,
-            gate        = (options && options._gate) || (parent && parent.gate) || null,
-            node        = new ComputationNode(fn, gate, computation);
+    var S = <S>function S<T>(fn : () => T) : () => T {
+        var options = (this instanceof Builder ? this.options : null) as Options,
+            parent  = Updating,
+            gate    = (options && options.gate) || (parent && parent.gate) || null,
+            node    = new ComputationNode<T>(fn, gate);
 
+        if (parent && (!options || !options.toplevel)) {
+            (parent.children || (parent.children = [])).push(node);
+        }
+            
         Updating = node;
-
-        if (options && options._watch) {
-            initSources(options._watch, parent);
-            node.listening = false;
-        }
-
-        if (options && options._pin !== undefined) {
-            if (options._pin !== null) options._pin.pins.push(node);
-        } else if (parent) {
-            parent.children.push(node);
-        }
-        
-        Updating = node;
-        
-        if (frozen) {
-            node.value = fn(computation);
-            Updating = parent;
-        } else {
-            node.value = initComputation(fn, parent, computation);
-        }
-
-        return computation;
-        
-        function computation() {
-            if (Jailbreaking) { Jailbroken = node; return; }
-            if (!node.fn) return;
-            if (Updating && Updating.listening) {
-                if (!node.emitter) node.emitter = new Emitter(node);
-                addEdge(node.emitter, Updating);
+        if (Batching) {
+            if (options && options.static) {
+                options.static();
+                node.static = true;
             }
-            if (node.receiver && node.receiver.marks !== 0) backtrack(node.receiver);
-            if (!node.fn) return;
+            node.value = fn();
+        } else {
+            node.value = initialExecution(node, fn, options && options.static);
+        }
+        Updating = parent;
+
+        return function computation() {
+            if (Disposing) {
+                if (Batching) Disposes.push(node);
+                else node.dispose();
+            } else if (Updating && node.fn) {
+                if (node.receiver && node.receiver.marks !== 0 && node.receiver.age === Time) {
+                    backtrack(node.receiver);
+                }
+                if (!Updating.static) {
+                    if (!node.emitter) node.emitter = new Emitter(node);
+                    addEdge(node.emitter, Updating);
+                }
+            }
             return node.value;
         }
     }
-
-    function initSources(sources : (() => void)[], parent : ComputationNode<any>) {      
-        var i   = -1, 
-            len = sources.length;
-        try {
-            while (++i < len)
-                sources[i]();
-        } finally {
-            Updating = parent;
-        }
-    }
-
-    function initComputation<T>(fn : (self? : () => T) => T, parent : ComputationNode<any>, self : () => T) {
-        var result;
+    
+    function initialExecution<T>(node : ComputationNode<T>, fn : () => T, on : () => any) {
+        var result : T;
         
         Time++;
-        Frozen = true;
+        Batching = 1;
             
         try {
-            result = fn(self);
+            if (on) {
+                on();
+                node.static = true;
+            }
+            result = fn();
     
-            if (ChangeCount !== 0) resolve(null);
+            if (Batching > 1) resolve(null);
         } finally {
-            Updating    = parent;
-            Frozen      = false;
-            ChangeCount = 0;
+            Updating = null;
+            Batching = 0;
         }
         
         return result;
@@ -94,7 +80,7 @@ declare var define : (deps: string[], fn: () => S) => void;
 
         return function data(value? : T) {
             if (arguments.length > 0) {
-                if (Frozen) {
+                if (Batching) {
                     if (node.age === Time) { // value has already been set once, check for conflicts
                         if (value !== node.pending) {
                             throw new Error("conflicting changes: " + value + " !== " + node.pending);
@@ -102,192 +88,167 @@ declare var define : (deps: string[], fn: () => S) => void;
                     } else { // add to list of changes
                         node.age = Time; 
                         node.pending = value;
-                        Changes[ChangeCount++] = node;
+                        Batch[Batching++] = node;
                     }
-                } else { // not frozen, respond to change now
+                } else { // not batching, respond to change now
+                    node.age = Time; 
                     node.value = value;
-                    if (node.emitter) externalChange(node);
+                    if (node.emitter) handleEvent(node);
                 }
                 return value;
             } else {
-                if (Updating && Updating.listening) {
+                if (Updating && !Updating.static) {
                     if (!node.emitter) node.emitter = new Emitter(null);
                     addEdge(node.emitter, Updating);
                 }
-                return node.value as T;
-            }
-        }
-    };
-
-    S.sum = function sum<T>(value : T) : (updater? : (value : T) => T) => T {
-        var node = new DataNode(value);
-
-        return function sum(updater? : (value : T) => T) {
-            if (arguments.length > 0) {
-                if (Frozen) {
-                    if (node.age === Time) { // value has already been updated once, pull from pending
-                        node.pending = updater(node.pending);
-                    } else { // add to list of changes
-                        node.age = Time; 
-                        node.pending = updater(node.value);
-                        Changes[ChangeCount++] = node;
-                    }
-                } else { // not frozen, respond to change now
-                    node.value = value;
-                    if (node.emitter) externalChange(node);
-                }
-                return value;
-            } else {
-                if (Updating && Updating.listening) {
-                    if (!node.emitter) node.emitter = new Emitter(null);
-                    addEdge(node.emitter, Updating);
-                }
-                return node.value as T;
+                return node.value;
             }
         }
     };
     
-    function jailbreak(signal : () => void) : ComputationNode<any> {
-        Jailbreaking = true;
-        try {
-            signal();
-            return Jailbroken;
-        } finally {
-            Jailbreaking = false;
-        }
-    }
-
     /// Options
-    class ComputationBuilder {
-        _watch = null as (() => void)[];
-        _pin     = undefined as ComputationNode<any>;
-        _gate    = null as (node : ComputationNode<any>) => boolean;
-
-        pin(signal : () => void) { 
-            this._pin  = signal ? jailbreak(signal) : null;
-            return this; 
-        }
-        
+    class Options {
+        toplevel = false;
+        gate     = null as (node : ComputationNode<any>) => boolean;
+        static   = null as () => any;
+    }
+    
+    class Builder {
+        constructor(public options : Options) {}
+        S(fn) { return S.call(this, fn); };
+    }
+    
+    class AsyncOption extends Builder {
         async(fn : (go : () => void) => void | (() => void)) { 
-            this._gate = async(fn); 
-            return this; 
+            this.options.gate = gate(fn); 
+            return new Builder(this.options); 
         }
-        
-        S = S;
+    }
+    
+    class OnOption extends AsyncOption {
+        on(/* ...fns */) {
+            var args;
+            
+            if (arguments.length === 0) {
+                this.options.static = noop;
+            } else if (arguments.length === 1) {
+                this.options.static = arguments[0];
+            } else {
+                args = Array.prototype.slice.call(arguments);
+                this.options.static = callAll;
+            }
+            
+            return new AsyncOption(this.options);
+            
+            function callAll() { for (var i = 0; i < args.length; i++) args[i](); }
+            function noop() {}
+        }
     }
 
-    S.watch = function watch(...signals) {
-        var options = new ComputationBuilder();
-        options._watch = signals;
-        return options;
-    };
-
-    S.pin = function pin(s) { 
-        return new ComputationBuilder().pin(s); 
-    };
+    S.toplevel = function toplevel() {
+        var options = new Options();
+        options.toplevel = true;
+        return new OnOption(options);
+    }
+    
+    S.on = function on(/* args */) {
+        return OnOption.prototype.on.apply(new OnOption(new Options()), arguments);
+    }
     
     S.async = function async(fn) { 
-        return new ComputationBuilder().async(fn); 
+        return new AsyncOption(new Options()).async(fn); 
     };
 
-    function async(scheduler : (go : () => void) => void | (() => void)) {
-        var node      = new DataNode(null),
-            emitter   = new Emitter(null),
+    function gate(scheduler : (go : () => void) => void | (() => void)) {
+        var root      = new DataNode(null),
             scheduled = false,
-            running   = false,
-            tick      : () => void;
+            gotime    = 0,
+            tick      : any;
 
-        node.emitter = emitter;
+        root.emitter = new Emitter(null);
 
         return function gate(node : ComputationNode<any>) : boolean {
-            var _tick;
-            if (running) return true;
-            if (scheduled) {
-                if (tick) tick();
-            } else {
+            if (gotime === Time) return true;
+            if (typeof tick === 'function') tick();
+            else if (!scheduled) {
                 scheduled = true;
-                addEdge(emitter, node);
-                _tick = scheduler(go);
-                if (typeof _tick === 'function') tick = _tick;
+                tick = scheduler(go);
             }
+            addEdge(root.emitter, node);
             return false;
         }
         
         function go() {
-            if (running) return;
-            running = true;
-            externalChange(node);
-            running = false;
-        }
-    };
-        
-    S.peek = function peek<T>(fn : () => T) : T {
-        if (Updating && Updating.listening) {
-            Updating.listening = false;
-
-            try {
-                return fn();
-            } finally {
-                Updating.listening = true;
+            if (gotime === Time) return;
+            scheduled = false;
+            gotime = Time + 1;
+            if (Batching) {
+                Batch[Batching++] = root;
+            } else {
+                handleEvent(root);
             }
-        } else {
-            return fn();
         }
     };
 
-    S.cleanup = function cleanup(fn : () => void) : void {
-        if (Updating) {
-            Updating.cleanups.push(fn);
-        } else {
-            throw new Error("S.cleanup() must be called from within an S.computation.  Cannot call it at toplevel.");
-        }
-    };
-
-    S.dispose = function dispose(signal : () => {}) {
-        var node = jailbreak(signal);
-        if (node) node.dispose();
-    }
-
-    S.freeze = function freeze<T>(fn : () => T) : T {
+    S.event = function event<T>(fn : () => T) : T {
         var result : T;
         
-        if (Frozen) {
+        if (Batching) {
             result = fn();
         } else {
-            Time++;
-            Frozen = true;
+            Batching = 1;
 
             try {
                 result = fn();
+                handleEvent(null);
             } finally {
-                Frozen = false;
+                Batching = 0;
             }
-            
-            if (ChangeCount > 0) externalChange(null);
         }
             
         return result;
     };
-        
-    function externalChange(change : DataNode<any>) {
+
+    S.dispose = function dispose(signal : () => {}) {
+        if (Disposing) {
+            signal();
+        } else {
+            Disposing = true;
+            try {
+                signal();
+            } finally {
+                Disposing = false;
+            }
+        }
+    }
+    
+    S.cleanup = function cleanup(fn : () => void) : void {
+        if (Updating) {
+            (Updating.cleanups || (Updating.cleanups = [])).push(fn);
+        } else {
+            throw new Error("S.cleanup() must be called from within an S() computation.  Cannot call it at toplevel.");
+        }
+    };
+    
+    function handleEvent(change : DataNode<any>) {
         try {
             resolve(change);
         } finally {
-            Frozen      = false;
-            ChangeCount = 0;
-            Updating    = null;
+            Batching  = 0;
+            Updating  = null;
+            Disposing = false;
         }
     }
         
-    var _changes = [] as DataNode<any>[];
+    var _batch = [] as DataNode<any>[];
         
     function resolve(change : DataNode<any>) {
-        var count   = 0, 
-            changes : DataNode<any>[], 
-            i       : number, 
-            len     : number;
+        var count = 0, 
+            batch : DataNode<any>[], 
+            i     : number, 
+            len   : number;
             
-        Frozen = true;
+        if (!Batching) Batching = 1;
             
         if (change) {
             Time++;
@@ -295,30 +256,42 @@ declare var define : (deps: string[], fn: () => S) => void;
             prepare(change.emitter);
             
             notify(change.emitter);
+            
+            i = -1, len = Disposes.length;
+            if (len) {
+                while (++i < len) Disposes[i].dispose();
+                Disposes = [];
+            }
         }
         
         // for each frame ...
-        while (ChangeCount !== 0) {
+        while (Batching !== 1) {
             // prepare next frame
             Time++;
-            changes = Changes, Changes = _changes, _changes = changes;
-            len = ChangeCount, ChangeCount = 0;
+            batch = Batch, Batch = _batch, _batch = batch;
+            len = Batching, Batching = 1;
             
             // ... set nodes' values, clear pending data, and mark them
-            i = -1;
+            i = 0;
             while (++i < len) {
-                change = changes[i];
+                change = batch[i];
                 change.value = change.pending;
                 change.pending = undefined;
                 if (change.emitter) prepare(change.emitter);
             }
             
             // run all updates in frame
-            i = -1;
+            i = 0;
             while (++i < len) {
-                change = changes[i];
+                change = batch[i];
                 if (change.emitter) notify(change.emitter);
-                changes[i] = null;
+                batch[i] = null;
+            }
+            
+            i = -1, len = Disposes.length;
+            if (len) {
+                while (++i < len) Disposes[i].dispose();
+                Disposes = [];
             }
             
             if (count++ > 1e5) {
@@ -345,7 +318,7 @@ declare var define : (deps: string[], fn: () => S) => void;
                 toEmitter = to.node.emitter;
 
                 // if an earlier update threw an exception, marks may be dirty - clear it now
-                if (to.age < Time) {
+                if (to.marks !== 0 && to.age < Time) {
                     to.marks = 0;
                     if (toEmitter) {
                         toEmitter.emitting = false;
@@ -360,7 +333,7 @@ declare var define : (deps: string[], fn: () => S) => void;
                 to.age = Time;
 
                 // if this is the first time to's been marked, then propagate
-                if (to.marks === 1 && toEmitter) {
+                if (toEmitter && to.marks === 1) {
                     prepare(toEmitter);
                 }
             }
@@ -402,15 +375,25 @@ declare var define : (deps: string[], fn: () => S) => void;
             edge     : Edge, 
             to       : Receiver;
         
-        i = -1, len = node.children.length;
-        while (++i < len) {
-            node.children[i].dispose();
+        if (node.cleanups) {
+            i = -1, len = node.cleanups.length;
+            while (++i < len) {
+                node.cleanups[i](false);
+            }
+            node.cleanups = null;
         }
-        node.children = [];
+            
+        if (node.children) {
+            i = -1, len = node.children.length;
+            while (++i < len) {
+                node.children[i].dispose();
+            }
+            node.children = null;
+        }
         
         Updating = node;
 
-        node.value = node.fn(node.self);
+        if (node.fn) node.value = node.fn();
 
         if (emitter) {
             // this is the content of notify(emitter), inserted to shorten call stack for ergonomics
@@ -433,7 +416,7 @@ declare var define : (deps: string[], fn: () => S) => void;
                 emitter.compact();
         }
         
-        if ((receiver !== null) && node.listening) {
+        if (receiver && !node.static) {
             i = -1, len = receiver.edges.length;
             while (++i < len) {
                 edge = receiver.edges[i];
@@ -449,21 +432,25 @@ declare var define : (deps: string[], fn: () => S) => void;
         
     /// update the given node by backtracking its dependencies to clean state and updating from there
     function backtrack(receiver : Receiver) {
-        var i       = -1, 
-            len     = receiver.edges.length, 
-            oldNode = Updating, 
-            edge    : Edge;
-            
-        while (++i < len) {
-            edge = receiver.edges[i];
-            if (edge && edge.marked) {
-                if (edge.from.node && edge.from.node.receiver.marks) {
-                    // keep working backwards through the marked nodes ...
-                    backtrack(edge.from.node.receiver);
-                } else {
-                    // ... until we find clean state, from which to start updating
-                    notify(edge.from);
-                    Updating = oldNode;
+        var updating = Updating;
+        backtrack(receiver);
+        Updating = updating;
+        
+        function backtrack(receiver : Receiver) {
+            var i       = -1, 
+                len     = receiver.edges.length, 
+                edge    : Edge;
+                
+            while (++i < len) {
+                edge = receiver.edges[i];
+                if (edge && edge.marked) {
+                    if (edge.from.node && edge.from.node.receiver.marks) {
+                        // keep working backwards through the marked nodes ...
+                        backtrack(edge.from.node.receiver);
+                    } else {
+                        // ... until we find clean state, from which to start updating
+                        notify(edge.from);
+                    }
                 }
             }
         }
@@ -472,30 +459,28 @@ declare var define : (deps: string[], fn: () => S) => void;
     /// Graph classes and operations
     class DataNode<T> {
         age     = 0; // Data nodes start at a time prior to the present, or else they can't be set in the current frame
-        
-        pending : T;
-        
+        pending : T;   
         emitter = null as Emitter;
         
-        constructor(public value : T) { }
+        constructor(
+            public value : T
+        ) { }
     }
     
     class ComputationNode<T> {
-        value       : T;
+        value     : T;
+        static    = false;
         
-        emitter     = null as Emitter;
-        receiver    = null as Receiver;
+        emitter   = null as Emitter;
+        receiver  = null as Receiver;
         
-        listening   = true;
-        pinning     = false;
+        children  = null as ComputationNode<any>[];
+        cleanups  = null as ((final : boolean) => void)[];
         
-        children    = [] as ComputationNode<any>[];
-        pins        = [] as ComputationNode<any>[];
-        cleanups    = [] as (() => void)[];
-        
-        constructor(public fn   : (self? : () => {}) => {}, 
-                    public gate : (node : ComputationNode<any>) => boolean, 
-                    public self : () => {})  { }
+        constructor(
+            public fn   : () => T, 
+            public gate : (node : ComputationNode<any>) => boolean
+        )  { }
         
         dispose() {
             if (!this.fn) return;
@@ -506,8 +491,17 @@ declare var define : (deps: string[], fn: () => S) => void;
                 
             if (Updating === this) Updating = null;
             
-            this.fn = null;
+            this.fn    = null;
+            this.gate  = null;
     
+            if (this.cleanups) {
+                i = -1, len = this.cleanups.length;
+                while (++i < len) {
+                    this.cleanups[i](true);
+                }
+                this.cleanups = null;
+            }
+            
             if (this.receiver) {
                 i = -1, len = this.receiver.edges.length;
                 while (++i < len) {
@@ -522,15 +516,12 @@ declare var define : (deps: string[], fn: () => S) => void;
                     if (edge) deactivate(edge);
                 }
             }
-    
-            i = -1, len = this.children.length;
-            while (++i < len) {
-                this.children[i].dispose();
-            }
-    
-            i = -1, len = this.pins.length;
-            while (++i < len) {
-                this.pins[i].dispose();
+            
+            if (this.children) {
+                i = -1, len = this.children.length;
+                while (++i < len) {
+                    this.children[i].dispose();
+                }
             }
         }
     }
@@ -539,19 +530,20 @@ declare var define : (deps: string[], fn: () => S) => void;
         static count = 0;
         
         id       = Emitter.count++;
-        
         emitting = false;
         edges    = [] as Edge[];
         index    = [] as Edge[];
         active   = 0;
         edgesAge = 0;
         
-        constructor(public node : ComputationNode<any>) { }
+        constructor(
+            public node : ComputationNode<any>
+        ) { }
     
         compact() {
             var i          = -1, 
                 len        = this.edges.length, 
-                edges      = <Edge[]>[], 
+                edges      = [] as Edge[], 
                 compaction = ++this.edgesAge, 
                 edge       : Edge;
                 
@@ -588,13 +580,15 @@ declare var define : (deps: string[], fn: () => S) => void;
         index  = [] as Edge[];
         active = 0;
         
-        constructor(public node : ComputationNode<any>) { }
+        constructor(
+            public node : ComputationNode<any>
+        ) { }
         
         compact() {
             var i     = -1, 
                 len   = this.edges.length, 
-                edges = <Edge[]>[], 
-                index = <Edge[]>[], 
+                edges = [] as Edge[], 
+                index = [] as Edge[], 
                 edge  : Edge;
                 
             while (++i < len) {
@@ -619,7 +613,11 @@ declare var define : (deps: string[], fn: () => S) => void;
         slot     : number;
         slotAge  : number;
         
-        constructor(public from : Emitter, public to : Receiver, public boundary : boolean) {
+        constructor(
+            public from : Emitter, 
+            public to : Receiver, 
+            public boundary : boolean
+        ) {
             this.slot = from.edges.length;
             this.slotAge = from.edgesAge;
     

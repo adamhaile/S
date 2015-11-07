@@ -48,13 +48,15 @@ describe("S() with subcomputations", function () {
         it("disposes old child when updated", function () {
             // re-evalue parent, thereby disposing stale g, which we've stored at h
             d(2);
+            e(3);
             // h is now disposed
-            expect(h()).not.toBeDefined();
+            expect(h()).toBe(2);
         });
 
         it("disposes child when it is disposed", function () {
             S.dispose(f);
-            expect(g()).not.toBeDefined();
+            e(3);
+            expect(g()).toBe(2);
         });
     });
 

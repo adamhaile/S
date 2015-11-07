@@ -17,16 +17,15 @@ describe("S.dispose()", function () {
 		d(2);
 
 		expect(c).toBe(2);
-		expect(f()).toBe(undefined);
+		expect(f()).toBe(1);
     });
 
 	// unconventional uses of dispose -- to insure S doesn't behaves as expected in these cases
 
 	it("works from the body of its own computation", function () {
 		var c = 0,
-			d = S.data(0);
-			
-		S(function (f) { c++; if (d()) S.dispose(f); d(); });
+			d = S.data(0),
+			f = S(function () { c++; if (d()) S.dispose(f); d(); });
 
 		expect(c).toBe(1);
 
@@ -41,15 +40,12 @@ describe("S.dispose()", function () {
 
 	it("works from the body of a subcomputation", function () {
 		var c = 0,
-			d = S.data(0);
-			
-		S(function (f) {
-			c++;
-			d();
-			S(function () {
-				if (d()) S.dispose(f); d();
+			d = S.data(0),
+			f = S(function () {
+				c++;
+				d();
+				S(function () {	if (d()) S.dispose(f); });
 			});
-		});
 
 		expect(c).toBe(1);
 
@@ -60,15 +56,5 @@ describe("S.dispose()", function () {
 		d(2);
 
 		expect(c).toBe(2);
-	});
-
-	it("works from a cleanup", function () {
-		var d = S.data(false);
-		
-		S.watch(d).S(function (f) {
-			S.cleanup(function () { S.dispose(f); });
-		});
-
-		expect(function () { d(true); }).not.toThrow();
 	});
 });

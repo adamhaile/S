@@ -233,9 +233,9 @@ describe("S()", function () {
             //
             var seq = "",
                 a1 = S.data(true),
-                b1 = S.watch(a1)    .S(function () { seq += "b1"; }),
-                b2 = S.watch(a1)    .S(function () { seq += "b2"; }),
-                c1 = S.watch(b1, b2).S(function () { seq += "c1"; });
+                b1 = S(function () { a1();       seq += "b1"; }),
+                b2 = S(function () { a1();       seq += "b2"; }),
+                c1 = S(function () { b1(), b2(); seq += "c1"; });
     
             seq = "";
             a1(true);
