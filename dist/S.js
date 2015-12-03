@@ -301,18 +301,19 @@ var __extends = (this && this.__extends) || function (d, b) {
                 // if an earlier update threw an exception, marks may be dirty - clear it now
                 if (to.marks !== 0 && to.age < Time) {
                     to.marks = 0;
-                    if (toEmitter) {
+                    if (toEmitter)
                         toEmitter.emitting = false;
-                    }
                 }
                 if (toEmitter && toEmitter.emitting)
                     throw new Error("circular dependency"); // TODO: more helpful reporting
                 edge.marked = true;
                 to.marks++;
                 to.age = Time;
-                // if this is the first time to's been marked, then propagate
-                if (toEmitter && to.marks === 1) {
-                    prepare(toEmitter);
+                // if this is the first time to's been marked, then reset node and propagate
+                if (to.marks === 1) {
+                    to.node.reset(false);
+                    if (toEmitter)
+                        prepare(toEmitter);
                 }
             }
         }
@@ -331,26 +332,12 @@ var __extends = (this && this.__extends) || function (d, b) {
                 }
             }
         }
-        if (len > 10 && len / emitter.active > 4)
+        if (emitter.fragmented())
             emitter.compact();
     }
     /// update the given node by re-executing any payload, updating inbound links, then updating all downstream nodes
     function update(node) {
         var emitter = node.emitter, receiver = node.receiver, i, len, edge, to;
-        if (node.cleanups) {
-            i = -1, len = node.cleanups.length;
-            while (++i < len) {
-                node.cleanups[i](false);
-            }
-            node.cleanups = null;
-        }
-        if (node.children) {
-            i = -1, len = node.children.length;
-            while (++i < len) {
-                node.children[i].dispose();
-            }
-            node.children = null;
-        }
         Updating = node;
         if (node.fn)
             node.value = node.fn();
@@ -368,7 +355,7 @@ var __extends = (this && this.__extends) || function (d, b) {
                     }
                 }
             }
-            if (len > 10 && len / emitter.active > 4)
+            if (emitter.fragmented())
                 emitter.compact();
         }
         if (receiver && !node.static) {
@@ -379,7 +366,7 @@ var __extends = (this && this.__extends) || function (d, b) {
                     deactivate(edge);
                 }
             }
-            if (len > 10 && len / receiver.active > 4)
+            if (receiver.fragmented())
                 receiver.compact();
         }
     }
@@ -427,31 +414,24 @@ var __extends = (this && this.__extends) || function (d, b) {
         ComputationNode.prototype.dispose = function () {
             if (!this.fn)
                 return;
-            var i, len, edge;
             if (Updating === this)
                 Updating = null;
             this.fn = null;
             this.gate = null;
+            this.reset(true);
+            if (this.receiver)
+                this.receiver.detach();
+            if (this.emitter)
+                this.emitter.detach();
+        };
+        ComputationNode.prototype.reset = function (final) {
+            var i, len;
             if (this.cleanups) {
                 i = -1, len = this.cleanups.length;
                 while (++i < len) {
-                    this.cleanups[i](true);
+                    this.cleanups[i](final);
                 }
                 this.cleanups = null;
-            }
-            if (this.receiver) {
-                i = -1, len = this.receiver.edges.length;
-                while (++i < len) {
-                    deactivate(this.receiver.edges[i]);
-                }
-            }
-            if (this.emitter) {
-                i = -1, len = this.emitter.edges.length;
-                while (++i < len) {
-                    edge = this.emitter.edges[i];
-                    if (edge)
-                        deactivate(edge);
-                }
             }
             if (this.children) {
                 i = -1, len = this.children.length;
@@ -472,6 +452,17 @@ var __extends = (this && this.__extends) || function (d, b) {
             this.active = 0;
             this.edgesAge = 0;
         }
+        Emitter.prototype.detach = function () {
+            var i = -1, len = this.edges.length, edge;
+            while (++i < len) {
+                edge = this.edges[i];
+                if (edge)
+                    deactivate(edge);
+            }
+        };
+        Emitter.prototype.fragmented = function () {
+            return this.edges.length > 10 && this.edges.length / this.active > 4;
+        };
         Emitter.prototype.compact = function () {
             var i = -1, len = this.edges.length, edges = [], compaction = ++this.edgesAge, edge;
             while (++i < len) {
@@ -508,6 +499,30 @@ var __extends = (this && this.__extends) || function (d, b) {
             this.index = [];
             this.active = 0;
         }
+        Receiver.prototype.detach = function () {
+            if (this.marks !== 0 && this.age === Time)
+                this.unmark();
+            var i = -1, len = this.edges.length;
+            while (++i < len) {
+                deactivate(this.edges[i]);
+            }
+        };
+        Receiver.prototype.unmark = function () {
+            this.marks--;
+            if (this.marks === 0 && this.node.emitter) {
+                var edges = this.node.emitter.edges, i = -1, len = edges.length, edge;
+                while (++i < len) {
+                    edge = edges[i];
+                    if (edge && edge.marked) {
+                        edge.marked = false;
+                        edge.to.unmark();
+                    }
+                }
+            }
+        };
+        Receiver.prototype.fragmented = function () {
+            return this.edges.length > 10 && this.edges.length / this.active > 4;
+        };
         Receiver.prototype.compact = function () {
             var i = -1, len = this.edges.length, edges = [], index = [], edge;
             while (++i < len) {

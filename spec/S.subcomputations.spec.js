@@ -81,4 +81,23 @@ describe("S() with subcomputations", function () {
         });
     });
 
+    describe("which disposes sub that's being updated", function () {
+        it("propagates successfully", function () {
+            var a = S.data(1),
+                b = S(function () {
+                    var c = S(function () { return a(); });
+                    a();
+                    return { c: c };
+                }),
+                d = S(function () {
+                    return b().c();
+                });
+            
+            expect(d()).toBe(1);
+            a(2);
+            expect(d()).toBe(2);
+            a(3);
+            expect(d()).toBe(3);
+        });
+    });
 });

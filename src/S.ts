@@ -320,9 +320,7 @@ declare var define : (deps: string[], fn: () => S) => void;
                 // if an earlier update threw an exception, marks may be dirty - clear it now
                 if (to.marks !== 0 && to.age < Time) {
                     to.marks = 0;
-                    if (toEmitter) {
-                        toEmitter.emitting = false;
-                    }
+                    if (toEmitter) toEmitter.emitting = false;
                 }
 
                 if (toEmitter && toEmitter.emitting)
@@ -332,9 +330,10 @@ declare var define : (deps: string[], fn: () => S) => void;
                 to.marks++;
                 to.age = Time;
 
-                // if this is the first time to's been marked, then propagate
-                if (toEmitter && to.marks === 1) {
-                    prepare(toEmitter);
+                // if this is the first time to's been marked, then reset node and propagate
+                if (to.marks === 1) {
+                    to.node.reset(false);
+                    if (toEmitter) prepare(toEmitter);
                 }
             }
         }
@@ -362,8 +361,7 @@ declare var define : (deps: string[], fn: () => S) => void;
             }
         }
                     
-        if (len > 10 && len / emitter.active > 4) 
-            emitter.compact();
+        if (emitter.fragmented()) emitter.compact();
     }
     
     /// update the given node by re-executing any payload, updating inbound links, then updating all downstream nodes
@@ -374,22 +372,6 @@ declare var define : (deps: string[], fn: () => S) => void;
             len      : number, 
             edge     : Edge, 
             to       : Receiver;
-        
-        if (node.cleanups) {
-            i = -1, len = node.cleanups.length;
-            while (++i < len) {
-                node.cleanups[i](false);
-            }
-            node.cleanups = null;
-        }
-            
-        if (node.children) {
-            i = -1, len = node.children.length;
-            while (++i < len) {
-                node.children[i].dispose();
-            }
-            node.children = null;
-        }
         
         Updating = node;
 
@@ -412,8 +394,7 @@ declare var define : (deps: string[], fn: () => S) => void;
                 }
             }
                         
-            if (len > 10 && len / emitter.active > 4) 
-                emitter.compact();
+            if (emitter.fragmented()) emitter.compact();
         }
         
         if (receiver && !node.static) {
@@ -425,8 +406,7 @@ declare var define : (deps: string[], fn: () => S) => void;
                 }
             }
             
-            if (len > 10 && len / receiver.active > 4)
-                receiver.compact();
+            if (receiver.fragmented()) receiver.compact();
         }
     }
         
@@ -484,37 +464,27 @@ declare var define : (deps: string[], fn: () => S) => void;
         
         dispose() {
             if (!this.fn) return;
-            
-            var i    : number, 
-                len  : number, 
-                edge : Edge;
                 
             if (Updating === this) Updating = null;
             
             this.fn    = null;
             this.gate  = null;
+            
+            this.reset(true);
+            if (this.receiver) this.receiver.detach();
+            if (this.emitter) this.emitter.detach();
+        }
+        
+        reset(final : boolean) {
+            var i   : number,
+                len : number;
     
             if (this.cleanups) {
                 i = -1, len = this.cleanups.length;
                 while (++i < len) {
-                    this.cleanups[i](true);
+                    this.cleanups[i](final);
                 }
                 this.cleanups = null;
-            }
-            
-            if (this.receiver) {
-                i = -1, len = this.receiver.edges.length;
-                while (++i < len) {
-                    deactivate(this.receiver.edges[i]);
-                }
-            }
-            
-            if (this.emitter) {
-                i = -1, len = this.emitter.edges.length;
-                while (++i < len) {
-                    edge = this.emitter.edges[i];
-                    if (edge) deactivate(edge);
-                }
             }
             
             if (this.children) {
@@ -539,6 +509,18 @@ declare var define : (deps: string[], fn: () => S) => void;
         constructor(
             public node : ComputationNode<any>
         ) { }
+    
+        detach() {
+            var i = -1, len = this.edges.length, edge : Edge;
+            while (++i < len) {
+                edge = this.edges[i];
+                if (edge) deactivate(edge);
+            }
+        }
+    
+        fragmented() {
+            return this.edges.length > 10 && this.edges.length / this.active > 4;
+        }
     
         compact() {
             var i          = -1, 
@@ -583,6 +565,35 @@ declare var define : (deps: string[], fn: () => S) => void;
         constructor(
             public node : ComputationNode<any>
         ) { }
+        
+        detach() {
+            if (this.marks !== 0 && this.age === Time) this.unmark();
+            var i = -1, len = this.edges.length;
+            while (++i < len) {
+                deactivate(this.edges[i]);
+            }
+        }
+        
+        unmark() {
+            this.marks--;
+            if (this.marks === 0 && this.node.emitter) {
+                var edges = this.node.emitter.edges,
+                    i = -1, 
+                    len = edges.length, 
+                    edge : Edge;
+                while (++i < len) {
+                    edge = edges[i];
+                    if (edge && edge.marked) {
+                        edge.marked = false;
+                        edge.to.unmark();
+                    }
+                }
+            }
+        }
+        
+        fragmented() {
+            return this.edges.length > 10 && this.edges.length / this.active > 4;
+        }
         
         compact() {
             var i     = -1, 
