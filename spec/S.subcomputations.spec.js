@@ -100,4 +100,31 @@ describe("S() with subcomputations", function () {
             expect(d()).toBe(3);
         });
     });
+    
+    describe("which disposes a sub with a dependee with a sub", function () {
+        it("propagates successfully", function () {
+            var a = S.data(1),
+                c,
+                b = S(function () {
+                    c = S(function () {
+                        return a();
+                    });
+                    a();
+                    return { c : c };
+                }),
+                d = S(function () {
+                    c();
+                    var e = S(function () {
+                        return a();
+                    });
+                    return { e : e };
+                });
+                
+            expect(d().e()).toBe(1);
+            a(2);
+            expect(d().e()).toBe(2);
+            a(3);
+            expect(d().e()).toBe(3);
+        });
+    });
 });

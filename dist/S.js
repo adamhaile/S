@@ -7,7 +7,12 @@ var __extends = (this && this.__extends) || function (d, b) {
 (function () {
     "use strict";
     // "Globals" used to keep track of current system state
-    var Time = 1, Batching = 0, Batch = [], Updating = null, Disposing = false, Disposes = [];
+    var Time = 1, // our clock, ticks every update
+    Batching = 0, // whether we're batching data changes, 0 = no, 1+ = yes, with index to next Batch slot
+    Batch = [], // batched changes to data nodes
+    Updating = null, // whether we're updating, null = no, non-null = node being updated
+    Disposing = false, // whether we're disposing
+    Disposes = []; // disposals to run after current batch of changes finishes 
     var S = function S(fn) {
         var options = (this instanceof Builder ? this.options : null), parent = Updating, gate = (options && options.gate) || (parent && parent.gate) || null, node = new ComputationNode(fn, gate);
         if (parent && (!options || !options.toplevel)) {
@@ -255,13 +260,13 @@ var __extends = (this && this.__extends) || function (d, b) {
                 Disposes = [];
             }
         }
-        // for each frame ...
+        // for each batch ...
         while (Batching !== 1) {
-            // prepare next frame
+            // prepare globals to record next batch
             Time++;
-            batch = Batch, Batch = _batch, _batch = batch;
+            batch = Batch, Batch = _batch, _batch = batch; // rotate batch arrays
             len = Batching, Batching = 1;
-            // ... set nodes' values, clear pending data, and mark them
+            // set nodes' values, clear pending data, and prepare them for update
             i = 0;
             while (++i < len) {
                 change = batch[i];
@@ -270,7 +275,7 @@ var __extends = (this && this.__extends) || function (d, b) {
                 if (change.emitter)
                     prepare(change.emitter);
             }
-            // run all updates in frame
+            // run all updates in batch
             i = 0;
             while (++i < len) {
                 change = batch[i];
@@ -278,12 +283,14 @@ var __extends = (this && this.__extends) || function (d, b) {
                     notify(change.emitter);
                 batch[i] = null;
             }
+            // run disposes accumulated while updating
             i = -1, len = Disposes.length;
             if (len) {
                 while (++i < len)
                     Disposes[i].dispose();
                 Disposes = [];
             }
+            // if there are still changes after excessive batches, assume runaway            
             if (count++ > 1e5) {
                 throw new Error("Runaway frames detected");
             }
@@ -291,33 +298,45 @@ var __extends = (this && this.__extends) || function (d, b) {
     }
     /// mark the node and all downstream nodes as within the range to be updated
     function prepare(emitter) {
-        var edges = emitter.edges, i = -1, len = edges.length, edge, to, toEmitter;
+        var edges = emitter.edges, i = -1, len = edges.length, edge, to, node, toEmitter;
         emitter.emitting = true;
         while (++i < len) {
             edge = edges[i];
             if (edge && (!edge.boundary || edge.to.node.gate(edge.to.node))) {
                 to = edge.to;
-                toEmitter = to.node.emitter;
+                node = to.node;
+                toEmitter = node.emitter;
                 // if an earlier update threw an exception, marks may be dirty - clear it now
                 if (to.marks !== 0 && to.age < Time) {
                     to.marks = 0;
                     if (toEmitter)
                         toEmitter.emitting = false;
                 }
+                // if we've come back to an emitting Emitter, that's a cycle
                 if (toEmitter && toEmitter.emitting)
                     throw new Error("circular dependency"); // TODO: more helpful reporting
                 edge.marked = true;
                 to.marks++;
                 to.age = Time;
-                // if this is the first time to's been marked, then reset node and propagate
+                // if this is the first time to's been marked, then prepare children propagate
                 if (to.marks === 1) {
-                    to.node.reset(false);
+                    if (node.children)
+                        prepareChildren(node.children);
                     if (toEmitter)
                         prepare(toEmitter);
                 }
             }
         }
         emitter.emitting = false;
+    }
+    function prepareChildren(children) {
+        var i = -1, len = children.length, child;
+        while (++i < len) {
+            child = children[i];
+            child.fn = null;
+            if (child.children)
+                prepareChildren(child.children);
+        }
     }
     function notify(emitter) {
         var i = -1, len = emitter.edges.length, edge, to;
@@ -337,9 +356,11 @@ var __extends = (this && this.__extends) || function (d, b) {
     }
     /// update the given node by re-executing any payload, updating inbound links, then updating all downstream nodes
     function update(node) {
-        var emitter = node.emitter, receiver = node.receiver, i, len, edge, to;
+        var emitter = node.emitter, receiver = node.receiver, disposing = node.fn === null, i, len, edge, to;
         Updating = node;
-        if (node.fn)
+        disposeChildren(node);
+        node.cleanup(disposing);
+        if (!disposing)
             node.value = node.fn();
         if (emitter) {
             // this is the content of notify(emitter), inserted to shorten call stack for ergonomics
@@ -355,20 +376,41 @@ var __extends = (this && this.__extends) || function (d, b) {
                     }
                 }
             }
-            if (emitter.fragmented())
+            if (disposing) {
+                emitter.detach();
+            }
+            else if (emitter.fragmented())
                 emitter.compact();
         }
-        if (receiver && !node.static) {
-            i = -1, len = receiver.edges.length;
-            while (++i < len) {
-                edge = receiver.edges[i];
-                if (edge.active && edge.age < Time) {
-                    deactivate(edge);
-                }
+        if (receiver) {
+            if (disposing) {
+                receiver.detach();
             }
-            if (receiver.fragmented())
-                receiver.compact();
+            else if (!node.static) {
+                i = -1, len = receiver.edges.length;
+                while (++i < len) {
+                    edge = receiver.edges[i];
+                    if (edge.active && edge.age < Time) {
+                        edge.deactivate();
+                    }
+                }
+                if (receiver.fragmented())
+                    receiver.compact();
+            }
         }
+    }
+    function disposeChildren(node) {
+        if (!node.children)
+            return;
+        var i = -1, len = node.children.length, child;
+        while (++i < len) {
+            child = node.children[i];
+            if (!child.receiver || child.receiver.age < Time) {
+                disposeChildren(child);
+                child.dispose();
+            }
+        }
+        node.children = null;
     }
     /// update the given node by backtracking its dependencies to clean state and updating from there
     function backtrack(receiver) {
@@ -408,36 +450,35 @@ var __extends = (this && this.__extends) || function (d, b) {
             this.static = false;
             this.emitter = null;
             this.receiver = null;
+            // children and cleanups generated by last update
             this.children = null;
             this.cleanups = null;
         }
+        // dispose node: free memory, dispose children, cleanup, detach from graph
         ComputationNode.prototype.dispose = function () {
             if (!this.fn)
                 return;
-            if (Updating === this)
-                Updating = null;
             this.fn = null;
             this.gate = null;
-            this.reset(true);
+            if (this.children) {
+                var i = -1, len = this.children.length;
+                while (++i < len) {
+                    this.children[i].dispose();
+                }
+            }
+            this.cleanup(true);
             if (this.receiver)
                 this.receiver.detach();
             if (this.emitter)
                 this.emitter.detach();
         };
-        ComputationNode.prototype.reset = function (final) {
-            var i, len;
+        ComputationNode.prototype.cleanup = function (final) {
             if (this.cleanups) {
-                i = -1, len = this.cleanups.length;
+                var i = -1, len = this.cleanups.length;
                 while (++i < len) {
                     this.cleanups[i](final);
                 }
                 this.cleanups = null;
-            }
-            if (this.children) {
-                i = -1, len = this.children.length;
-                while (++i < len) {
-                    this.children[i].dispose();
-                }
             }
         };
         return ComputationNode;
@@ -457,7 +498,7 @@ var __extends = (this && this.__extends) || function (d, b) {
             while (++i < len) {
                 edge = this.edges[i];
                 if (edge)
-                    deactivate(edge);
+                    edge.deactivate();
             }
         };
         Emitter.prototype.fragmented = function () {
@@ -485,7 +526,7 @@ var __extends = (this && this.__extends) || function (d, b) {
         else
             edge = to.receiver.index[from.id];
         if (edge)
-            activate(edge, from);
+            edge.activate(from);
         else
             new Edge(from, to.receiver, to.gate && (from.node === null || to.gate !== from.node.gate));
     }
@@ -500,24 +541,9 @@ var __extends = (this && this.__extends) || function (d, b) {
             this.active = 0;
         }
         Receiver.prototype.detach = function () {
-            if (this.marks !== 0 && this.age === Time)
-                this.unmark();
             var i = -1, len = this.edges.length;
             while (++i < len) {
-                deactivate(this.edges[i]);
-            }
-        };
-        Receiver.prototype.unmark = function () {
-            this.marks--;
-            if (this.marks === 0 && this.node.emitter) {
-                var edges = this.node.emitter.edges, i = -1, len = edges.length, edge;
-                while (++i < len) {
-                    edge = edges[i];
-                    if (edge && edge.marked) {
-                        edge.marked = false;
-                        edge.to.unmark();
-                    }
-                }
+                this.edges[i].deactivate();
             }
         };
         Receiver.prototype.fragmented = function () {
@@ -554,35 +580,35 @@ var __extends = (this && this.__extends) || function (d, b) {
             from.active++;
             to.active++;
         }
+        Edge.prototype.activate = function (from) {
+            if (!this.active) {
+                this.active = true;
+                if (this.slotAge === from.edgesAge) {
+                    from.edges[this.slot] = this;
+                }
+                else {
+                    this.slotAge = from.edgesAge;
+                    this.slot = from.edges.length;
+                    from.edges.push(this);
+                }
+                this.to.active++;
+                from.active++;
+                this.from = from;
+            }
+            this.age = Time;
+        };
+        Edge.prototype.deactivate = function () {
+            if (!this.active)
+                return;
+            var from = this.from, to = this.to;
+            this.active = false;
+            from.edges[this.slot] = null;
+            from.active--;
+            to.active--;
+            this.from = null;
+        };
         return Edge;
     })();
-    function activate(edge, from) {
-        if (!edge.active) {
-            edge.active = true;
-            if (edge.slotAge === from.edgesAge) {
-                from.edges[edge.slot] = edge;
-            }
-            else {
-                edge.slotAge = from.edgesAge;
-                edge.slot = from.edges.length;
-                from.edges.push(edge);
-            }
-            edge.to.active++;
-            from.active++;
-            edge.from = from;
-        }
-        edge.age = Time;
-    }
-    function deactivate(edge) {
-        if (!edge.active)
-            return;
-        var from = edge.from, to = edge.to;
-        edge.active = false;
-        from.edges[edge.slot] = null;
-        from.active--;
-        to.active--;
-        edge.from = null;
-    }
     // UMD exporter
     /* globals define */
     if (typeof module === 'object' && typeof module.exports === 'object') {
