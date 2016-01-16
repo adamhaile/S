@@ -20,15 +20,7 @@ Both constructors return closures (aka functions).  You can read the current val
 
 That's largely it.  S tries to have a simple mental model -- it's just data and computations on data.  
 
-If you want more control over how updates run, S provides a handful of additional functions:
-
-- `S.event(() => <code>)` - treat all data changes produced by the code as a single event, such that they propagate to computations as a unit rather than one-at-a-time
-
-- `S.on(...signals).S(() => <code>)` - declare a static list of dependencies for a computation, as an alternative to S's live monitoring
-
-- `S.async(<scheduler>).S(() => <code>)` - control when and how often a computation is updated
-
-See the documentation below for full explanations of these functions.
+For advanced cases, S provides a handful of utilities for things like treating multiple changes as a single event (`S.event()`), explicitly declaring dependencies (`S.on()`) and deferring updates (`S.async()`).  See the Annotated Tour below for examples.
 
 There are also some things you *don't* have to do when using S:
 
@@ -36,35 +28,129 @@ There are also some things you *don't* have to do when using S:
 
 - You don't need to use S for your whole application.  Use it as narrowly or extensively as you like.
 
+- You don't need to, and probably shouldn't, think about the order updates run.
+
 ## How does S work?
 As your program runs, S's data signals and computations communicate with each other to build up a live dependency graph of your code.  Since computations may reference the results of other computations, this graph may have _n_ layers, not just two.  
 
-When a data signal changes, S uses this graph to determine which computations need to be updated and in what order.  Specifically, S runs updates in topological order, as this has several useful qualities:
+When a data signal changes, S uses this graph to determine which computations need to be updated and in what order.  Specifically, S runs updates in topological order, as this has several useful properties:
 
 - each affected computation is run exactly once, no matter how many paths converge on it
 - if a computation references other computations, S insures those other computations have been updated first, so that the consuming computation sees a consistent world, where all its sources are already up-to-date
 
 If computations modify data signals as part of their execution, S batches all these changes into a single event, which runs after the current propagation finishes.  S repeats this process until the system has reached equilibrium and no more changes are produced.
 
-## A Tiny Example: "Hello World"
+## An Annotated Tour of S
 ```javascript
-> var name = S.data("S.js"),
-      hello = S(() => "hello " + name()),
-      print = S(() => console.log(hello()));
-hello S.js
-> name("world")
-hello world
+// start from the most basic operation: two values and a sum
+var x = 1,
+    y = 2,
+    sum = x + y;
+sum; // equals 3
+
+// all well and good, but if we change x or y, sum is now out of date
+x = 2;
+sum; // still equals 3
+
+// let's do that again, but using S's primitives for data and computations
+var x = S.data(1),
+    y = S.data(2),
+    sum = S(() => x() + y());
+sum(); // equals 3
+x(2);
+sum(); // now equals *4*
+
+// what happened? a bit of terminology:
+// - x, y and sum are not just values anymore, they're *signals*
+// - a signal is a container for a value that changes over time
+// - signals have two types:
+//      - *data signals* like x() and y()
+//      - *computations* like sum()
+// - you read the current value of a signal by calling it, x(), y() or sum()
+// - S tracks internally which signals each computation reads
+// - you can set a data signal by passing it a new value
+// - when we set a data signal, S updates all affected computations
+// so when we set x(), S knew that sum() had read x(), so it updated sum()
+
+// to make it clearer what's going on, let's add a computation with a side-effect
+// note that computations run when they're created and when a referenced signal changes
+var log = S(() => console.log(sum()));
+> 4
+x(3);
+> 5
+// we say that setting a data signal creates an *event*, to which the app *responds*
+
+// what if we wanted to change both x() and y()?
+x(4);
+> 6
+y(5);
+> 9
+// S runs updates immediately, so two changes produces two updates.
+// to make both changes appear as the same event, we wrap them in S.event()
+S.event(() => {
+    x(6);
+    y(7);
+});
+> 13
+// now S treats both as a single event, and only responds once (one run of sum())
+
+// what if we want to run only when x() changes, but not y()?
+// to do that, we create our computation with the S.on() modifier
+var x = S.data(1),
+    y = S.data(2),
+    sum = S.on(x).S(() => x() + y()), // note .on(x)
+    log = S(() => console.log(sum()));
+> 13
+// now setting x() triggers sum()
+x(9);
+> 16
+// but y() doesn't
+y(10);
+// we say that sum() *depends on* x(), but only *samples* y()
+
+// what if we want to stop logging? we can dispose log() ...
+S.dispose(log);
+x(11);
+// but there's a better way. S lets us create computations *in* computations,
+// with the rule that these 'subs' expire the next time the parent updates.
+// let's say we want to log some of the time, not all. so that's a bit of state:
+var logging = S.data(true);
+// then a computation that creates the logger when needed:
+S(() => {
+    if (logging())
+        S(() => console.log(sum()));
+});
+> 21
+x(12);
+> 22
+logging(false)
+x(13);
+// S disposes the inner computation automatically when logging() turns false.
+// 'subs' are a subtly powerful feature: if we use computations to build our
+// application, not just run it, then as the application changes and grows,
+// stale pieces are disposed automatically.  No zombies!
+
+// what if we want to control the frequency with which a computation updates?
+// the S.async() modifier lets us intercept and defer an update.
+// say we wanted to 'debounce' our logging function using underscore.js:
+S.async(u => _.debounce(u, 100)).S(() => console.log(sum()));
+> 23
+x(14);
+x(15);
+x(16);
+// ... imagine waiting until 100 msecs of inactivity have passed
+> 26
+// note that with S.async(), the computation still runs once at creation time,
+// without that, there would be no dependencies, and so no update to defer.
+
+// that's it: the entire API is just eight functions
+//  constructors: S(), S.data()
+//  control of ...
+//    events:    S.event(), S.on()
+//    updates:   S.async()
+//    lifespan:  S.dispose(), S.toplevel()
+//    resources: S.cleanup()
 ```
-As small as it is, this snippet demonstrates several characteristics of S:
-- `name()` is a data signal, which starts out holding "S.js"
-- `hello()` and `print()` are computations
-- we can read a data signal by calling it, like when `hello()` calls `name()`
-- we can read the value returned by a computation the same way, like when `print()` calls `hello()`
-- S evaluates each computation at its time of creation; note that `print()` logs to console when it is defined
-- whenever S runs a computation, it updates an internal registry of the sources read by the computation
-- whenever one of those sources changes, like `name("world")`, S runs all computations affected
-- these computations are run in dependency order, so `hello()` has already been updated to "hello world" before `print()` logs it to console
-- we can use computations both to create derived value (`hello()`) or to generate useful side-effects (`print()`)
 
 ## A Little Longer Example: TodoMVC in S (plus friends)
 What else, right?  This example uses the suite Surplus.js, aka "S plus" some companion libraries.  Most notably, it uses the htmlliterals preprocessor for embedded DOM construction and the S.array utility for a data signal carrying an array.
@@ -99,194 +185,6 @@ if (localStorage.todos) // load stored todos on start
     todos(JSON.parse(localStorage.todos).map(Todo));
 S(() =>                 // store todos whenever they change
     localStorage.todos = JSON.stringify(todos()));
-```
-## API
-
-### Data Signals
-#### `S.data(val : T) : (newval? : T) => T`
-Construct a data signal with the given value.  The data signal is represented as a getter-setter function: call it with no argument to read its current value; call it with an argument to update it with a new value.  When updating, the return value is the supplied new value.
-```javascript
-var a = S.data(1);
-a()  // returns 1
-a(2) // sets a() to 2 and returns 2
-a()  // now returns 2
-```
-
-### Computations
-#### `S(fn : () => T) : () => T`
-Construct a computation out of the given paramless function.  S runs the function at the time of construction, and again whenever any of the referenced signals change.  Calling a computation reads the value returned by its most recent execution.
-```javascript
-> var a = S.data(1),
->     b = S(() => console.log(a()));
-1     // S runs b() at time of construction
-> a(2)
-2     // and whenever a referenced signal changes, like a()
-```
-By default, dependencies are automatic and dynamic, meaning that it's only the signals read in the last execution that matter:
-```javascript
-> var a = S.data(true),
->     b = S.data(1),
->     c = S.data(2),
->     d = S(() => console.log(a() ? b() : c()));
-1
-> b(3)     // d() called b(), so changing b() re-runs d()
-3
-> c(4)     // d() didn't call c(), so it doesn't depend on it
-> a(false) // now make d() call c()
-4
-> c(5)     // now c() is a dependency and updates d()
-5
-> b(6)     // while b() is no longer a dependency
-```
-When S updates computations, it does so in a way that preserves three important qualities:
-
-1. No gaps: if a computation reads a signal, it will "see" (be executed with) all values of that signal (time doesn't skip)
-
-2. No repeats: even if an initial change affects a computation through multiple pathways, the computation will only be run once (time doesn't loop back)
-
-3. No glitches: (two moments never exist together)
-
-Subcomputations
-
-Computations also have a few options, which use a fluent syntax and which are defined below.  As an example, an extreme case would look like:
-```javascript
-var c = S.toplevel().on(a).async(go => setTimeout(go, 0)).S(() => ...);
-```
-
-### Simultaneous Changes
-#### `S.event(fn : () => T) : T`
-Collect all changes generated while the function executes, then propagate them all simultaneously.
-```javascript
-> var a = S.data(1),
->     b = S.data(2),
->     c = S(() => a() + b()),
->     d = S(() => console.log(c()));
-3           // d's initial log of 1 + 2
-> a(3)      // triggers c() which triggers d()
-5
-> b(4)      // ditto for b()
-7
-> S.event(() => {
-      a(5); // S.event() lets us change a() and b() w/o propagating ...
-      b(6);
-  })
-11          // ... until end of event, when new values propagate together
-```
-During an event, changes are not visible even within the body of the function.
-```javascript
-> var a = S.data(1);
-> S.event(() => {
->     a(2);             // change a()
->     console.log(a()); // and log it
-> });
-1                       // a() inside event() was still 1
-> console.log(a());
-2                       // but after event() is new value, 2
-```
-
-### Static Dependencies
-#### `S.on(...signals).S(fn)`
-By default, dependencies in S are automatic.  This is usually what we want: if our computation references a signal, then we probably want it to update when that signal changes.  However, there are cases where we might want to statically declare the sources which trigger our computation.  Computations created with the .on(...) modifier will update if and only if one of the listed signals changes.  Any other signals referenced will be sampled at that time, but will not trigger updates when they change:
-```javascript
-> var a = S.data(1),
->     b = S.data(2),
->     c = S.on(a).S(() => console.log("a is" + a() + ", b is " + b()));
-a is 1, b is 2
-> a(3) // changing a() triggers c()
-a is 3, b is 2
-> b(4) // but changing b() doesn't
-> a(5)
-a is 5, b is 4
-```
-In the code above, c() only runs when a() changes, even though it references b().
-
-S.on() can take any number of dependencies: .on(foo), .on(foo, bar), .on(), etc.  That last might seem useless -- a computation that never updates -- but can be helpful when we want to capture other behaviors of computations, like subcomputations or asynchrony.
-
-### Asynchronous updates
-#### `S.async(<scheduler>).S(fn)`
-
-
-### Releasing resources
-#### `S.cleanup(fn)`
-
-
-### Disposing computations
-#### `S.dispose(computation)`
-
-```javascript
-// start from the most basic operation: two values and a sum
-var a = 1,
-    b = 2,
-    c = a + b;
-c; // equals 3
-
-// all well and good, but if we change a or b, c is now out of date
-a = 2;
-c; // still equals 3
-
-// let's do that again, but using S's primitives
-var a = S.data(1),
-    b = S.data(2),
-    c = S(() => a() + b());
-c(); // equals 3
-a(2);
-c()b // now equals *4*
-
-// what happened?
-// - a, b and c are not just values anymore, they're *signals*
-// - a signal is a container for a value that changes over time
-// - signals have two types:
-//      - *data signals* like a() and b()
-//      - *computations* like c()
-// - you read the current value of a signal by calling it, a(), b() or c()
-// - S tracks internally which signals each computation reads
-// - you can set a data signal by passing it a new value
-// - when we set a data signal, S updates all affected computations
-// so when we changed a(), S knew that c() had read a(), and so it updated c()
-
-// to make it clearer what's going on, let's add a computation with a side-effect
-var d = S(() => console.log(c()));
-> 4
-// note that S runs a new computation at the point it is created ...
-a(3);
-> 5
-// ... and whenever a referenced signal changes.
-// we say that this change produces a *change event*, to which S *responds*
-
-// what if we wanted to change both a() and b()?
-a(4);
-> 6
-b(5);
-> 9
-// S runs updates immediately, so two changes produces two updates.
-// but what if we want both changes to appear as part of the same event?
-// for that, we wrap them in S.event()
-S.event(() => {
-    a(6);
-    b(7);
-});
-> 13
-// now S treats both as a single event, and only responds once (one run of c())
-
-// what if we want to run only when a() changes, but to ignore changes to b()?
-// that must be declared at creation time, using the S.on(...) modifier
-var e = S.on(a).S(() => a() + b()),
-    f = S(() => console.log(c()));
-> 13
-// so now only a() triggers e()
-a(8);
-> 15
-> 15
-// wait, back up, why was 15 printed twice?  oh yeah!  c() is still listening too.
-// we'll show a better way to handle stale computations later, but for now there's S.dispose()
-S.dispose(c);
-S.dispose(d);
-// ok, once again, a() triggers e()
-a(9);
-> 16
-// but b() doesn't
-b(10); // doesn't trigger e()
-// we say that e() *depends on* a(), but only *samples* b()
 ```
 
 &copy; 2015 Adam Haile, adam.haile@gmail.com.  MIT License.
