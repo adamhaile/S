@@ -11,23 +11,20 @@ var __extends = (this && this.__extends) || function (d, b) {
     Batching = 0, // whether we're batching data changes, 0 = no, 1+ = yes, with index to next Batch slot
     Batch = [], // batched changes to data nodes
     Updating = null, // whether we're updating, null = no, non-null = node being updated
+    Sampling = false, // whether we're sampling signals, with no dependencies
     Disposing = false, // whether we're disposing
     Disposes = []; // disposals to run after current batch of changes finishes 
     var S = function S(fn) {
-        var options = (this instanceof Builder ? this.options : null), parent = Updating, gate = (options && options.gate) || (parent && parent.gate) || null, node = new ComputationNode(fn, gate);
+        var options = (this instanceof Builder ? this.options : null), parent = Updating, gate = (options && options.gate) || (parent && parent.gate) || null, _fn = (options && options.mod) ? options.mod(fn) : fn, node = new ComputationNode(_fn, gate);
         if (parent && (!options || !options.toplevel)) {
             (parent.children || (parent.children = [])).push(node);
         }
         Updating = node;
         if (Batching) {
-            if (options && options.static) {
-                options.static();
-                node.static = true;
-            }
-            node.value = fn();
+            node.value = _fn();
         }
         else {
-            node.value = initialExecution(node, fn, options && options.static);
+            node.value = initialExecution(node, _fn);
         }
         Updating = parent;
         return function computation() {
@@ -41,7 +38,7 @@ var __extends = (this && this.__extends) || function (d, b) {
                 if (node.receiver && node.receiver.marks !== 0 && node.receiver.age === Time) {
                     backtrack(node.receiver);
                 }
-                if (!Updating.static) {
+                if (!Sampling) {
                     if (!node.emitter)
                         node.emitter = new Emitter(node);
                     addEdge(node.emitter, Updating);
@@ -50,15 +47,11 @@ var __extends = (this && this.__extends) || function (d, b) {
             return node.value;
         };
     };
-    function initialExecution(node, fn, on) {
+    function initialExecution(node, fn) {
         var result;
         Time++;
         Batching = 1;
         try {
-            if (on) {
-                on();
-                node.static = true;
-            }
             result = fn();
             if (Batching > 1)
                 resolve(null);
@@ -94,7 +87,7 @@ var __extends = (this && this.__extends) || function (d, b) {
                 return value;
             }
             else {
-                if (Updating && !Updating.static) {
+                if (Updating && !Sampling) {
                     if (!node.emitter)
                         node.emitter = new Emitter(null);
                     addEdge(node.emitter, Updating);
@@ -108,7 +101,7 @@ var __extends = (this && this.__extends) || function (d, b) {
         function Options() {
             this.toplevel = false;
             this.gate = null;
-            this.static = null;
+            this.mod = null;
         }
         return Options;
     })();
@@ -137,18 +130,20 @@ var __extends = (this && this.__extends) || function (d, b) {
             _super.apply(this, arguments);
         }
         OnOption.prototype.on = function () {
-            var args;
+            var deps, args;
             if (arguments.length === 0) {
-                this.options.static = noop;
+                deps = noop;
             }
             else if (arguments.length === 1) {
-                this.options.static = arguments[0];
+                deps = arguments[0];
             }
             else {
                 args = Array.prototype.slice.call(arguments);
-                this.options.static = callAll;
+                deps = callAll;
             }
+            this.options.mod = mod;
             return new AsyncOption(this.options);
+            function mod(fn) { return function on() { deps(); S.sample(fn); }; }
             function callAll() { for (var i = 0; i < args.length; i++)
                 args[i](); }
             function noop() { }
@@ -212,6 +207,18 @@ var __extends = (this && this.__extends) || function (d, b) {
         }
         return result;
     };
+    S.sample = function sample(fn) {
+        var result;
+        if (Updating && !Sampling) {
+            Sampling = true;
+            result = fn();
+            Sampling = false;
+        }
+        else {
+            result = fn();
+        }
+        return result;
+    };
     S.dispose = function dispose(signal) {
         if (Disposing) {
             signal();
@@ -241,6 +248,7 @@ var __extends = (this && this.__extends) || function (d, b) {
         finally {
             Batching = 0;
             Updating = null;
+            Sampling = false;
             Disposing = false;
         }
     }
@@ -386,7 +394,7 @@ var __extends = (this && this.__extends) || function (d, b) {
             if (disposing) {
                 receiver.detach();
             }
-            else if (!node.static) {
+            else {
                 i = -1, len = receiver.edges.length;
                 while (++i < len) {
                     edge = receiver.edges[i];
@@ -414,9 +422,10 @@ var __extends = (this && this.__extends) || function (d, b) {
     }
     /// update the given node by backtracking its dependencies to clean state and updating from there
     function backtrack(receiver) {
-        var updating = Updating;
+        var updating = Updating, sampling = Sampling;
         backtrack(receiver);
         Updating = updating;
+        Sampling = sampling;
         function backtrack(receiver) {
             var i = -1, len = receiver.edges.length, edge;
             while (++i < len) {
@@ -447,7 +456,6 @@ var __extends = (this && this.__extends) || function (d, b) {
         function ComputationNode(fn, gate) {
             this.fn = fn;
             this.gate = gate;
-            this.static = false;
             this.emitter = null;
             this.receiver = null;
             // children and cleanups generated by last update

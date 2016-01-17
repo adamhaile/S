@@ -1,3 +1,4 @@
+/* globals jasmine */
 describe("S.on(...)", function () {
     it("registers a dependency", function () {
         var d = S.data(1),

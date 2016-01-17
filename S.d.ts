@@ -8,6 +8,9 @@ interface S {
 	// Batching changes
 	event<T>(fn : () => T) : T;
 
+    // Sampling signals
+    sample<T>(fn : () => T) : T;
+
 	// Computation options
 	toplevel() : SOnOption;
 	on(...fns : (() => any)[]) : SAsyncOption;

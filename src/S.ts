@@ -11,6 +11,7 @@ declare var define : (deps: string[], fn: () => S) => void;
         Batching  = 0, // whether we're batching data changes, 0 = no, 1+ = yes, with index to next Batch slot
         Batch     = [] as DataNode<any>[], // batched changes to data nodes
         Updating  = null as ComputationNode<any>, // whether we're updating, null = no, non-null = node being updated
+        Sampling  = false, // whether we're sampling signals, with no dependencies
         Disposing = false, // whether we're disposing
         Disposes  = [] as ComputationNode<any>[]; // disposals to run after current batch of changes finishes 
     
@@ -18,7 +19,8 @@ declare var define : (deps: string[], fn: () => S) => void;
         var options = (this instanceof Builder ? this.options : null) as Options,
             parent  = Updating,
             gate    = (options && options.gate) || (parent && parent.gate) || null,
-            node    = new ComputationNode<T>(fn, gate);
+            _fn     = (options && options.mod) ? options.mod(fn) : fn,
+            node    = new ComputationNode<T>(_fn, gate);
 
         if (parent && (!options || !options.toplevel)) {
             (parent.children || (parent.children = [])).push(node);
@@ -26,13 +28,9 @@ declare var define : (deps: string[], fn: () => S) => void;
             
         Updating = node;
         if (Batching) {
-            if (options && options.static) {
-                options.static();
-                node.static = true;
-            }
-            node.value = fn();
+            node.value = _fn();
         } else {
-            node.value = initialExecution(node, fn, options && options.static);
+            node.value = initialExecution(node, _fn);
         }
         Updating = parent;
 
@@ -44,7 +42,7 @@ declare var define : (deps: string[], fn: () => S) => void;
                 if (node.receiver && node.receiver.marks !== 0 && node.receiver.age === Time) {
                     backtrack(node.receiver);
                 }
-                if (!Updating.static) {
+                if (!Sampling) {
                     if (!node.emitter) node.emitter = new Emitter(node);
                     addEdge(node.emitter, Updating);
                 }
@@ -53,17 +51,13 @@ declare var define : (deps: string[], fn: () => S) => void;
         }
     }
     
-    function initialExecution<T>(node : ComputationNode<T>, fn : () => T, on : () => any) {
+    function initialExecution<T>(node : ComputationNode<T>, fn : () => T) {
         var result : T;
         
         Time++;
         Batching = 1;
             
         try {
-            if (on) {
-                on();
-                node.static = true;
-            }
             result = fn();
     
             if (Batching > 1) resolve(null);
@@ -97,7 +91,7 @@ declare var define : (deps: string[], fn: () => S) => void;
                 }
                 return value;
             } else {
-                if (Updating && !Updating.static) {
+                if (Updating && !Sampling) {
                     if (!node.emitter) node.emitter = new Emitter(null);
                     addEdge(node.emitter, Updating);
                 }
@@ -110,7 +104,7 @@ declare var define : (deps: string[], fn: () => S) => void;
     class Options {
         toplevel = false;
         gate     = null as (node : ComputationNode<any>) => boolean;
-        static   = null as () => any;
+        mod      = null as (fn : () => any) => () => any;
     }
     
     class Builder {
@@ -127,19 +121,22 @@ declare var define : (deps: string[], fn: () => S) => void;
     
     class OnOption extends AsyncOption {
         on(/* ...fns */) {
-            var args;
+            var deps, args;
             
             if (arguments.length === 0) {
-                this.options.static = noop;
+                deps = noop;
             } else if (arguments.length === 1) {
-                this.options.static = arguments[0];
+                deps = arguments[0];
             } else {
                 args = Array.prototype.slice.call(arguments);
-                this.options.static = callAll;
+                deps = callAll;
             }
+            
+            this.options.mod = mod;
             
             return new AsyncOption(this.options);
             
+            function mod(fn) { return function on() { deps(); S.sample(fn); }; }
             function callAll() { for (var i = 0; i < args.length; i++) args[i](); }
             function noop() {}
         }
@@ -209,6 +206,20 @@ declare var define : (deps: string[], fn: () => S) => void;
         return result;
     };
 
+    S.sample = function sample<T>(fn : () => T) : T {
+        var result : T;
+        
+        if (Updating && !Sampling) {
+            Sampling = true;
+            result = fn();
+            Sampling = false;
+        } else {
+            result = fn();
+        }
+        
+        return result;
+    }
+
     S.dispose = function dispose(signal : () => {}) {
         if (Disposing) {
             signal();
@@ -236,6 +247,7 @@ declare var define : (deps: string[], fn: () => S) => void;
         } finally {
             Batching  = 0;
             Updating  = null;
+            Sampling  = false;
             Disposing = false;
         }
     }
@@ -420,7 +432,7 @@ declare var define : (deps: string[], fn: () => S) => void;
         if (receiver) {
             if (disposing) {
                 receiver.detach();
-            } else if (!node.static) {
+            } else {
                 i = -1, len = receiver.edges.length;
                 while (++i < len) {
                     edge = receiver.edges[i];
@@ -451,9 +463,11 @@ declare var define : (deps: string[], fn: () => S) => void;
         
     /// update the given node by backtracking its dependencies to clean state and updating from there
     function backtrack(receiver : Receiver) {
-        var updating = Updating;
+        var updating = Updating,
+            sampling = Sampling;
         backtrack(receiver);
         Updating = updating;
+        Sampling = sampling;
         
         function backtrack(receiver : Receiver) {
             var i       = -1, 
@@ -488,7 +502,6 @@ declare var define : (deps: string[], fn: () => S) => void;
     
     class ComputationNode<T> {
         value     : T;
-        static    = false;
         
         emitter   = null as Emitter;
         receiver  = null as Receiver;
