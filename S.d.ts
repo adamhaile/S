@@ -2,8 +2,9 @@ interface S {
 	// Computation constructor
 	<T>(fn : () => T) : () => T;
 
-	// Data signal constructor
+	// Data signal constructors
 	data<T>(value : T) : (newvalue? : T) => T;
+    sum<T>(value : T) : (update? : (value: T) => T) => T;
 
 	// Batching changes
 	event<T>(fn : () => T) : T;

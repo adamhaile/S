@@ -72,7 +72,7 @@ declare var define : (deps: string[], fn: () => S) => void;
     S.data = function data<T>(value : T) : (value? : T) => T {
         var node = new DataNode(value);
 
-        return function data(value? : T) {
+        return function data(value? : T) : T {
             if (arguments.length > 0) {
                 if (Batching) {
                     if (node.age === Time) { // value has already been set once, check for conflicts
@@ -87,6 +87,35 @@ declare var define : (deps: string[], fn: () => S) => void;
                 } else { // not batching, respond to change now
                     node.age = Time; 
                     node.value = value;
+                    if (node.emitter) handleEvent(node);
+                }
+                return value;
+            } else {
+                if (Updating && !Sampling) {
+                    if (!node.emitter) node.emitter = new Emitter(null);
+                    addEdge(node.emitter, Updating);
+                }
+                return node.value;
+            }
+        }
+    };
+    
+    S.sum = function sum<T>(value : T) : (update? : (value : T) => T) => T {
+        var node = new DataNode(value);
+
+        return function sum(update? : (value : T) => T) : T {
+            if (arguments.length > 0) {
+                if (Batching) {
+                    if (node.age === Time) { // value has already been set once, update pending value
+                        node.pending = update(node.pending);
+                    } else { // add to list of changes
+                        node.age = Time; 
+                        node.pending = update(node.value);
+                        Batch[Batching++] = node;
+                    }
+                } else { // not batching, respond to change now
+                    node.age = Time; 
+                    node.value = update(node.value);
                     if (node.emitter) handleEvent(node);
                 }
                 return value;
@@ -120,25 +149,19 @@ declare var define : (deps: string[], fn: () => S) => void;
     }
     
     class OnOption extends AsyncOption {
-        on(/* ...fns */) {
-            var deps, args;
+        on(s /* ...fns */) {
+            var args;
             
             if (arguments.length === 0) {
-                deps = noop;
+                this.options.mod = function (fn) { return function on() { S.sample(fn); }; };
             } else if (arguments.length === 1) {
-                deps = arguments[0];
+                this.options.mod = function (fn) { return function on() { fn(); S.sample(fn); }; };
             } else {
                 args = Array.prototype.slice.call(arguments);
-                deps = callAll;
+                this.options.mod = function (fn) { return function on() { for (var i = 0; i < args.length; i++) args[i](); S.sample(fn); }; };
             }
             
-            this.options.mod = mod;
-            
             return new AsyncOption(this.options);
-            
-            function mod(fn) { return function on() { deps(); S.sample(fn); }; }
-            function callAll() { for (var i = 0; i < args.length; i++) args[i](); }
-            function noop() {}
         }
     }
 

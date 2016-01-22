@@ -96,6 +96,38 @@ var __extends = (this && this.__extends) || function (d, b) {
             }
         };
     };
+    S.sum = function sum(value) {
+        var node = new DataNode(value);
+        return function sum(update) {
+            if (arguments.length > 0) {
+                if (Batching) {
+                    if (node.age === Time) {
+                        node.pending = update(node.pending);
+                    }
+                    else {
+                        node.age = Time;
+                        node.pending = update(node.value);
+                        Batch[Batching++] = node;
+                    }
+                }
+                else {
+                    node.age = Time;
+                    node.value = update(node.value);
+                    if (node.emitter)
+                        handleEvent(node);
+                }
+                return value;
+            }
+            else {
+                if (Updating && !Sampling) {
+                    if (!node.emitter)
+                        node.emitter = new Emitter(null);
+                    addEdge(node.emitter, Updating);
+                }
+                return node.value;
+            }
+        };
+    };
     /// Options
     var Options = (function () {
         function Options() {
@@ -129,24 +161,20 @@ var __extends = (this && this.__extends) || function (d, b) {
         function OnOption() {
             _super.apply(this, arguments);
         }
-        OnOption.prototype.on = function () {
-            var deps, args;
+        OnOption.prototype.on = function (s /* ...fns */) {
+            var args;
             if (arguments.length === 0) {
-                deps = noop;
+                this.options.mod = function (fn) { return function on() { S.sample(fn); }; };
             }
             else if (arguments.length === 1) {
-                deps = arguments[0];
+                this.options.mod = function (fn) { return function on() { fn(); S.sample(fn); }; };
             }
             else {
                 args = Array.prototype.slice.call(arguments);
-                deps = callAll;
+                this.options.mod = function (fn) { return function on() { for (var i = 0; i < args.length; i++)
+                    args[i](); S.sample(fn); }; };
             }
-            this.options.mod = mod;
             return new AsyncOption(this.options);
-            function mod(fn) { return function on() { deps(); S.sample(fn); }; }
-            function callAll() { for (var i = 0; i < args.length; i++)
-                args[i](); }
-            function noop() { }
         };
         return OnOption;
     })(AsyncOption);
