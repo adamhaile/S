@@ -1,9 +1,4 @@
 /// <reference path="../S.d.ts" />
-var __extends = (this && this.__extends) || function (d, b) {
-    for (var p in b) if (b.hasOwnProperty(p)) d[p] = b[p];
-    function __() { this.constructor = d; }
-    d.prototype = b === null ? Object.create(b) : (__.prototype = b.prototype, new __());
-};
 (function () {
     "use strict";
     // "Globals" used to keep track of current system state
@@ -14,17 +9,17 @@ var __extends = (this && this.__extends) || function (d, b) {
     Sampling = false, // whether we're sampling signals, with no dependencies
     Disposing = false, // whether we're disposing
     Disposes = []; // disposals to run after current batch of changes finishes 
-    var S = function S(fn) {
-        var options = (this instanceof Builder ? this.options : null), parent = Updating, gate = (options && options.gate) || (parent && parent.gate) || null, _fn = (options && options.mod) ? options.mod(fn) : fn, node = new ComputationNode(_fn, gate);
+    var S = function S(fn, options) {
+        var parent = Updating, gate = (options && options.async && Gate(options.async)) || (parent && parent.gate) || null, node = new ComputationNode(fn, gate);
         if (parent && (!options || !options.toplevel)) {
             (parent.children || (parent.children = [])).push(node);
         }
         Updating = node;
         if (Batching) {
-            node.value = _fn();
+            node.value = fn();
         }
         else {
-            node.value = initialExecution(node, _fn);
+            node.value = initialExecution(node, fn);
         }
         Updating = parent;
         return function computation() {
@@ -128,68 +123,15 @@ var __extends = (this && this.__extends) || function (d, b) {
             }
         };
     };
-    /// Options
-    var Options = (function () {
-        function Options() {
-            this.toplevel = false;
-            this.gate = null;
-            this.mod = null;
-        }
-        return Options;
-    })();
-    var Builder = (function () {
-        function Builder(options) {
-            this.options = options;
-        }
-        Builder.prototype.S = function (fn) { return S.call(this, fn); };
-        ;
-        return Builder;
-    })();
-    var AsyncOption = (function (_super) {
-        __extends(AsyncOption, _super);
-        function AsyncOption() {
-            _super.apply(this, arguments);
-        }
-        AsyncOption.prototype.async = function (fn) {
-            this.options.gate = gate(fn);
-            return new Builder(this.options);
-        };
-        return AsyncOption;
-    })(Builder);
-    var OnOption = (function (_super) {
-        __extends(OnOption, _super);
-        function OnOption() {
-            _super.apply(this, arguments);
-        }
-        OnOption.prototype.on = function (s /* ...fns */) {
-            var args;
-            if (arguments.length === 0) {
-                this.options.mod = function (fn) { return function on() { S.sample(fn); }; };
-            }
-            else if (arguments.length === 1) {
-                this.options.mod = function (fn) { return function on() { fn(); S.sample(fn); }; };
-            }
-            else {
-                args = Array.prototype.slice.call(arguments);
-                this.options.mod = function (fn) { return function on() { for (var i = 0; i < args.length; i++)
-                    args[i](); S.sample(fn); }; };
-            }
-            return new AsyncOption(this.options);
-        };
-        return OnOption;
-    })(AsyncOption);
-    S.toplevel = function toplevel() {
-        var options = new Options();
-        options.toplevel = true;
-        return new OnOption(options);
+    S.on = function on(ev, fn, seed, options) {
+        var first = true;
+        return S(on, options);
+        function on() { typeof ev === 'function' ? ev() : multi(); first ? first = false : S.sample(next); return seed; }
+        function next() { seed = fn(seed); }
+        function multi() { for (var i = 0; i < ev.length; i++)
+            ev[i](); }
     };
-    S.on = function on() {
-        return OnOption.prototype.on.apply(new OnOption(new Options()), arguments);
-    };
-    S.async = function async(fn) {
-        return new AsyncOption(new Options()).async(fn);
-    };
-    function gate(scheduler) {
+    function Gate(scheduler) {
         var root = new DataNode(null), scheduled = false, gotime = 0, tick;
         root.emitter = new Emitter(null);
         return function gate(node) {

@@ -15,12 +15,10 @@ declare var define : (deps: string[], fn: () => S) => void;
         Disposing = false, // whether we're disposing
         Disposes  = [] as ComputationNode<any>[]; // disposals to run after current batch of changes finishes 
     
-    var S = <S>function S<T>(fn : () => T) : () => T {
-        var options = (this instanceof Builder ? this.options : null) as Options,
-            parent  = Updating,
-            gate    = (options && options.gate) || (parent && parent.gate) || null,
-            _fn     = (options && options.mod) ? options.mod(fn) : fn,
-            node    = new ComputationNode<T>(_fn, gate);
+    var S = <S>function S<T>(fn : () => T, options? : SOptions) : () => T {
+        var parent  = Updating,
+            gate    = (options && options.async && Gate(options.async)) || (parent && parent.gate) || null,
+            node    = new ComputationNode<T>(fn, gate);
 
         if (parent && (!options || !options.toplevel)) {
             (parent.children || (parent.children = [])).push(node);
@@ -28,9 +26,9 @@ declare var define : (deps: string[], fn: () => S) => void;
             
         Updating = node;
         if (Batching) {
-            node.value = _fn();
+            node.value = fn();
         } else {
-            node.value = initialExecution(node, _fn);
+            node.value = initialExecution(node, fn);
         }
         Updating = parent;
 
@@ -129,57 +127,15 @@ declare var define : (deps: string[], fn: () => S) => void;
         }
     };
     
-    /// Options
-    class Options {
-        toplevel = false;
-        gate     = null as (node : ComputationNode<any>) => boolean;
-        mod      = null as (fn : () => any) => () => any;
-    }
-    
-    class Builder {
-        constructor(public options : Options) {}
-        S(fn) { return S.call(this, fn); };
-    }
-    
-    class AsyncOption extends Builder {
-        async(fn : (go : () => void) => void | (() => void)) { 
-            this.options.gate = gate(fn); 
-            return new Builder(this.options); 
-        }
-    }
-    
-    class OnOption extends AsyncOption {
-        on(s /* ...fns */) {
-            var args;
-            
-            if (arguments.length === 0) {
-                this.options.mod = function (fn) { return function on() { S.sample(fn); }; };
-            } else if (arguments.length === 1) {
-                this.options.mod = function (fn) { return function on() { fn(); S.sample(fn); }; };
-            } else {
-                args = Array.prototype.slice.call(arguments);
-                this.options.mod = function (fn) { return function on() { for (var i = 0; i < args.length; i++) args[i](); S.sample(fn); }; };
-            }
-            
-            return new AsyncOption(this.options);
-        }
-    }
-
-    S.toplevel = function toplevel() {
-        var options = new Options();
-        options.toplevel = true;
-        return new OnOption(options);
-    }
-    
-    S.on = function on(/* args */) {
-        return OnOption.prototype.on.apply(new OnOption(new Options()), arguments);
-    }
-    
-    S.async = function async(fn) { 
-        return new AsyncOption(new Options()).async(fn); 
+    S.on = function on<T>(ev : (() => any) | (() => any)[], fn : (v : T) => T, seed : T, options? : SOptions) {
+        var first = true;
+        return S(on, options);
+        function on() : T { typeof ev === 'function' ? (<() => any>ev)() : multi(); first ? first = false : S.sample(next); return seed; }
+        function next() { seed = fn(seed); }
+        function multi() { for (var i = 0; i < ev.length; i++) ev[i](); }
     };
 
-    function gate(scheduler : (go : () => void) => void | (() => void)) {
+    function Gate(scheduler : (go : () => void) => void | (() => void)) {
         var root      = new DataNode(null),
             scheduled = false,
             gotime    = 0,

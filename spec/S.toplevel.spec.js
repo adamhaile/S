@@ -11,12 +11,12 @@ describe("S.toplevel()", function () {
             // register dependency to outer trigger
             outerTrigger();
             // inner computation
-            S.toplevel().S(function () {
+            S(function () {
                 // register dependency on inner trigger
                 innerTrigger();
                 // count total runs
                 innerRuns++;
-            });
+            }, { toplevel: true });
         });
 
         // at start, we have one inner computation, that's run once

@@ -3,9 +3,9 @@ describe("S.on(...)", function () {
     it("registers a dependency", function () {
         var d = S.data(1),
             spy = jasmine.createSpy(),
-            f = S.on(d).S(function () { spy(); });
+            f = S.on(d, function () { spy(); }, null);
 
-        spy.calls.reset();
+        expect(spy.calls.count()).toBe(0);
 
         d(2);
 
@@ -15,9 +15,9 @@ describe("S.on(...)", function () {
     it("prohibits dynamic dependencies", function () {
         var d = S.data(1),
             spy = jasmine.createSpy("spy"),
-            s = S.on(/* nothing */).S(function () { spy(); return d(); });
+            s = S.on(function () {}, function () { spy(); return d(); }, null);
 
-        spy.calls.reset();
+        expect(spy.calls.count()).toBe(0);
 
         d(2);
 
@@ -29,9 +29,9 @@ describe("S.on(...)", function () {
             b = S.data(2),
             c = S.data(3),
             spy = jasmine.createSpy(),
-            f = S.on(a, b, c).S(function () { spy(); });
+            f = S.on([a, b, c], function () { spy(); }, null);
 
-        spy.calls.reset();
+        expect(spy.calls.count()).toBe(0);
 
         a(4);
         b(5);
