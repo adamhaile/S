@@ -39,4 +39,20 @@ describe("S.on(...)", function () {
 
         expect(spy.calls.count()).toBe(3);
     });
+    
+    it("modifies its accumulator", function () {
+        var a = S.data(1),
+            c = S.on(a, function (sum) { return sum + a(); }, 0);
+            
+        expect(c()).toBe(0);
+        
+        a(2);
+        
+        expect(c()).toBe(2);
+        
+        a(3);
+        a(4);
+        
+        expect(c()).toBe(9);
+    })
 });

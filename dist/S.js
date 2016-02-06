@@ -10,11 +10,12 @@
     Disposing = false, // whether we're disposing
     Disposes = []; // disposals to run after current batch of changes finishes 
     var S = function S(fn, options) {
-        var parent = Updating, gate = (options && options.async && Gate(options.async)) || (parent && parent.gate) || null, node = new ComputationNode(fn, gate);
+        var parent = Updating, sampling = Sampling, gate = (options && options.async && Gate(options.async)) || (parent && parent.gate) || null, node = new ComputationNode(fn, gate);
         if (parent && (!options || !options.toplevel)) {
             (parent.children || (parent.children = [])).push(node);
         }
         Updating = node;
+        Sampling = false;
         if (Batching) {
             node.value = fn();
         }
@@ -22,6 +23,7 @@
             node.value = initialExecution(node, fn);
         }
         Updating = parent;
+        Sampling = sampling;
         return function computation() {
             if (Disposing) {
                 if (Batching)
@@ -53,6 +55,7 @@
         }
         finally {
             Updating = null;
+            Sampling = false;
             Batching = 0;
         }
         return result;
@@ -124,10 +127,19 @@
         };
     };
     S.on = function on(ev, fn, seed, options) {
-        var first = true;
+        var first = true, signal = typeof ev === 'function' ? ev : multi;
         return S(on, options);
-        function on() { typeof ev === 'function' ? ev() : multi(); first ? first = false : S.sample(next); return seed; }
-        function next() { seed = fn(seed); }
+        function on() {
+            signal();
+            if (first)
+                first = false;
+            else {
+                Sampling = true;
+                seed = fn(seed);
+                Sampling = false;
+            }
+            return seed;
+        }
         function multi() { for (var i = 0; i < ev.length; i++)
             ev[i](); }
     };
@@ -393,6 +405,7 @@
     /// update the given node by backtracking its dependencies to clean state and updating from there
     function backtrack(receiver) {
         var updating = Updating, sampling = Sampling;
+        Sampling = false;
         backtrack(receiver);
         Updating = updating;
         Sampling = sampling;
@@ -467,7 +480,6 @@
             this.id = Emitter.count++;
             this.emitting = false;
             this.edges = [];
-            this.index = [];
             this.active = 0;
             this.edgesAge = 0;
         }

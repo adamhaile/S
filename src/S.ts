@@ -17,6 +17,7 @@ declare var define : (deps: string[], fn: () => S) => void;
     
     var S = <S>function S<T>(fn : () => T, options? : SOptions) : () => T {
         var parent  = Updating,
+            sampling = Sampling,
             gate    = (options && options.async && Gate(options.async)) || (parent && parent.gate) || null,
             node    = new ComputationNode<T>(fn, gate);
 
@@ -25,12 +26,14 @@ declare var define : (deps: string[], fn: () => S) => void;
         }
             
         Updating = node;
+        Sampling = false;
         if (Batching) {
             node.value = fn();
         } else {
             node.value = initialExecution(node, fn);
         }
         Updating = parent;
+        Sampling = sampling;
 
         return function computation() {
             if (Disposing) {
@@ -61,6 +64,7 @@ declare var define : (deps: string[], fn: () => S) => void;
             if (Batching > 1) resolve(null);
         } finally {
             Updating = null;
+            Sampling = false;
             Batching = 0;
         }
         
@@ -128,10 +132,22 @@ declare var define : (deps: string[], fn: () => S) => void;
     };
     
     S.on = function on<T>(ev : (() => any) | (() => any)[], fn : (v : T) => T, seed : T, options? : SOptions) {
-        var first = true;
+        var first = true,
+            signal = typeof ev === 'function' ? <() => any>ev : multi;
+            
         return S(on, options);
-        function on() : T { typeof ev === 'function' ? (<() => any>ev)() : multi(); first ? first = false : S.sample(next); return seed; }
-        function next() { seed = fn(seed); }
+        
+        function on() : T { 
+            signal(); 
+            if (first) first = false;
+            else {
+                Sampling = true;
+                seed = fn(seed);
+                Sampling = false;
+            }
+            return seed;
+        }
+        
         function multi() { for (var i = 0; i < ev.length; i++) ev[i](); }
     };
 
@@ -444,6 +460,7 @@ declare var define : (deps: string[], fn: () => S) => void;
     function backtrack(receiver : Receiver) {
         var updating = Updating,
             sampling = Sampling;
+        Sampling = false;
         backtrack(receiver);
         Updating = updating;
         Sampling = sampling;
@@ -530,7 +547,6 @@ declare var define : (deps: string[], fn: () => S) => void;
         id       = Emitter.count++;
         emitting = false;
         edges    = [] as Edge[];
-        index    = [] as Edge[];
         active   = 0;
         edgesAge = 0;
         
