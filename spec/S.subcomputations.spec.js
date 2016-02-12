@@ -66,10 +66,10 @@ describe("S() with subcomputations", function () {
         beforeEach(function () {
             d = S.data(1);
             go = null;
-            f = S(function () {
+            f = S.async(function (g) { go = g; }).S(function () {
                 g = S(function () {
                     return d();
-                }, { async: function (g) { go = g; } });
+                });
             });
         });
 

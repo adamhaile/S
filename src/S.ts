@@ -15,12 +15,17 @@ declare var define : (deps: string[], fn: () => S) => void;
         Disposing = false, // whether we're disposing
         Disposes  = [] as ComputationNode<any>[]; // disposals to run after current batch of changes finishes 
     
-    var S = <S>function S<T>(fn : () => T, options? : SOptions) : () => T {
-        var parent  = Updating,
+    var S = <S>function S<T>(fn : () => T, seed? : T, state? : any) : () => T {
+        var options = (this instanceof Builder ? this.options : null) as Options,
+            parent  = Updating,
             sampling = Sampling,
             gate    = (options && options.async && Gate(options.async)) || (parent && parent.gate) || null,
             node    = new ComputationNode<T>(fn, gate);
 
+        fn = arguments.length === 1 ? fn :
+            arguments.length === 2 ? reducer(fn, seed) :
+            reducer2(fn, seed, state);
+            
         if (parent && (!options || !options.toplevel)) {
             (parent.children || (parent.children = [])).push(node);
         }
@@ -71,6 +76,44 @@ declare var define : (deps: string[], fn: () => S) => void;
         return result;
     }
         
+    S.on = function on<T>(ev : (() => any) | (() => any)[], fn : () => T, seed? : T, state? : any) {
+        var builder = (this instanceof Builder ? this : null) as Builder,
+            first = true,
+            signal = typeof ev === 'function' ? <() => any>ev : multi;
+        
+        fn = arguments.length === 1 ? fn :
+            arguments.length === 2 ? reducer(fn, seed) :
+            reducer2(fn, seed, state);
+        
+        return builder ? builder.S(on) : S(on);
+        
+        function on() : T { 
+            var result = seed;
+            signal(); 
+            if (first) first = false;
+            else {
+                Sampling = true;
+                result = fn();
+                Sampling = false;
+            }
+            return result;
+        }
+        
+        function multi() { for (var i = 0; i < ev.length; i++) ev[i](); }
+    };
+    
+    function reducer<T>(fn : (v: T) => T, seed : T) : () => T {
+        return function reduce() {
+            return seed = fn(seed);
+        };
+    }
+    
+    function reducer2<T, U>(fn : (v: T, S : U) => T, seed : T, state : U) : () => T {
+        return function reduce2() {
+            return seed = fn(seed, state);
+        }
+    }
+
     S.data = function data<T>(value : T) : (value? : T) => T {
         var node = new DataNode(value);
 
@@ -130,25 +173,37 @@ declare var define : (deps: string[], fn: () => S) => void;
             }
         }
     };
+        
+    /// Options
+    class Options {
+        toplevel = false;
+        async     = null as (go : () => void) => () => void;
+    }
     
-    S.on = function on<T>(ev : (() => any) | (() => any)[], fn : (v : T) => T, seed : T, options? : SOptions) {
-        var first = true,
-            signal = typeof ev === 'function' ? <() => any>ev : multi;
-            
-        return S(on, options);
-        
-        function on() : T { 
-            signal(); 
-            if (first) first = false;
-            else {
-                Sampling = true;
-                seed = fn(seed);
-                Sampling = false;
-            }
-            return seed;
+    class Builder {
+        constructor(public options : Options) {}
+        S : any;
+        on : any;
+    }
+    
+    Builder.prototype.S = S;
+    Builder.prototype.on = S.on;
+    
+    class AsyncOption extends Builder {
+        async(fn : (go : () => void) => () => void) { 
+            this.options.async = fn; 
+            return new Builder(this.options); 
         }
-        
-        function multi() { for (var i = 0; i < ev.length; i++) ev[i](); }
+    }
+
+    S.toplevel = function toplevel() {
+        var options = new Options();
+        options.toplevel = true;
+        return new AsyncOption(options);
+    }
+    
+    S.async = function async(fn) { 
+        return new AsyncOption(new Options()).async(fn); 
     };
 
     function Gate(scheduler : (go : () => void) => void | (() => void)) {

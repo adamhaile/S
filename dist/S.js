@@ -1,4 +1,9 @@
 /// <reference path="../S.d.ts" />
+var __extends = (this && this.__extends) || function (d, b) {
+    for (var p in b) if (b.hasOwnProperty(p)) d[p] = b[p];
+    function __() { this.constructor = d; }
+    d.prototype = b === null ? Object.create(b) : (__.prototype = b.prototype, new __());
+};
 (function () {
     "use strict";
     // "Globals" used to keep track of current system state
@@ -9,8 +14,11 @@
     Sampling = false, // whether we're sampling signals, with no dependencies
     Disposing = false, // whether we're disposing
     Disposes = []; // disposals to run after current batch of changes finishes 
-    var S = function S(fn, options) {
-        var parent = Updating, sampling = Sampling, gate = (options && options.async && Gate(options.async)) || (parent && parent.gate) || null, node = new ComputationNode(fn, gate);
+    var S = function S(fn, seed, state) {
+        var options = (this instanceof Builder ? this.options : null), parent = Updating, sampling = Sampling, gate = (options && options.async && Gate(options.async)) || (parent && parent.gate) || null, node = new ComputationNode(fn, gate);
+        fn = arguments.length === 1 ? fn :
+            arguments.length === 2 ? reducer(fn, seed) :
+                reducer2(fn, seed, state);
         if (parent && (!options || !options.toplevel)) {
             (parent.children || (parent.children = [])).push(node);
         }
@@ -59,6 +67,37 @@
             Batching = 0;
         }
         return result;
+    }
+    S.on = function on(ev, fn, seed, state) {
+        var builder = (this instanceof Builder ? this : null), first = true, signal = typeof ev === 'function' ? ev : multi;
+        fn = arguments.length === 1 ? fn :
+            arguments.length === 2 ? reducer(fn, seed) :
+                reducer2(fn, seed, state);
+        return builder ? builder.S(on) : S(on);
+        function on() {
+            var result = seed;
+            signal();
+            if (first)
+                first = false;
+            else {
+                Sampling = true;
+                result = fn();
+                Sampling = false;
+            }
+            return result;
+        }
+        function multi() { for (var i = 0; i < ev.length; i++)
+            ev[i](); }
+    };
+    function reducer(fn, seed) {
+        return function reduce() {
+            return seed = fn(seed);
+        };
+    }
+    function reducer2(fn, seed, state) {
+        return function reduce2() {
+            return seed = fn(seed, state);
+        };
     }
     S.data = function data(value) {
         var node = new DataNode(value);
@@ -126,22 +165,40 @@
             }
         };
     };
-    S.on = function on(ev, fn, seed, options) {
-        var first = true, signal = typeof ev === 'function' ? ev : multi;
-        return S(on, options);
-        function on() {
-            signal();
-            if (first)
-                first = false;
-            else {
-                Sampling = true;
-                seed = fn(seed);
-                Sampling = false;
-            }
-            return seed;
+    /// Options
+    var Options = (function () {
+        function Options() {
+            this.toplevel = false;
+            this.async = null;
         }
-        function multi() { for (var i = 0; i < ev.length; i++)
-            ev[i](); }
+        return Options;
+    })();
+    var Builder = (function () {
+        function Builder(options) {
+            this.options = options;
+        }
+        return Builder;
+    })();
+    Builder.prototype.S = S;
+    Builder.prototype.on = S.on;
+    var AsyncOption = (function (_super) {
+        __extends(AsyncOption, _super);
+        function AsyncOption() {
+            _super.apply(this, arguments);
+        }
+        AsyncOption.prototype.async = function (fn) {
+            this.options.async = fn;
+            return new Builder(this.options);
+        };
+        return AsyncOption;
+    })(Builder);
+    S.toplevel = function toplevel() {
+        var options = new Options();
+        options.toplevel = true;
+        return new AsyncOption(options);
+    };
+    S.async = function async(fn) {
+        return new AsyncOption(new Options()).async(fn);
     };
     function Gate(scheduler) {
         var root = new DataNode(null), scheduled = false, gotime = 0, tick;
