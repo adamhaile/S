@@ -4,7 +4,7 @@ describe("S() with subcomputations", function () {
         var d = S.data(1),
             spy = jasmine.createSpy("spy"),
             gspy = jasmine.createSpy("gspy"),
-            f = S(function () { spy(); g = S(function () { gspy(); return d(); }); })
+            f = S(function () { spy(); var g = S(function () { gspy(); return d(); }); })
 
         spy.calls.reset();
         gspy.calls.reset();
@@ -60,17 +60,17 @@ describe("S() with subcomputations", function () {
         });
     });
 
-    describe("with child and gate", function () {
+    describe("with child and async", function () {
         var d, f, g, go;
 
         beforeEach(function () {
             d = S.data(1);
             go = null;
-            f = S.async(function (g) { go = g; }).S(function () {
+            f = S(S.async(function (g) { go = g; })(function () {
                 g = S(function () {
                     return d();
                 });
-            });
+            }));
         });
 
         it("applies gate to child", function () {

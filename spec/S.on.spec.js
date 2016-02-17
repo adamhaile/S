@@ -29,7 +29,7 @@ describe("S.on(...)", function () {
             b = S.data(2),
             c = S.data(3),
             spy = jasmine.createSpy(),
-            f = S.on([a, b, c], function () { spy(); }, null);
+            f = S.on(function () { a(); b(); c(); }, function () { spy(); }, null);
 
         expect(spy.calls.count()).toBe(0);
 
