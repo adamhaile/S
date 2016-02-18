@@ -1,6 +1,6 @@
 /* globals S, describe, it, expect */
 
-describe("S.toplevel()", function () {
+describe("S.orphan()", function () {
     it("allows subcomputations to escape their parents", function () {
         var outerTrigger = S.data(null),
             innerTrigger = S.data(null),
@@ -11,12 +11,12 @@ describe("S.toplevel()", function () {
             // register dependency to outer trigger
             outerTrigger();
             // inner computation
-            S(S.toplevel(function () {
+            S.orphan().S(function () {
                 // register dependency on inner trigger
                 innerTrigger();
                 // count total runs
                 innerRuns++;
-            }));
+            });
         });
 
         // at start, we have one inner computation, that's run once
@@ -28,7 +28,7 @@ describe("S.toplevel()", function () {
 
         expect(innerRuns).toBe(3);
 
-        // now trigger inner signal: three toplevel computations should equal three runs
+        // now trigger inner signal: three orphaned computations should equal three runs
         innerRuns = 0;
         innerTrigger(null);
 

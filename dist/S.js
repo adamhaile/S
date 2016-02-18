@@ -10,19 +10,20 @@
     Disposing = false, // whether we're disposing
     Disposes = [], // disposals to run after current batch of changes finishes
     Hold = {}, // unique value returned by functions that are holding their current value
-    Toplevel = false; // whether a new computation should be promoted to top level 
+    Orphan = false;
     var S = function S(fn) {
-        var parent = Updating, sampling = Sampling, trait = parent ? parent.trait : null, _fn = trait ? trait(fn) : fn, node = new ComputationNode(_fn, trait), value;
+        var parent = Updating, sampling = Sampling, node = new ComputationNode();
         Updating = node;
         Sampling = false;
-        Toplevel = false;
-        value = Batching ? _fn() : initialExecution(node, _fn);
+        Orphan = false;
+        if (parent && parent.trait)
+            fn = parent.trait(fn);
+        node.fn = this instanceof Builder ? this.mod(fn) : fn;
+        if (parent && !Orphan)
+            (parent.children || (parent.children = [])).push(node);
+        var value = Batching ? node.fn() : initialExecution(node);
         if (value !== Hold)
             node.value = value;
-        if (Toplevel)
-            Toplevel = false;
-        else if (parent)
-            (parent.children || (parent.children = [])).push(node);
         Updating = parent;
         Sampling = sampling;
         return function computation() {
@@ -45,12 +46,12 @@
             return node.value;
         };
     };
-    function initialExecution(node, fn) {
+    function initialExecution(node) {
         var result;
         Time++;
         Batching = 1;
         try {
-            result = fn();
+            result = node.fn();
             if (Batching > 1)
                 resolve(null);
         }
@@ -61,15 +62,22 @@
         }
         return result;
     }
-    S.on = function on(ev, fn, seed, state) {
+    S.on = function on(ev, fn, seed) {
         var first = true;
-        fn = arguments.length <= 2 ? fn :
-            arguments.length === 3 ? reduce(seed)(fn) :
-                reduce2(seed, state)(fn);
         return S(on);
         function on() {
             ev();
-            return first ? (first = false, seed) : S.sample(fn);
+            if (first)
+                first = false;
+            else if (Updating && !Sampling) {
+                Sampling = true;
+                seed = fn(seed);
+                Sampling = false;
+            }
+            else {
+                seed = fn(seed);
+            }
+            return seed;
         }
     };
     S.data = function data(value) {
@@ -168,61 +176,42 @@
         return result;
     };
     S.hold = function hold() { return Hold; };
-    S.trait = function trait(mod) {
-        return function (fn) {
-            var first = true;
-            fn = mod(fn);
-            return function trait() {
-                if (first && Updating) {
-                    Updating.trait = Updating.trait ? compose(Updating.trait, mod) : mod;
-                    first = false;
-                }
-                return fn();
-            };
+    /// Builder
+    var Builder = (function () {
+        function Builder(prev, mod) {
+            this.mod = prev ? compose(prev.mod, mod) : mod;
+        }
+        Builder.prototype.async = function (scheduler) {
+            return new Builder(this, async(scheduler));
         };
+        return Builder;
+    })();
+    Builder.prototype.S = S;
+    Builder.prototype.on = S.on;
+    S.orphan = function orphan() {
+        return new Builder(null, function orphan(fn) {
+            Orphan = true;
+            return fn;
+        });
     };
-    S.toplevel = function toplevel(fn) {
-        return function toplevel() {
-            var result = fn();
-            Toplevel = true;
-            return result;
-        };
+    S.async = function (fn) {
+        return new Builder(null, async(fn));
     };
-    S.async = function async(scheduler) {
+    function async(scheduler) {
         var sentinel = S.data(false), tick = scheduler(go);
-        return S.trait(async);
-        function async(fn) {
+        return function asyncmod(fn) {
             var first = true;
+            if (Updating)
+                Updating.trait = asyncmod;
             return function async() {
                 return first ? (first = false, fn()) :
                     S.sample(sentinel) ? (sentinel(false), fn()) :
                         (sentinel(), tick && tick(), S.hold());
             };
-        }
+        };
         function go() {
             sentinel(true);
         }
-    };
-    function compose(a, b) {
-        return function compose(fn) { return a(b(fn)); };
-    }
-    function reduce(seed) {
-        var _seed = seed;
-        return function reduce(fn) {
-            var seed = _seed;
-            return function reduce() {
-                return seed = fn(seed);
-            };
-        };
-    }
-    function reduce2(seed, state) {
-        var _seed = seed;
-        return function (fn) {
-            var seed = _seed;
-            return function reduce2() {
-                return seed = fn(seed, state);
-            };
-        };
     }
     S.dispose = function dispose(signal) {
         if (Disposing) {
@@ -432,9 +421,7 @@
         return DataNode;
     })();
     var ComputationNode = (function () {
-        function ComputationNode(fn, trait) {
-            this.fn = fn;
-            this.trait = trait;
+        function ComputationNode() {
             this.age = Time;
             this.marks = 0;
             this.updates = 0;

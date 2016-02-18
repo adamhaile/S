@@ -15,26 +15,25 @@ declare var define : (deps: string[], fn: () => S) => void;
         Disposing = false, // whether we're disposing
         Disposes  = [] as ComputationNode<any>[], // disposals to run after current batch of changes finishes
         Hold      = {}, // unique value returned by functions that are holding their current value
-        Toplevel  = false; // whether a new computation should be promoted to top level 
+        Orphan    = false;
     
     var S = <S>function S<T>(fn : () => T) : () => T {
         var parent   = Updating,
             sampling = Sampling,
-            trait    = parent ? parent.trait : null,
-            _fn      = trait ? trait(fn) : fn,
-            node     = new ComputationNode<T>(_fn, trait),
-            value    : T;
+            node     = new ComputationNode<T>();
             
         Updating = node;
         Sampling = false;
-        Toplevel = false;
+        Orphan = false;
         
-        value = Batching ? _fn() : initialExecution(node, _fn);
+        if (parent && parent.trait) fn = parent.trait(fn);
+        node.fn = this instanceof Builder ? this.mod(fn) : fn;
+        
+        if (parent && !Orphan) (parent.children || (parent.children = [])).push(node);
+        
+        var value = Batching ? node.fn() : initialExecution(node);
         
         if (value !== Hold) node.value = value;
-        
-        if (Toplevel) Toplevel = false;
-        else if (parent) (parent.children || (parent.children = [])).push(node);
         
         Updating = parent;
         Sampling = sampling;
@@ -56,14 +55,14 @@ declare var define : (deps: string[], fn: () => S) => void;
         }
     }
     
-    function initialExecution<T>(node : ComputationNode<T>, fn : () => T) {
+    function initialExecution<T>(node : ComputationNode<T>) {
         var result : T;
         
         Time++;
         Batching = 1;
             
         try {
-            result = fn();
+            result = node.fn();
     
             if (Batching > 1) resolve(null);
         } finally {
@@ -75,18 +74,22 @@ declare var define : (deps: string[], fn: () => S) => void;
         return result;
     }
         
-    S.on = function on<T>(ev : () => any, fn : () => T, seed? : T, state? : any) {
+    S.on = function on<T>(ev : () => any, fn : (v? : T) => T, seed? : T) {
         var first = true;
-        
-        fn = arguments.length <= 2 ? fn :
-            arguments.length === 3 ? reduce(seed)(fn) :
-            reduce2(seed, state)(fn);
         
         return S(on);
         
         function on() : T { 
             ev(); 
-            return first ? (first = false, seed) : S.sample(fn);
+            if (first) first = false;
+            else if (Updating && !Sampling) {
+                Sampling = true;
+                seed = fn(seed);
+                Sampling = false;
+            } else {
+                seed = fn(seed);
+            }
+            return seed;
         }
     };
 
@@ -184,71 +187,54 @@ declare var define : (deps: string[], fn: () => S) => void;
     }
     
     S.hold = function hold() { return Hold; };
-
-    S.trait = function trait<T>(mod : (fn : () => T) => () => T) : (fn : () => T) => () => T {
-        return function (fn) {
-            var first = true;
-            fn = mod(fn);
-            return function trait() {
-                if (first && Updating) {
-                    Updating.trait = Updating.trait ? compose(Updating.trait, mod) : mod;
-                    first = false;
-                } 
-                return fn();
-            }
+    
+    /// Builder
+    class Builder<T> {
+        mod : (fn : () => T) => () => T;
+        
+        constructor(prev : Builder<T>, mod : (fn : () => T) => () => T) {
+            this.mod = prev ? compose(prev.mod, mod) : mod;
+        }
+        
+        S : any;
+        on : any;
+        
+        async<T>(scheduler : (go : () => T) => () => T) { 
+            return new Builder(this, async(scheduler)); 
         }
     }
     
-    S.toplevel = function toplevel<T>(fn : () => T) : () => T {
-        return function toplevel() {
-            var result = fn();
-            Toplevel = true;
-            return result;
-        }
+    Builder.prototype.S = S;
+    Builder.prototype.on = S.on;
+
+    S.orphan = function orphan() {
+        return new Builder(null, function orphan(fn) {
+            Orphan = true;
+            return fn;
+        });
+    }
+    
+    S.async = function (fn) { 
+        return new Builder(null, async(fn)); 
     };
 
-    S.async = function async<T>(scheduler : (go : () => void) => () => void) : (fn : () => T) => () => T {
+    function async<T>(scheduler : (go : () => void) => () => void) : (fn : () => T) => () => T {
         var sentinel = S.data(false),
             tick = scheduler(go);
             
-        return S.trait<T>(async);
-        
-        function async(fn) {
+        return function asyncmod(fn) {
             var first = true;
+            if (Updating) Updating.trait = asyncmod;
             return function async() {
                 return first ? (first = false, fn()) :
                     S.sample(sentinel) ? (sentinel(false), fn()) : 
-                    (sentinel(), tick && tick(), S.hold());
+                    (sentinel(), tick && tick(), <T>S.hold());
             }
         }
         
         function go() {
             sentinel(true);
         }
-    }
-    
-    function compose(a, b) {
-        return function compose(fn) { return a(b(fn)); } 
-    }
-    
-    function reduce<T>(seed : T) : (fn : (v: T) => T) => () => T {
-        var _seed = seed;
-        return function reduce(fn) {
-            var seed = _seed;
-            return function reduce() {
-                return seed = fn(seed);
-            };
-        };
-    }
-    
-    function reduce2<T, U>(seed : T, state : U) : (fn : (v: T, S : U) => T) => () => T {
-        var _seed = seed;
-        return function (fn) {
-            var seed = _seed;
-            return function reduce2() {
-                return seed = fn(seed, state);
-            };
-        };
     }
 
     S.dispose = function dispose(signal : () => {}) {
@@ -488,7 +474,9 @@ declare var define : (deps: string[], fn: () => S) => void;
     }
     
     class ComputationNode<T> {
-        value     : T;
+        value  : T;
+        fn     : () => T;
+        trait  : (fn : () => any) => () => any;
         
         age     = Time;
         marks   = 0;
@@ -500,11 +488,6 @@ declare var define : (deps: string[], fn: () => S) => void;
         // children and cleanups generated by last update
         children  = null as ComputationNode<any>[];
         cleanups  = null as ((final : boolean) => void)[];
-        
-        constructor(
-            public fn   : () => T|{}, 
-            public trait : (fn : () => any) => () => any
-        )  { }
         
         // dispose node: free memory, dispose children, cleanup, detach from graph
         dispose() {
