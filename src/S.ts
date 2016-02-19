@@ -283,8 +283,8 @@ declare var define : (deps: string[], fn: () => S) => void;
         if (change) {
             Time++;
             
-            propagate(mark, change.emitter);
-            propagateMarked(update, change.emitter);
+            propagate(mark, change.emitter, null);
+            propagateMarked(update, change.emitter, null);
             
             if (Disposes.length) {
                 for (i = 0; i < Disposes.length; i++) Disposes[i].dispose();
@@ -305,13 +305,13 @@ declare var define : (deps: string[], fn: () => S) => void;
                 change.value = change.pending;
                 change.pending = undefined;
                 
-                propagate(mark, change.emitter);
+                propagate(mark, change.emitter, null);
             }
             
             // run all updates in batch
             for (i = 1; i < len; i++) {
                 change = batch[i];
-                propagateMarked(update, change.emitter);
+                propagateMarked(update, change.emitter, null);
                 batch[i] = null;
             }
             
@@ -342,13 +342,7 @@ declare var define : (deps: string[], fn: () => S) => void;
             node.marks   = 1;
             node.updates = 0;
             
-            if (children) {
-                for (var i = 0; i < children.length; i++) {
-                    mark(children[i]);
-                }
-            }
-            
-            propagate(mark, node.emitter);
+            propagate(mark, node.emitter, node.children);
         }
     }
     
@@ -358,18 +352,26 @@ declare var define : (deps: string[], fn: () => S) => void;
         
         if (node.marks != node.updates) return;
         
-        var receiver  = node.receiver;
+        var receiver  = node.receiver,
+            priorchildren = node.children;
         
         Updating = node;
 
         node.cleanup(false);
+        node.children = null;
         
         var value = node.fn();
         
         if (value !== Hold) {
             node.value = value;
             
-            propagateMarked(update, node.emitter);
+            if (priorchildren) {
+                for (var i = 0; i < priorchildren.length; i++) {
+                    priorchildren[i].dispose();
+                }
+            }
+            
+            propagateMarked(update, node.emitter, null);
             
             if (receiver) {
                 for (var i = 0; i < receiver.edges.length; i++) {
@@ -382,7 +384,8 @@ declare var define : (deps: string[], fn: () => S) => void;
                 if (receiver.fragmented()) receiver.compact();
             }
         } else {
-            propagateMarked(clear, node.emitter);
+            node.children = priorchildren ? node.children ? priorchildren.concat(node.children) : priorchildren : node.children;
+            propagateMarked(clear, node.emitter, priorchildren);
         }
     }
     
@@ -391,13 +394,7 @@ declare var define : (deps: string[], fn: () => S) => void;
         if (node.marks === node.updates) {
             if (node.marks > 0) update(node);
             else {
-                propagateMarked(clear, node.emitter);
-                
-                if (node.children) {
-                    for (var i = 0; i < node.children.length; i++) {
-                        clear(node.children[i]);
-                    }
-                }
+                propagateMarked(clear, node.emitter, node.children);
             }
         }
     }
@@ -422,20 +419,27 @@ declare var define : (deps: string[], fn: () => S) => void;
                     var back = edge.from.node;
                     if (!back) {
                         // reached data node, start updating
-                        propagateMarked(update, edge.from);
+                        propagateMarked(update, edge.from, null);
+                    } else if (back.age !== Time) {
+                        // stale mark, ignore
+                        continue;
                     } else if (back.marks === back.updates) {
                         // reached clean computation, start updating
                         update(back);
                     } else {
-                        // still working backwards through the marked nodes, go back further
+                        // still working backwards through marked nodes, go back further
                         backtrack(back);
                     }
                 }
             }
+            
+            if (node.parent && node.parent.age === Time && node.parent.marks !== node.parent.updates) {
+                backtrack(node.parent);
+            }
         }
     }
     
-    function propagate(op : (node : ComputationNode<any>) => void, emitter: Emitter) : void {
+    function propagate(op : (node : ComputationNode<any>) => void, emitter: Emitter, children : ComputationNode<any>[]) : void {
         if (!emitter) return;
         var edges = emitter.edges;
         emitter.emitting = true;
@@ -446,10 +450,15 @@ declare var define : (deps: string[], fn: () => S) => void;
                 op(edge.to.node);
             }
         }
+        if (children) {
+            for (i = 0; i < children.length; i++) {
+                op(children[i]);
+            }
+        }
         emitter.emitting = false;
     }
     
-    function propagateMarked(op : (node : ComputationNode<any>) => void, emitter: Emitter) : void {
+    function propagateMarked(op : (node : ComputationNode<any>) => void, emitter: Emitter, children : ComputationNode<any>[]) : void {
         if (!emitter) return;
         var edges = emitter.edges;
         emitter.emitting = true;
@@ -458,6 +467,11 @@ declare var define : (deps: string[], fn: () => S) => void;
             if (edge && edge.marked) {
                 edge.marked = false;
                 op(edge.to.node);
+            }
+        }
+        if (children) {
+            for (i = 0; i < children.length; i++) {
+                op(children[i]);
             }
         }
         emitter.emitting = false;
@@ -498,28 +512,28 @@ declare var define : (deps: string[], fn: () => S) => void;
         dispose() {
             if (!this.fn) return;
             
-            this.fn    = null;
-            this.trait = null;
+            this.fn     = null;
+            this.parent = null;
+            this.trait  = null;
             
             if (this.age === Time && this.marks !== this.updates) {
-                propagateMarked(clear, this.emitter);
+                propagateMarked(clear, this.emitter, null);
             }
             
             this.cleanup(true);
-            if (this.receiver) this.receiver.detach();
-            if (this.emitter) this.emitter.detach();
-        }
-        
-        cleanup(final : boolean) {
             if (this.children) {
                 for (var i = 0; i < this.children.length; i++) {
                     this.children[i].dispose();
                 }
                 this.children = null;
             }
-            
+            if (this.receiver) this.receiver.detach();
+            if (this.emitter) this.emitter.detach();
+        }
+        
+        cleanup(final : boolean) {
             if (this.cleanups) {
-                for (i = 0; i < this.cleanups.length; i++) {
+                for (var i = 0; i < this.cleanups.length; i++) {
                     this.cleanups[i](final);
                 }
                 this.cleanups = null;
