@@ -127,4 +127,22 @@ describe("S() with subcomputations", function () {
             expect(d().e()).toBe(3);
         });
     });
+    
+    describe("whose parent holds its value", function () {
+        it("updates successfully", function () {
+            var a = S.data(1),
+                c = null,
+                b = S(function () { 
+                        if (a() === 2) return S.hold();
+                        c = S(function () { return a(); });
+                    }),
+                d = S(function () { return a() + c(); });
+                
+            expect(d()).toBe(2);
+            
+            a(2);
+            
+            expect(d()).toBe(4);
+        });
+    });
 });
