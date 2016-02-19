@@ -9,23 +9,23 @@
     Sampling = false, // whether we're sampling signals, with no dependencies
     Disposing = false, // whether we're disposing
     Disposes = [], // disposals to run after current batch of changes finishes
-    Hold = {}, // unique value returned by functions that are holding their current value
-    Orphan = false;
+    Hold = {}; // unique value returned by functions that are holding their current value
     var S = function S(fn) {
-        var parent = Updating, sampling = Sampling, node = new ComputationNode();
+        var _updating = Updating, _sampling = Sampling, node = new ComputationNode(_updating, _updating && _updating.trait);
         Updating = node;
         Sampling = false;
-        Orphan = false;
-        if (parent && parent.trait)
-            fn = parent.trait(fn);
-        node.fn = this instanceof Builder ? this.mod(fn) : fn;
-        if (parent && !Orphan)
-            (parent.children || (parent.children = [])).push(node);
+        if (this instanceof Builder)
+            fn = this.mod(fn);
+        if (node.trait)
+            fn = node.trait(fn);
+        node.fn = fn;
+        if (node.parent)
+            (node.parent.children || (node.parent.children = [])).push(node);
         var value = Batching ? node.fn() : initialExecution(node);
         if (value !== Hold)
             node.value = value;
-        Updating = parent;
-        Sampling = sampling;
+        Updating = _updating;
+        Sampling = _sampling;
         return function computation() {
             if (Disposing) {
                 if (Batching)
@@ -179,18 +179,19 @@
     /// Builder
     var Builder = (function () {
         function Builder(prev, mod) {
-            this.mod = prev ? compose(prev.mod, mod) : mod;
+            this.mod = prev && prev.mod ? compose(prev.mod, mod) : mod;
         }
         Builder.prototype.async = function (scheduler) {
             return new Builder(this, async(scheduler));
         };
         return Builder;
     })();
+    function compose(a, b) { return function compose(x) { return a(b(x)); }; }
     Builder.prototype.S = S;
     Builder.prototype.on = S.on;
     S.orphan = function orphan() {
         return new Builder(null, function orphan(fn) {
-            Orphan = true;
+            Updating.parent = null;
             return fn;
         });
     };
@@ -421,7 +422,9 @@
         return DataNode;
     })();
     var ComputationNode = (function () {
-        function ComputationNode() {
+        function ComputationNode(parent, trait) {
+            this.parent = parent;
+            this.trait = trait;
             this.age = Time;
             this.marks = 0;
             this.updates = 0;
