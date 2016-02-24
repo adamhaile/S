@@ -76,7 +76,7 @@ declare var define : (deps: string[], fn: () => S) => void;
     S.on = function on<T>(ev : () => any, fn : (v? : T) => T, seed? : T) {
         var first = true;
         
-        return S(on);
+        return this instanceof Builder ? this.S(on) : S(on);
         
         function on() : T { 
             ev(); 

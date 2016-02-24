@@ -14,7 +14,7 @@ describe("S.hold()", function () {
         expect(b()).toBe(3);
     });
     
-    it("terminates updates downstream from held computations", function () {
+    it("aborts downstream updates when a computation holds", function () {
         var a = S.data(1),
             b = S(function () { return a() === 2 ? S.hold() : a(); }),
             spy = jasmine.createSpy(),

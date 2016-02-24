@@ -64,7 +64,7 @@
     }
     S.on = function on(ev, fn, seed) {
         var first = true;
-        return S(on);
+        return this instanceof Builder ? this.S(on) : S(on);
         function on() {
             ev();
             if (first)
