@@ -188,7 +188,7 @@ declare var define : (deps: string[], fn: () => S) => void;
     S.hold = function hold() { return Hold; };
     
     /// Builder
-    class Builder<T> {
+    class Builder<T> implements SBuilder {
         mod : (fn : () => T) => () => T;
         
         constructor(prev : Builder<T>, mod : (fn : () => T) => () => T) {
@@ -283,8 +283,8 @@ declare var define : (deps: string[], fn: () => S) => void;
         if (change) {
             Time++;
             
-            propagate(mark, change.emitter, null);
-            propagateMarked(update, change.emitter, null);
+            prepare(change.emitter, null);
+            propagate(update, change.emitter, null);
             
             if (Disposes.length) {
                 for (i = 0; i < Disposes.length; i++) Disposes[i].dispose();
@@ -305,13 +305,13 @@ declare var define : (deps: string[], fn: () => S) => void;
                 change.value = change.pending;
                 change.pending = undefined;
                 
-                propagate(mark, change.emitter, null);
+                prepare(change.emitter, null);
             }
             
             // run all updates in batch
             for (i = 1; i < len; i++) {
                 change = batch[i];
-                propagateMarked(update, change.emitter, null);
+                propagate(update, change.emitter, null);
                 batch[i] = null;
             }
             
@@ -342,7 +342,7 @@ declare var define : (deps: string[], fn: () => S) => void;
             node.marks   = 1;
             node.updates = 0;
             
-            propagate(mark, node.emitter, node.children);
+            prepare(node.emitter, node.children);
         }
     }
     
@@ -371,7 +371,7 @@ declare var define : (deps: string[], fn: () => S) => void;
                 }
             }
             
-            propagateMarked(update, node.emitter, null);
+            propagate(update, node.emitter, null);
             
             if (receiver) {
                 for (var i = 0; i < receiver.edges.length; i++) {
@@ -385,7 +385,7 @@ declare var define : (deps: string[], fn: () => S) => void;
             }
         } else {
             node.children = priorchildren ? node.children ? priorchildren.concat(node.children) : priorchildren : node.children;
-            propagateMarked(clear, node.emitter, priorchildren);
+            propagate(clear, node.emitter, priorchildren);
         }
     }
     
@@ -394,7 +394,7 @@ declare var define : (deps: string[], fn: () => S) => void;
         if (node.marks === node.updates) {
             if (node.marks > 0) update(node);
             else {
-                propagateMarked(clear, node.emitter, node.children);
+                propagate(clear, node.emitter, node.children);
             }
         }
     }
@@ -419,7 +419,7 @@ declare var define : (deps: string[], fn: () => S) => void;
                     var back = edge.from.node;
                     if (!back) {
                         // reached data node, start updating
-                        propagateMarked(update, edge.from, null);
+                        propagate(update, edge.from, null);
                     } else if (back.age !== Time) {
                         // stale mark, ignore
                         continue;
@@ -439,7 +439,7 @@ declare var define : (deps: string[], fn: () => S) => void;
         }
     }
     
-    function propagate(op : (node : ComputationNode<any>) => void, emitter: Emitter, children : ComputationNode<any>[]) : void {
+    function prepare(emitter: Emitter, children : ComputationNode<any>[]) : void {
         if (!emitter) return;
         var edges = emitter.edges;
         emitter.emitting = true;
@@ -447,18 +447,18 @@ declare var define : (deps: string[], fn: () => S) => void;
             var edge = edges[i];
             if (edge) {
                 edge.marked = true;
-                op(edge.to.node);
+                mark(edge.to.node);
             }
         }
         if (children) {
             for (i = 0; i < children.length; i++) {
-                op(children[i]);
+                mark(children[i]);
             }
         }
         emitter.emitting = false;
     }
     
-    function propagateMarked(op : (node : ComputationNode<any>) => void, emitter: Emitter, children : ComputationNode<any>[]) : void {
+    function propagate(op : (node : ComputationNode<any>) => void, emitter: Emitter, children : ComputationNode<any>[]) : void {
         if (!emitter) return;
         var edges = emitter.edges;
         emitter.emitting = true;
@@ -517,7 +517,7 @@ declare var define : (deps: string[], fn: () => S) => void;
             this.trait  = null;
             
             if (this.age === Time && this.marks !== this.updates) {
-                propagateMarked(clear, this.emitter, null);
+                propagate(clear, this.emitter, null);
             }
             
             this.cleanup(true);
