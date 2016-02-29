@@ -11,19 +11,23 @@
     Disposes = [], // disposals to run after current batch of changes finishes
     Hold = {}; // unique value returned by functions that are holding their current value
     var S = function S(fn) {
-        var _updating = Updating, _sampling = Sampling, node = new ComputationNode(_updating, _updating && _updating.trait);
+        var _updating = Updating, _sampling = Sampling, mod = this instanceof Builder ? this.mod : null, node = new ComputationNode(fn, _updating, _updating && _updating.trait), value;
         Updating = node;
         Sampling = false;
-        if (this instanceof Builder)
-            fn = this.mod(fn);
-        if (node.trait)
-            fn = node.trait(fn);
-        node.fn = fn;
-        if (node.parent)
-            (node.parent.children || (node.parent.children = [])).push(node);
-        var value = Batching ? node.fn() : initialExecution(node);
+        if (Batching) {
+            if (mod)
+                node.fn = mod(node.fn);
+            if (node.trait)
+                node.fn = node.trait(node.fn);
+            value = node.fn();
+        }
+        else {
+            value = toplevelComputation(node, mod);
+        }
         if (value !== Hold)
             node.value = value;
+        if (node.parent)
+            (node.parent.children || (node.parent.children = [])).push(node);
         Updating = _updating;
         Sampling = _sampling;
         return function computation() {
@@ -46,12 +50,16 @@
             return node.value;
         };
     };
-    function initialExecution(node) {
-        var result;
+    function toplevelComputation(node, mod) {
+        var value;
         Time++;
         Batching = 1;
         try {
-            result = node.fn();
+            if (node.trait)
+                node.fn = node.trait(node.fn);
+            if (mod)
+                node.fn = mod(node.fn);
+            value = node.fn();
             if (Batching > 1)
                 resolve(null);
         }
@@ -60,7 +68,7 @@
             Sampling = false;
             Batching = 0;
         }
-        return result;
+        return value;
     }
     S.on = function on(ev, fn, seed) {
         var first = true;
@@ -436,7 +444,8 @@
         return DataNode;
     })();
     var ComputationNode = (function () {
-        function ComputationNode(parent, trait) {
+        function ComputationNode(fn, parent, trait) {
+            this.fn = fn;
             this.parent = parent;
             this.trait = trait;
             this.age = Time;

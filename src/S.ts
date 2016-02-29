@@ -19,20 +19,23 @@ declare var define : (deps: string[], fn: () => S) => void;
     var S = <S>function S<T>(fn : () => T) : () => T {
         var _updating = Updating,
             _sampling = Sampling,
-            node      = new ComputationNode<T>(_updating, _updating && _updating.trait);
+            mod       = this instanceof Builder ? this.mod : null,
+            node      = new ComputationNode<T>(fn, _updating, _updating && _updating.trait),
+            value     : T;
             
         Updating = node;
         Sampling = false;
         
-        if (this instanceof Builder) fn = this.mod(fn);
-        if (node.trait) fn = node.trait(fn);
-        node.fn = fn;
-        
-        if (node.parent) (node.parent.children || (node.parent.children = [])).push(node);
-        
-        var value = Batching ? node.fn() : initialExecution(node);
+        if (Batching) {
+            if (mod) node.fn = mod(node.fn);
+            if (node.trait) node.fn = node.trait(node.fn);
+            value = node.fn();
+        } else {
+            value = toplevelComputation(node, mod);
+        }
         
         if (value !== Hold) node.value = value;
+        if (node.parent) (node.parent.children || (node.parent.children = [])).push(node);
         
         Updating = _updating;
         Sampling = _sampling;
@@ -54,14 +57,16 @@ declare var define : (deps: string[], fn: () => S) => void;
         }
     }
     
-    function initialExecution<T>(node : ComputationNode<T>) {
-        var result : T;
+    function toplevelComputation<T>(node : ComputationNode<T>, mod : (fn : () => T) => () => T) {
+        var value : T;
         
         Time++;
         Batching = 1;
             
         try {
-            result = node.fn();
+            if (node.trait) node.fn = node.trait(node.fn);
+            if (mod) node.fn = mod(node.fn);
+            value = node.fn();
     
             if (Batching > 1) resolve(null);
         } finally {
@@ -70,7 +75,7 @@ declare var define : (deps: string[], fn: () => S) => void;
             Batching = 0;
         }
         
-        return result;
+        return value;
     }
         
     S.on = function on<T>(ev : () => any, fn : (v? : T) => T, seed? : T) {
@@ -490,7 +495,6 @@ declare var define : (deps: string[], fn: () => S) => void;
     
     class ComputationNode<T> {
         value  : T;
-        fn     : () => T;
         
         age     = Time;
         marks   = 0;
@@ -504,6 +508,7 @@ declare var define : (deps: string[], fn: () => S) => void;
         cleanups  = null as ((final : boolean) => void)[];
         
         constructor(
+            public fn     : () => T,
             public parent : ComputationNode<any>,
             public trait  : (fn : () => any) => () => any
         ) { }
