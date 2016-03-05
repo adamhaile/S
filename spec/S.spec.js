@@ -191,8 +191,8 @@ describe("S()", function () {
         });
     });
 
-    describe("with circular dependencies", function () {
-        it("throws when cycle created by setting a direct dependency", function () {
+    describe("with unending changes", function () {
+        it("throws when continually setting a direct dependency", function () {
             var d = S.data(1);
 
             expect(function () {
@@ -200,7 +200,7 @@ describe("S()", function () {
             }).toThrow();
         });
 
-        it("throws when cycle created by setting an indirect dependency", function () {
+        it("throws when continually setting an indirect dependency", function () {
             var d = S.data(1),
                 f1 = S(function () { return d(); }),
                 f2 = S(function () { return f1(); }),
@@ -210,10 +210,12 @@ describe("S()", function () {
                 S(function () { f3(); d(2); });
             }).toThrow();
         });
-
-        it("throws when cycle created by modifying a reference", function () {
+    });
+    
+    describe("with circular dependencies", function () {
+        it("throws when cycle created by modifying a branch", function () {
             var d = S.data(1),
-                f = S(function () { d(); return f && f(); });
+                f = S(function () { return f ? f() : d(); });
 
             d(0);
             expect(function () { d(2); }).toThrow();
