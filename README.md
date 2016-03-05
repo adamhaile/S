@@ -2,13 +2,21 @@
 
 S.js is a tiny library for performing **simple, clean, fast reactive programming** in Javascript.  It takes its name from **signal**, a reactive term for a value that changes over time.
 
-In plain terms, S helps you **keep things up-to-date** in your Javascript program.  The cost is that the functions being kept up to date and the data that's changing must be wrapped in S's lightweight closures.
+In plain terms, S helps you **keep things up-to-date** in your Javascript program.  S implements a **live, performant dependency graph** of your running code.  When data changes, S uses this graph to determine which parts of your application need to be updated and in what order.  
+
+The cost of this process is that the computations being kept up to date and the data that's changing must be wrapped in S's **lightweight closures**.
+
+S maintains a few useful properties as it runs:
+
+- **automatic dependencies**: no manual un/subscription of change handlers.  Dependencies in S are automatic and exact.
+
+- **automatic graph pruning**: no manual disposal of stale computations.  S uses a generational model, where only the current set of computations are active.
+
+- **data/time consistency**: updates run in a predictable way, so that each signal has a single value at any point in time.  No gaps, glitches or repeats.
 
 S is useful for any project that can be described in terms of keeping something up-to-date: web frameworks keep the DOM up to date with the data, client-side routers keep the application state up to date with the url, and so on.
 
-S maintains a couple useful properties while it runs: **automatic dependency management** and the **consistency of time**.  The first of these means that you don't generally need to worry about subscribing or unsubscribing to change events, S handles that for you.  The second means that your updates run in a predictable way, with no gaps, glitches or repeats.
-
-S is a personal research project.  It represents my own take on the most useful "mix" of reactive concepts floating around the web today.  I welcome feedback.
+S is a personal research project.  The primary goal is to make something useful for the kinds of applications I write ("scratch my own itch"), the second is to explore concepts in reactive programming.  I welcome feedback.
 
 ## How do you use S?
 There are only two main steps to using S:
@@ -18,9 +26,9 @@ There are only two main steps to using S:
 
 Both constructors return closures (aka functions).  You can read the current value by calling it &ndash; `signal()`.  For data signals, you can also set the value by passing in a new one &ndash; `signal(<new value>)`.
 
-That's largely it.  S tries to have a simple mental model -- it's just data and computations on data.  
+That's largely it.  S tries to have a simple mental model &ndash; it's just data and computations on data.  
 
-For advanced cases, S provides a handful of utilities for things like treating multiple changes as a single event (`S.event()`), explicitly declaring dependencies (`S.on()`) and deferring updates (`S.async()`).  See the Annotated Tour below for examples.
+For advanced cases, S provides a handful of functions for things like treating multiple changes as a single event (`S.event()`), performing calculations over time (`S.on()`) and deferring updates (`S.async()`).  See the Annotated Tour below for examples.
 
 There are also some things you *don't* have to do when using S:
 
@@ -28,78 +36,140 @@ There are also some things you *don't* have to do when using S:
 
 - You don't need to use S for your whole application.  Use it as narrowly or extensively as you like.
 
-- You don't need to, and probably shouldn't, think about the order updates run.
+- You don't need to, and probably shouldn't, worry about the order in which S runs updates.
 
 ## How does S work?
 As your program runs, S's data signals and computations communicate with each other to build up a live dependency graph of your code.  Since computations may reference the results of other computations, this graph may have _n_ layers, not just two.  
 
 When a data signal changes, S uses this graph to determine which computations need to be updated and in what order.  Specifically, S runs updates in topological order, as this has several useful properties:
 
-- each affected computation is run exactly once, no matter how many paths converge on it
+- for each change event, each affected computation is run exactly once, no matter how many paths converge on it
 - if a computation references other computations, S insures those other computations have been updated first, so that the consuming computation sees a consistent world, where all its sources are already up-to-date
 
 If computations modify data signals as part of their execution, S batches all these changes into a single event, which runs after the current propagation finishes.  S repeats this process until the system has reached equilibrium and no more changes are produced.
 
 ## An Annotated Tour of S
+
+### The Basics: S(), S.data() and S.event()
+
 ```javascript
-// start from the most basic operation: two values and a sum
-var x = 1,
-    y = 2,
+// Start from the most basic operation - two values and a sum:
+var x   = 1,
+    y   = 2,
     sum = x + y;
 sum; // equals 3
 
-// all well and good, but if we change x or y, sum is now out of date
+// All well and good, but if we change x or y, sum is now out of date
 x = 2;
 sum; // still equals 3
 
-// let's do that again, but using S's primitives for data and computations
-var x = S.data(1),
-    y = S.data(2),
+// Let's do that again, but using S's primitives for data and computations:
+
+var x   = S.data(1),
+    y   = S.data(2),
     sum = S(() => x() + y());
 sum(); // equals 3
 x(2);
 sum(); // now equals *4*
 
-// what happened? a bit of terminology:
+// What happened? A bit of terminology:
 // - x, y and sum are not just values anymore, they're *signals*
 // - a signal is a container for a value that changes over time
 // - signals have two types:
 //      - *data signals* like x() and y()
 //      - *computations* like sum()
 // - you read the current value of a signal by calling it, x(), y() or sum()
+// - you set a data signal by passing it a new value, x(2)
 // - S tracks internally which signals each computation reads
-// - you can set a data signal by passing it a new value
-// - when we set a data signal, S updates all affected computations
-// so when we set x(), S knew that sum() had read x(), so it updated sum()
+// - when we set a data signal, S updates all downstream computations
+// Here, setting x(2) caused S to updated sum()
 
-// to make it clearer what's going on, let's add a computation with a side-effect
-// note that computations run when they're created and when a referenced signal changes
-var log = S(() => console.log(sum()));
-> 4
-x(3);
-> 5
-// we say that setting a data signal creates an *event*, to which the app *responds*
+// What if we want to change both x() and y()?
 
-// what if we wanted to change both x() and y()?
-x(4);
-> 6
-y(5);
-> 9
-// S runs updates immediately, so two changes produces two updates.
-// to make both changes appear as the same event, we wrap them in S.event()
+x(4); // sum() now 6
+y(5); // sum() now 9
+
+// Each time we set a data signal it produces an *event*, so two changes
+// = two events = two updates.  If we want to make multiple changes
+// that propagate as a single event, we wrap them in S.event():
+
 S.event(() => {
-    x(6);
-    y(7);
-});
-> 13
-// now S treats both as a single event, and only responds once (one run of sum())
+    x(6); // sum() still 9
+    y(7); // ditto
+}); // sum() now 13
 
-// what if we want to run only when x() changes, but not y()?
-// to do that, we create our computation with the S.on() modifier
+// Now sum() is updated only when S.event() exits.  In fact, x() and y()
+// don't actually change until then either.  When we set a data signal,
+// we're really setting its *next* value.  Normally, S advances immediately
+// to make that value current.  But if we're in an event, S waits until it
+// finishes, then advances on all changes at once.
+
+// For this reason, it's an error to set a signal to two different
+// values in the same event:
+
+S.even(() => {
+    x(8);
+    x(8); // fine, as its the same value (===)
+    x(9); // exception, the next value of x can't be both 8 and 9
+});
+
+// If one part of your code thinks x should be 8, and another thinks 9,
+// it's a bug and S will tell you so.
+
+// Computations don't just read data signals, they can also read the
+// values of other computations:
+
+var x   = S.data(1),
+    y   = S(() => x() * 2),   // equals 2
+    z   = S(() => x() * 3),   // equals 3
+    sum = S(() => y() + z()); // equals 5
+
+x(2); // sum() now 10
+
+// S follows two important rules when it updates computations:
+// - affected computations are run exactly once per event
+// - computations never read "stale" (not-yet-updated) values
+// Here, even though there are two paths from x() to sum() (x -> y -> sum and
+// x -> z -> sum), S will run sum() only once per change of x() and only after
+// it has already updated y() and z():
+
+// We can see this in action if we add a computation with a side-effect:
+
+var log = S(() => console.log(sum()));
+> 10
+
+x(3);
+> 15
+
+// Note that the logger runs once initially, as computations always do, and
+// that it only runs once when x() changes.
+
+// One corollary of how S runs updates is that cycles are an error, though in
+// practice it's rare to encounter one, as it takes some ingenuity to do:
+
 var x = S.data(1),
-    y = S.data(2),
-    sum = S.on(x).S(() => x() + y()), // note .on(x)
-    log = S(() => console.log(sum()));
+    y = S(() => x() || y()); // ok at first, since doesn't call y() yet
+
+x(0); // now throws a circular dependency exception
+```
+These three functions &ndash; S(), S.data() and S.event() &ndash; cover 90+% of S usage.
+
+
+```javascript
+// What if we want to sum values across time?  To do that, we use
+// the helper S.on() to create our computation:
+
+var x = S.data(1),
+    sum = S.on(x, sum => sum + x(), 0);
+
+// S.on() creates a *reducing* computation, which starts with the given
+// seed value -- here 0 -- and updates each time the indicated signal
+// changes.
+
+x(2); // sum() now 2
+x(3); // sum() now 5
+x(4); // sum() now 9
+
 > 13
 // now setting x() triggers sum()
 x(9);
