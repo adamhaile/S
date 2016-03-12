@@ -17,9 +17,7 @@ declare var define : (deps: string[], fn: () => S) => void;
     var NOTPENDING = {},
         CURRENT    = 0,
         STALE      = 1,
-        UPDATING   = 2,
-        DISPOSING  = -1,
-        DISPOSED   = -2;
+        UPDATING   = 2;
         
     var S = <S>function S<T>(fn : () => T) : () => T {
         var parent   = Updating,
@@ -383,13 +381,13 @@ declare var define : (deps: string[], fn: () => S) => void;
     function markChildrenForDisposal(children : ComputationNode[]) {
         for (var i = 0; i < children.length; i++) {
             var child = children[i];
-            child.state = DISPOSING;
+            child.age = Time;
+            child.state = CURRENT;
             if (child.children) markChildrenForDisposal(child.children);
         }
     }
         
     function dispose(node : ComputationNode) {
-        node.state   = DISPOSED;
         node.fn      = null;
         node.trait   = null;
         node.hold    = null;

@@ -7,7 +7,7 @@
     Sampling = false, // whether we're sampling signals, with no dependencies
     Disposing = false; // whether we're disposing
     // Constants
-    var NOTPENDING = {}, CURRENT = 0, STALE = 1, UPDATING = 2, DISPOSING = -1, DISPOSED = -2;
+    var NOTPENDING = {}, CURRENT = 0, STALE = 1, UPDATING = 2;
     var S = function S(fn) {
         var parent = Updating, sampling = Sampling, opts = (this instanceof Builder ? this : null), node = new ComputationNode(fn, parent && parent.trait);
         Updating = node;
@@ -345,13 +345,13 @@
     function markChildrenForDisposal(children) {
         for (var i = 0; i < children.length; i++) {
             var child = children[i];
-            child.state = DISPOSING;
+            child.age = Time;
+            child.state = CURRENT;
             if (child.children)
                 markChildrenForDisposal(child.children);
         }
     }
     function dispose(node) {
-        node.state = DISPOSED;
         node.fn = null;
         node.trait = null;
         node.hold = null;
