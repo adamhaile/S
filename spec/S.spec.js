@@ -126,7 +126,7 @@ describe("S()", function () {
             order = "";
             a(0);
 
-            expect(order).toBe("bdc");
+            expect(order).toBe("bcd");
             expect(c()).toBe(1);
         });
     });
@@ -217,8 +217,7 @@ describe("S()", function () {
             var d = S.data(1),
                 f = S(function () { return f ? f() : d(); });
 
-            d(0);
-            expect(function () { d(2); }).toThrow();
+            expect(function () { d(0); }).toThrow();
         });
     });
 

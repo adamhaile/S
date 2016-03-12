@@ -7,75 +7,72 @@ declare var define : (deps: string[], fn: () => S) => void;
     "use strict";
     
     // "Globals" used to keep track of current system state
-    var Time      = 1, // our clock, ticks every update
-        Batching  = 0, // whether we're batching data changes, 0 = no, 1+ = yes, with index to next Batch slot
-        Batch     = [] as DataNode<any>[], // batched changes to data nodes
-        Updating  = null as ComputationNode<any>, // whether we're updating, null = no, non-null = node being updated
-        Sampling  = false, // whether we're sampling signals, with no dependencies
-        Disposing = false, // whether we're disposing
-        Disposes  = [] as ComputationNode<any>[], // disposals to run after current batch of changes finishes
-        Hold      = {}; // unique value returned by functions that are holding their current value
+    var Time         = 1,
+        Batching     = false, // whether we're batching changes
+        Updating     = null as ComputationNode, // whether we're updating, null = no, non-null = node being updated
+        Sampling     = false, // whether we're sampling signals, with no dependencies
+        Disposing    = false; // whether we're disposing
     
+    // Constants
+    var NOTPENDING = {},
+        CURRENT    = 0,
+        STALE      = 1,
+        UPDATING   = 2,
+        DISPOSING  = -1,
+        DISPOSED   = -2;
+        
     var S = <S>function S<T>(fn : () => T) : () => T {
-        var _updating = Updating,
-            _sampling = Sampling,
-            mod       = this instanceof Builder ? this.mod : null,
-            node      = new ComputationNode<T>(fn, _updating, _updating && _updating.trait),
-            value     : T;
+        var parent   = Updating,
+            sampling = Sampling,
+            opts     = (this instanceof Builder ? this : null) as Builder<T>,
+            node     = new ComputationNode(fn, parent && parent.trait);
             
         Updating = node;
         Sampling = false;
         
         if (Batching) {
-            if (mod) node.fn = mod(node.fn);
+            if (opts && opts.mod) node.fn = opts.mod(node.fn);
             if (node.trait) node.fn = node.trait(node.fn);
-            value = node.fn();
+            node.value = node.fn();
         } else {
-            value = toplevelComputation(node, mod);
+            Batching = true;
+            Changes.reset();
+            toplevelComputation(node, opts && opts.mod);
         }
         
-        if (value !== Hold) node.value = value;
-        if (node.parent) (node.parent.children || (node.parent.children = [])).push(node);
+        if (parent && (!opts || !opts.orphan)) (parent.children || (parent.children = [])).push(node);
         
-        Updating = _updating;
-        Sampling = _sampling;
+        Updating = parent;
+        Sampling = sampling;
 
         return function computation() {
             if (Disposing) {
-                if (Batching) Disposes.push(node);
-                else node.dispose();
-            } else if (Updating && node.fn) {
-                if (node.age === Time && node.marks !== node.updates) {
-                    backtrack(node);
+                if (Updating) Disposes.add(node);
+                else dispose(node);
+            } else if (Updating) {
+                if (node.age === Time) {
+                    if (node.state === UPDATING) throw new Error("circular dependency");
+                    else update(node);
                 }
-                if (!Sampling) {
-                    if (!node.emitter) node.emitter = new Emitter(node);
-                    addEdge(node.emitter, Updating);
-                }
+                if (!Sampling) recordComputationRead(node, Updating);
             }
             return node.value;
         }
     }
     
-    function toplevelComputation<T>(node : ComputationNode<T>, mod : (fn : () => T) => () => T) {
-        var value : T;
-        
-        Time++;
-        Batching = 1;
-            
+    function toplevelComputation<T>(node : ComputationNode, mod : (fn : () => T) => () => T) {
         try {
             if (node.trait) node.fn = node.trait(node.fn);
             if (mod) node.fn = mod(node.fn);
-            value = node.fn();
+            node.value = node.fn();
     
-            if (Batching > 1) resolve(null);
+            if (Changes.count > 0) resolve(null);
         } finally {
+            Batching = false;
             Updating = null;
             Sampling = false;
-            Batching = 0;
+            Disposing = false;
         }
-        
-        return value;
     }
         
     S.on = function on<T>(ev : () => any, fn : (v? : T) => T, seed? : T) {
@@ -103,26 +100,25 @@ declare var define : (deps: string[], fn: () => S) => void;
         return function data(value? : T) : T {
             if (arguments.length > 0) {
                 if (Batching) {
-                    if (node.age === Time) { // value has already been set once, check for conflicts
+                    if (node.pending !== NOTPENDING) { // value has already been set once, check for conflicts
                         if (value !== node.pending) {
                             throw new Error("conflicting changes: " + value + " !== " + node.pending);
                         }
                     } else { // add to list of changes
-                        node.age = Time; 
                         node.pending = value;
-                        Batch[Batching++] = node;
+                        Changes.add(node);
                     }
                 } else { // not batching, respond to change now
-                    node.age = Time; 
-                    node.value = value;
-                    if (node.emitter) handleEvent(node);
+                    if (node.emitter) {
+                        node.pending = value;
+                        handleEvent(node);
+                    } else {
+                        node.value = value;
+                    }
                 }
                 return value;
             } else {
-                if (Updating && !Sampling) {
-                    if (!node.emitter) node.emitter = new Emitter(null);
-                    addEdge(node.emitter, Updating);
-                }
+                if (Updating && !Sampling) recordDataRead(node, Updating);
                 return node.value;
             }
         }
@@ -134,24 +130,23 @@ declare var define : (deps: string[], fn: () => S) => void;
         return function sum(update? : (value : T) => T) : T {
             if (arguments.length > 0) {
                 if (Batching) {
-                    if (node.age === Time) { // value has already been set once, update pending value
+                    if (node.pending !== NOTPENDING) { // value has already been set once, update pending value
                         node.pending = update(node.pending);
                     } else { // add to list of changes
-                        node.age = Time; 
                         node.pending = update(node.value);
-                        Batch[Batching++] = node;
+                        Changes.add(node);
                     }
                 } else { // not batching, respond to change now
-                    node.age = Time; 
-                    node.value = update(node.value);
-                    if (node.emitter) handleEvent(node);
+                    if (node.emitter) {
+                        node.pending = update(node.value);
+                        handleEvent(node);
+                    } else {
+                        node.value = update(node.value);
+                    }
                 }
                 return value;
             } else {
-                if (Updating && !Sampling) {
-                    if (!node.emitter) node.emitter = new Emitter(null);
-                    addEdge(node.emitter, Updating);
-                }
+                if (Updating && !Sampling) recordDataRead(node, Updating);
                 return node.value;
             }
         }
@@ -163,13 +158,14 @@ declare var define : (deps: string[], fn: () => S) => void;
         if (Batching) {
             result = fn();
         } else {
-            Batching = 1;
+            Batching = true;
+            Changes.reset();
 
             try {
                 result = fn();
                 handleEvent(null);
             } finally {
-                Batching = 0;
+                Batching = false;
             }
         }
             
@@ -190,21 +186,21 @@ declare var define : (deps: string[], fn: () => S) => void;
         return result;
     }
     
-    S.hold = function hold() { return Hold; };
-    
     /// Builder
     class Builder<T> implements SBuilder {
+        orphan = false;
         mod : (fn : () => T) => () => T;
         
-        constructor(prev : Builder<T>, mod : (fn : () => T) => () => T) {
-            this.mod = prev && prev.mod ? compose(prev.mod, mod) : mod;
+        constructor(prev : Builder<T>, orphan : boolean, mod : (fn : () => T) => () => T) {
+            this.mod = prev && prev.mod ? mod ? compose(prev.mod, mod) : prev.mod : mod;
+            this.orphan = prev && prev.orphan || orphan;
         }
         
         S : any;
         on : any;
         
         async<T>(scheduler : (go : () => T) => () => T) { 
-            return new Builder(this, async(scheduler)); 
+            return new Builder(this, false, async(scheduler)); 
         }
     }
     
@@ -214,32 +210,37 @@ declare var define : (deps: string[], fn: () => S) => void;
     Builder.prototype.on = S.on;
 
     S.orphan = function orphan() {
-        return new Builder(null, function orphan(fn) {
-            Updating.parent = null;
-            return fn;
-        });
+        return new Builder(null, true, null);
     }
     
     S.async = function (fn) { 
-        return new Builder(null, async(fn)); 
+        return new Builder(null, false, async(fn)); 
     };
 
     function async<T>(scheduler : (go : () => void) => () => void) : (fn : () => T) => () => T {
-        var sentinel = S.data(false),
+        var gotime = 0,
+            root = new DataNode(null),
             tick = scheduler(go);
             
         return function asyncmod(fn) {
-            var first = true;
-            if (Updating) Updating.trait = asyncmod;
-            return function async() {
-                return first ? (first = false, fn()) :
-                    S.sample(sentinel) ? (sentinel(false), fn()) : 
-                    (sentinel(), tick && tick(), <T>S.hold());
+            if (Updating) {
+                Updating.trait = asyncmod;
+                Updating.hold = hold;
             }
+            return fn;
+        }
+        
+        function hold() {
+            if (Time === gotime) return false;
+            if (tick) tick();
+            recordDataRead(root, this);
+            return true;
         }
         
         function go() {
-            sentinel(true);
+            gotime = Time + 1;
+            if (Batching) Changes.add(root);
+            else handleEvent(root);
         }
     }
 
@@ -264,67 +265,43 @@ declare var define : (deps: string[], fn: () => S) => void;
         }
     };
     
-    function handleEvent(change : DataNode<any>) {
+    function handleEvent(change : DataNode) {
         try {
             resolve(change);
         } finally {
-            Batching  = 0;
+            Batching  = false;
             Updating  = null;
             Sampling  = false;
             Disposing = false;
         }
     }
         
-    var _batch = [] as DataNode<any>[];
-        
-    function resolve(change : DataNode<any>) {
-        var count = 0, 
-            batch : DataNode<any>[], 
-            i     : number, 
-            len   : number;
+    function resolve(change : DataNode) {
+        var count = 0,
+            changes : Queue<DataNode>;
             
-        if (!Batching) Batching = 1;
+        Batching = true;
+        Updates.reset();
+        Disposes.reset();
             
         if (change) {
+            Changes.reset();
+            
             Time++;
-            
-            prepare(change.emitter, null);
-            propagate(update, change.emitter, null);
-            
-            if (Disposes.length) {
-                for (i = 0; i < Disposes.length; i++) Disposes[i].dispose();
-                Disposes = [];
-            }
+            applyDataChange(change);
+            Updates.run(update);
+            Disposes.run(dispose);
         }
         
         // for each batch ...
-        while (Batching !== 1) {
-            // prepare globals to record next batch
+        while (Changes.count !== 0) {
+            changes = Changes, Changes = _Changes, _Changes = changes;
+            Changes.reset();
+            
             Time++;
-            batch = Batch, Batch = _batch, _batch = batch; // rotate batch arrays
-            len = Batching, Batching = 1;
-            
-            // set nodes' values, clear pending data, and prepare them for update
-            for (i = 1; i < len; i++) {
-                change = batch[i];
-                change.value = change.pending;
-                change.pending = undefined;
-                
-                prepare(change.emitter, null);
-            }
-            
-            // run all updates in batch
-            for (i = 1; i < len; i++) {
-                change = batch[i];
-                propagate(update, change.emitter, null);
-                batch[i] = null;
-            }
-            
-            // run disposes accumulated while updating
-            if (Disposes.length) {
-                for (i = 0; i < Disposes.length; i++) Disposes[i].dispose();
-                Disposes = [];
-            }
+            changes.run(applyDataChange);
+            Updates.run(update);
+            Disposes.run(dispose);
 
             // if there are still changes after excessive batches, assume runaway            
             if (count++ > 1e5) {
@@ -333,356 +310,196 @@ declare var define : (deps: string[], fn: () => S) => void;
         }
     }
     
-    function mark(node: ComputationNode<any>) {
-        var children = node.children;
+    function update<T>(node : ComputationNode) {
+        if (node.state === STALE) {
+            var updating = Updating,
+                sampling = Sampling;
         
-        if (node.age === Time) {
-            // if we've come back to an emitting Emitter, that's a cycle
-            if (node.emitter && node.emitter.emitting)
-                throw new Error("circular dependency"); // TODO: more helpful reporting
-
-            node.marks++;
-        } else {
-            node.age     = Time;
-            node.marks   = 1;
-            node.updates = 0;
+            Updating = node;
+            Sampling = false;
+        
+            node.state = UPDATING;    
+            cleanup(node, false);
+            node.value = node.fn();
+            node.state = CURRENT;
             
-            prepare(node.emitter, node.children);
+            Updating = updating;
+            Sampling = sampling;
         }
     }
     
-    /// update the given node by re-executing any payload, updating inbound links, then updating all downstream nodes
-    function update(node : ComputationNode<any>) {
-        node.updates++;
-        
-        if (node.marks != node.updates) return;
-        
-        var receiver  = node.receiver,
-            priorchildren = node.children;
-        
-        Updating = node;
-
-        node.cleanup(false);
-        node.children = null;
-        
-        var value = node.fn();
-        
-        if (value !== Hold) {
-            node.value = value;
+    function recordDataRead(data : DataNode, to : ComputationNode) {
+        if (!data.emitter) data.emitter = new Emitter();
+        recordRead(data.emitter, to);
+    }
+    
+    function recordComputationRead(node : ComputationNode, to : ComputationNode) {
+        if (!node.emitter) node.emitter = new Emitter();
+        recordRead(node.emitter, to);
+    }
+    
+    function recordRead(from : Emitter, to : ComputationNode) {
+        if (!(from.index[to.id] >= 0)) {
+            from.nodes[from.index[to.id] = from.count++] = to;
+            to.sources[to.count++] = from;
+        }
+    }
+    
+    function applyDataChange(data : DataNode) {
+        data.value = data.pending;
+        data.pending = NOTPENDING;
+        if (data.emitter) markComputationsStale(data.emitter);
+    }
+    
+    function markComputationsStale(emitter : Emitter) {
+        var nodes = emitter.nodes, 
+            index = emitter.index,
+            held = 0;
             
-            if (priorchildren) {
-                for (var i = 0; i < priorchildren.length; i++) {
-                    priorchildren[i].dispose();
-                }
-            }
+        for (var i = 0; i < emitter.count; i++) {
+            var node = nodes[i];
             
-            propagate(update, node.emitter, null);
-            
-            if (receiver) {
-                for (var i = 0; i < receiver.edges.length; i++) {
-                    var edge = receiver.edges[i];
-                    if (edge.from && edge.age < Time) {
-                        edge.deactivate();
-                    }
-                }
+            if (node) {
+                nodes[i] = null;
+                index[node.id] = -1;
                 
-                if (receiver.fragmented()) receiver.compact();
-            }
-        } else {
-            node.children = priorchildren ? node.children ? priorchildren.concat(node.children) : priorchildren : node.children;
-            propagate(clear, node.emitter, priorchildren);
-        }
-    }
-    
-    function clear(node : ComputationNode<any>) {
-        node.marks--;
-        if (node.marks === node.updates) {
-            if (node.marks > 0) update(node);
-            else {
-                propagate(clear, node.emitter, node.children);
-            }
-        }
-    }
-        
-    /// update the given node by backtracking its dependencies to clean state and updating from there
-    function backtrack(node : ComputationNode<any>) {
-        var updating = Updating,
-            sampling = Sampling;
-            
-        Sampling = false;
-        
-        backtrack(node);
-        
-        Updating = updating;
-        Sampling = sampling;
-        
-        function backtrack(node : ComputationNode<any>) {
-            var edges = node.receiver.edges;
-            for (var i = 0; i < edges.length; i++) {
-                var edge = edges[i];
-                if (edge.marked) {
-                    var back = edge.from.node;
-                    if (!back) {
-                        // reached data node, start updating
-                        propagate(update, edge.from, null);
-                    } else if (back.age !== Time) {
-                        // stale mark, ignore
-                        continue;
-                    } else if (back.marks === back.updates) {
-                        // reached clean computation, start updating
-                        update(back);
+                if (node.age < Time) {
+                    node.age = Time;
+                    if (!node.hold || !node.hold()) {
+                        node.state = STALE;
+                        Updates.add(node);
+                        if (node.children) markChildrenForDisposal(node.children);
+                        if (node.emitter) markComputationsStale(node.emitter);
                     } else {
-                        // still working backwards through marked nodes, go back further
-                        backtrack(back);
+                        nodes[index[node.id] = held++] = node;
                     }
                 }
             }
+        }
+        
+        emitter.count = held;
+    }
+    
+    function markChildrenForDisposal(children : ComputationNode[]) {
+        for (var i = 0; i < children.length; i++) {
+            var child = children[i];
+            child.state = DISPOSING;
+            if (child.children) markChildrenForDisposal(child.children);
+        }
+    }
+        
+    function dispose(node : ComputationNode) {
+        node.state   = DISPOSED;
+        node.fn      = null;
+        node.trait   = null;
+        node.hold    = null;
+        node.emitter = null;
+        
+        cleanup(node, true);
+        
+        node.sources = null;
+    }
+        
+    function cleanup(node : ComputationNode, final : boolean) {
+        var id = node.id,
+            sources = node.sources,
+            cleanups = node.cleanups,
+            children = node.children;
             
-            if (node.parent && node.parent.age === Time && node.parent.marks !== node.parent.updates) {
-                backtrack(node.parent);
+        if (cleanups) {
+            for (var i = 0; i < cleanups.length; i++) {
+                cleanups[i](final);
+            }
+            node.cleanups = null;
+        }
+        
+        if (children) {
+            for (var i = 0; i < children.length; i++) {
+                dispose(children[i]);
+            }
+            node.children = null;
+        }
+        
+        for (var i = 0; i < node.count; i++) {
+            var source = sources[i];
+            if (source) {
+                var slot = source.index[id];
+            
+                if (slot !== -1) {
+                    source.nodes[slot] = null;
+                    source.index[id] = -1;
+                    if (slot === source.count - 1) source.count--;
+                }
+                    
+                sources[i] = null;
             }
         }
+        node.count = 0;
     }
     
-    function prepare(emitter: Emitter, children : ComputationNode<any>[]) : void {
-        if (!emitter) return;
-        var edges = emitter.edges;
-        emitter.emitting = true;
-        for (var i = 0; i < edges.length; i++) {
-            var edge = edges[i];
-            if (edge) {
-                edge.marked = true;
-                mark(edge.to.node);
-            }
+    class Queue<T> {
+        items = [] as T[];
+        count = 0;
+        
+        reset() {
+            this.count = 0;
         }
-        if (children) {
-            for (i = 0; i < children.length; i++) {
-                mark(children[i]);
-            }
+        
+        add(item : T) {
+            this.items[this.count++] = item;
         }
-        emitter.emitting = false;
-    }
-    
-    function propagate(op : (node : ComputationNode<any>) => void, emitter: Emitter, children : ComputationNode<any>[]) : void {
-        if (!emitter) return;
-        var edges = emitter.edges;
-        emitter.emitting = true;
-        for (var i = 0; i < edges.length; i++) {
-            var edge = edges[i];
-            if (edge && edge.marked) {
-                edge.marked = false;
-                op(edge.to.node);
+        
+        run(fn : (item : T) => void) {
+            var items = this.items, count = this.count;
+            for (var i = 0; i < count; i++) {
+                fn(items[i]);
+                items[i] = null;
             }
+            this.count = 0;
         }
-        if (children) {
-            for (i = 0; i < children.length; i++) {
-                op(children[i]);
-            }
-        }
-        emitter.emitting = false;
     }
     
     /// Graph classes and operations
-    class DataNode<T> {
-        age     = 0; // Data nodes start at a time prior to the present, or else they can't be set in the current tick
-        pending : T;   
+    class DataNode {
+        pending = NOTPENDING as any;   
         emitter = null as Emitter;
         
         constructor(
-            public value : T
+            public value : any
         ) { }
     }
     
-    class ComputationNode<T> {
-        value  : T;
+    class ComputationNode {
+        static count = 0;
         
-        age     = Time;
-        marks   = 0;
-        updates = 0;
-        
-        emitter   = null as Emitter;
-        receiver  = null as Receiver;
-        
-        // children and cleanups generated by last update
-        children  = null as ComputationNode<any>[];
-        cleanups  = null as ((final : boolean) => void)[];
+        id       = ComputationNode.count++;
+        value    = undefined as any;
+        age      = Time;
+        state    = CURRENT;
+        hold     = null as () => boolean;
+        count    = 0;
+        sources  = [] as Emitter[];
+        emitter  = null as Emitter;
+        children = null as ComputationNode[];
+        cleanups = null as ((final : boolean) => void)[];
         
         constructor(
-            public fn     : () => T,
-            public parent : ComputationNode<any>,
+            public fn : () => any,
             public trait  : (fn : () => any) => () => any
         ) { }
-        
-        // dispose node: free memory, dispose children, cleanup, detach from graph
-        dispose() {
-            if (!this.fn) return;
-            
-            this.fn     = null;
-            this.parent = null;
-            this.trait  = null;
-            
-            if (this.age === Time && this.marks !== this.updates) {
-                propagate(clear, this.emitter, null);
-            }
-            
-            this.cleanup(true);
-            if (this.children) {
-                for (var i = 0; i < this.children.length; i++) {
-                    this.children[i].dispose();
-                }
-                this.children = null;
-            }
-            if (this.receiver) this.receiver.detach();
-            if (this.emitter) this.emitter.detach();
-        }
-        
-        cleanup(final : boolean) {
-            if (this.cleanups) {
-                for (var i = 0; i < this.cleanups.length; i++) {
-                    this.cleanups[i](final);
-                }
-                this.cleanups = null;
-            }
-        }
     }
     
     class Emitter {
-        static count = 0;
-        
-        id       = Emitter.count++;
-        emitting = false;
-        edges    = [] as Edge[];
-        active   = 0;
-        edgesAge = 0;
-        
-        constructor(
-            public node : ComputationNode<any>
-        ) { }
-    
-        detach() {
-            for (var i = 0; i < this.edges.length; i++) {
-                var edge = this.edges[i];
-                if (edge) edge.deactivate();
-            }
-        }
-    
-        fragmented() {
-            return this.edges.length > 10 && this.edges.length / this.active > 4;
-        }
-    
-        compact() {
-            var edges      = [] as Edge[], 
-                compaction = ++this.edgesAge;
-                
-            for (var i = 0; i < this.edges.length; i++) {
-                var edge = this.edges[i];
-                if (edge) {
-                    edge.slot = edges.length;
-                    edge.slotAge = compaction;
-                    edges.push(edge);
-                }
-            }
-            
-            this.edges = edges;
-        }
-    }
-    
-    function addEdge(from : Emitter, to : ComputationNode<any>) {
-        var edge : Edge = null;
-        
-        if (!to.receiver) to.receiver = new Receiver(to);
-        else edge = to.receiver.index[from.id];
-        
-        if (edge) edge.activate(from);
-        else new Edge(from, to.receiver);
+        count = 0;
+        nodes = [] as ComputationNode[];
+        index = [] as number[];
     }
         
-    class Receiver {
-        static count = 0;
-        
-        id      = Emitter.count++;
-        edges   = [] as Edge[];
-        index   = [] as Edge[];
-        active  = 0;
-        
-        constructor(
-            public node : ComputationNode<any>
-        ) { }
-        
-        detach() {
-            for (var i = 0; i < this.edges.length; i++) {
-                this.edges[i].deactivate();
-            }
-        }
-        
-        fragmented() {
-            return this.edges.length > 10 && this.edges.length / this.active > 4;
-        }
-        
-        compact() {
-            var edges = [] as Edge[], 
-                index = [] as Edge[];
-                
-            for (var i = 0; i < this.edges.length; i++) {
-                var edge = this.edges[i];
-                if (edge.from) {
-                    edges.push(edge);
-                    index[edge.from.id] = edge;
-                }
-            }
-            
-            this.edges = edges;
-            this.index = index;
-        }
-    }
-
-    class Edge {
-        age      = Time;
-        
-        marked   = false;
-        
-        slot     : number;
-        slotAge  : number;
-        
-        constructor(
-            public from : Emitter, 
-            public to : Receiver
-        ) {
-            this.slot = from.edges.length;
-            this.slotAge = from.edgesAge;
-    
-            from.edges.push(this);
-            to.edges.push(this);
-            to.index[from.id] = this;
-            from.active++;
-            to.active++;
-        }
-        
-        activate(from : Emitter) {
-            if (!this.from) {
-                this.from = from;
-                if (this.slotAge === from.edgesAge) {
-                    from.edges[this.slot] = this;
-                } else {
-                    this.slotAge = from.edgesAge;
-                    this.slot = from.edges.length;
-                    from.edges.push(this);
-                }
-                this.to.active++;
-                from.active++;
-            }
-            this.age = Time;
-        }
-        
-        deactivate() {
-            if (!this.from) return;
-            var from = this.from, to = this.to;
-            this.from = null;
-            from.edges[this.slot] = null;
-            from.active--;
-            to.active--;
-        }
-    }
+    // Queues for the phases of the update process
+    var Changes  = new Queue<DataNode>(), // batched changes to data nodes
+        _Changes = new Queue<DataNode>(), // batched changes to data nodes
+        Updates  = new Queue<ComputationNode>(), // computations to update
+        Disposes = new Queue<ComputationNode>(); // disposals to run after current batch of updates finishes
         
     // UMD exporter
     /* globals define */
