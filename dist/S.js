@@ -306,10 +306,13 @@
         recordRead(node.emitter, to);
     }
     function recordRead(from, to) {
-        if (!(from.index[to.id] >= 0)) {
-            from.nodes[from.index[to.id] = from.count++] = to;
-            to.sources[to.count++] = from;
-        }
+        var id = to.id, node = from.nodes[id];
+        if (node === to)
+            return;
+        if (node !== DETACHED)
+            from.index[from.count++] = id;
+        from.nodes[id] = to;
+        to.sources[to.count++] = from;
     }
     function applyDataChange(data) {
         data.value = data.pending;
@@ -318,12 +321,14 @@
             markComputationsStale(data.emitter);
     }
     function markComputationsStale(emitter) {
-        var nodes = emitter.nodes, index = emitter.index, held = 0;
+        var nodes = emitter.nodes, index = emitter.index, dead = 0;
         for (var i = 0; i < emitter.count; i++) {
-            var node = nodes[i];
-            if (node) {
-                nodes[i] = null;
-                index[node.id] = -1;
+            var id = index[i], node = nodes[id];
+            if (node === DETACHED) {
+                nodes[id] = DEAD;
+                dead++;
+            }
+            else {
                 if (node.age < Time) {
                     node.age = Time;
                     if (!node.hold || !node.hold()) {
@@ -335,12 +340,15 @@
                             markComputationsStale(node.emitter);
                     }
                     else {
-                        nodes[index[node.id] = held++] = node;
+                        node.state = CURRENT;
                     }
                 }
+                if (dead)
+                    index[i - dead] = id;
             }
         }
-        emitter.count = held;
+        if (dead)
+            emitter.count -= dead;
     }
     function markChildrenForDisposal(children) {
         for (var i = 0; i < children.length; i++) {
@@ -360,7 +368,7 @@
         node.sources = null;
     }
     function cleanup(node, final) {
-        var id = node.id, sources = node.sources, cleanups = node.cleanups, children = node.children;
+        var sources = node.sources, cleanups = node.cleanups, children = node.children;
         if (cleanups) {
             for (var i = 0; i < cleanups.length; i++) {
                 cleanups[i](final);
@@ -374,17 +382,8 @@
             node.children = null;
         }
         for (var i = 0; i < node.count; i++) {
-            var source = sources[i];
-            if (source) {
-                var slot = source.index[id];
-                if (slot !== -1) {
-                    source.nodes[slot] = null;
-                    source.index[id] = -1;
-                    if (slot === source.count - 1)
-                        source.count--;
-                }
-                sources[i] = null;
-            }
+            sources[i].nodes[node.id] = DETACHED;
+            sources[i] = null;
         }
         node.count = 0;
     }
@@ -449,6 +448,7 @@
     _Changes = new Queue(), // batched changes to data nodes
     Updates = new Queue(), // computations to update
     Disposes = new Queue(); // disposals to run after current batch of updates finishes
+    var DETACHED = new ComputationNode(null, null), DEAD = new ComputationNode(null, null);
     // UMD exporter
     /* globals define */
     if (typeof module === 'object' && typeof module.exports === 'object') {

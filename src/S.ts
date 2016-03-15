@@ -337,10 +337,12 @@ declare var define : (deps: string[], fn: () => S) => void;
     }
     
     function recordRead(from : Emitter, to : ComputationNode) {
-        if (!(from.index[to.id] >= 0)) {
-            from.nodes[from.index[to.id] = from.count++] = to;
-            to.sources[to.count++] = from;
-        }
+        var id = to.id,
+            node = from.nodes[id];
+        if (node === to) return;
+        if (node !== DETACHED) from.index[from.count++] = id;
+        from.nodes[id] = to;
+        to.sources[to.count++] = from;
     }
     
     function applyDataChange(data : DataNode) {
@@ -352,15 +354,16 @@ declare var define : (deps: string[], fn: () => S) => void;
     function markComputationsStale(emitter : Emitter) {
         var nodes = emitter.nodes, 
             index = emitter.index,
-            held = 0;
+            dead = 0;
             
         for (var i = 0; i < emitter.count; i++) {
-            var node = nodes[i];
+            var id = index[i],
+                node = nodes[id];
             
-            if (node) {
-                nodes[i] = null;
-                index[node.id] = -1;
-                
+            if (node === DETACHED) {
+                nodes[id] = DEAD;
+                dead++;
+            } else {
                 if (node.age < Time) {
                     node.age = Time;
                     if (!node.hold || !node.hold()) {
@@ -369,13 +372,15 @@ declare var define : (deps: string[], fn: () => S) => void;
                         if (node.children) markChildrenForDisposal(node.children);
                         if (node.emitter) markComputationsStale(node.emitter);
                     } else {
-                        nodes[index[node.id] = held++] = node;
+                        node.state = CURRENT;
                     }
                 }
-            }
+                
+                if (dead) index[i - dead] = id;
+            } 
         }
         
-        emitter.count = held;
+        if (dead) emitter.count -= dead;
     }
     
     function markChildrenForDisposal(children : ComputationNode[]) {
@@ -399,8 +404,7 @@ declare var define : (deps: string[], fn: () => S) => void;
     }
         
     function cleanup(node : ComputationNode, final : boolean) {
-        var id = node.id,
-            sources = node.sources,
+        var sources = node.sources,
             cleanups = node.cleanups,
             children = node.children;
             
@@ -419,18 +423,8 @@ declare var define : (deps: string[], fn: () => S) => void;
         }
         
         for (var i = 0; i < node.count; i++) {
-            var source = sources[i];
-            if (source) {
-                var slot = source.index[id];
-            
-                if (slot !== -1) {
-                    source.nodes[slot] = null;
-                    source.index[id] = -1;
-                    if (slot === source.count - 1) source.count--;
-                }
-                    
-                sources[i] = null;
-            }
+            sources[i].nodes[node.id] = DETACHED;
+            sources[i] = null;
         }
         node.count = 0;
     }
@@ -498,7 +492,10 @@ declare var define : (deps: string[], fn: () => S) => void;
         _Changes = new Queue<DataNode>(), // batched changes to data nodes
         Updates  = new Queue<ComputationNode>(), // computations to update
         Disposes = new Queue<ComputationNode>(); // disposals to run after current batch of updates finishes
-        
+    
+    var DETACHED = new ComputationNode(null, null),
+        DEAD = new ComputationNode(null, null);
+    
     // UMD exporter
     /* globals define */
     if (typeof module === 'object' && typeof module.exports === 'object') {
