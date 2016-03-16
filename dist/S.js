@@ -78,7 +78,7 @@
                 else {
                     if (node.log) {
                         node.pending = value;
-                        handleEvent(node);
+                        event(node);
                     }
                     else {
                         node.value = value;
@@ -109,7 +109,7 @@
                 else {
                     if (node.log) {
                         node.pending = update(node.value);
-                        handleEvent(node);
+                        event(node);
                     }
                     else {
                         node.value = update(node.value);
@@ -124,7 +124,7 @@
             }
         };
     };
-    S.event = function event(fn) {
+    S.event = function batch(fn) {
         var result;
         if (Batching) {
             result = fn();
@@ -134,7 +134,7 @@
             Changes.reset();
             try {
                 result = fn();
-                handleEvent(null);
+                event(null);
             }
             finally {
                 Batching = false;
@@ -197,7 +197,7 @@
             if (Batching)
                 Changes.add(root);
             else
-                handleEvent(root);
+                event(root);
         }
     }
     S.dispose = function dispose(signal) {
@@ -311,7 +311,7 @@
             node.log = new Log();
         logRead(node.log, to);
     }
-    function handleEvent(change) {
+    function event(change) {
         try {
             resolve(change);
         }

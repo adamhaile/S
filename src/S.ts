@@ -82,7 +82,7 @@ declare var define : (deps: string[], fn: () => S) => void;
                 } else { // not batching, respond to change now
                     if (node.log) {
                         node.pending = value;
-                        handleEvent(node);
+                        event(node);
                     } else {
                         node.value = value;
                     }
@@ -110,7 +110,7 @@ declare var define : (deps: string[], fn: () => S) => void;
                 } else { // not batching, respond to change now
                     if (node.log) {
                         node.pending = update(node.value);
-                        handleEvent(node);
+                        event(node);
                     } else {
                         node.value = update(node.value);
                     }
@@ -123,7 +123,7 @@ declare var define : (deps: string[], fn: () => S) => void;
         }
     };
 
-    S.event = function event<T>(fn : () => T) : T {
+    S.event = function batch<T>(fn : () => T) : T {
         var result : T;
         
         if (Batching) {
@@ -134,7 +134,7 @@ declare var define : (deps: string[], fn: () => S) => void;
 
             try {
                 result = fn();
-                handleEvent(null);
+                event(null);
             } finally {
                 Batching = false;
             }
@@ -211,7 +211,7 @@ declare var define : (deps: string[], fn: () => S) => void;
         function go() {
             gotime = Time + 1;
             if (Batching) Changes.add(root);
-            else handleEvent(root);
+            else event(root);
         }
     }
 
@@ -337,7 +337,7 @@ declare var define : (deps: string[], fn: () => S) => void;
         logRead(node.log, to);
     }
     
-    function handleEvent(change : DataNode) {
+    function event(change : DataNode) {
         try {
             resolve(change);
         } finally {
