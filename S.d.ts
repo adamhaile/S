@@ -12,9 +12,6 @@ interface S {
 
     // Sampling a signal
     sample<T>(fn : () => T) : T;
-    
-    // Halting propagation
-    hold() : {};
 
     // Fluent options    
     orphan() : SBuilder;
