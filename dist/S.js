@@ -43,7 +43,7 @@
                         update(node);
                 }
                 if (!Sampling)
-                    recordComputationRead(node, Updating);
+                    logComputationRead(node, Updating);
             }
             return node.value;
         };
@@ -99,7 +99,7 @@
                     }
                 }
                 else {
-                    if (node.emitter) {
+                    if (node.log) {
                         node.pending = value;
                         handleEvent(node);
                     }
@@ -111,7 +111,7 @@
             }
             else {
                 if (Updating && !Sampling)
-                    recordDataRead(node, Updating);
+                    logDataRead(node, Updating);
                 return node.value;
             }
         };
@@ -130,7 +130,7 @@
                     }
                 }
                 else {
-                    if (node.emitter) {
+                    if (node.log) {
                         node.pending = update(node.value);
                         handleEvent(node);
                     }
@@ -142,7 +142,7 @@
             }
             else {
                 if (Updating && !Sampling)
-                    recordDataRead(node, Updating);
+                    logDataRead(node, Updating);
                 return node.value;
             }
         };
@@ -212,7 +212,7 @@
                 return false;
             if (tick)
                 tick();
-            recordDataRead(root, this);
+            logDataRead(root, this);
             return true;
         }
         function go() {
@@ -295,36 +295,36 @@
             Sampling = sampling;
         }
     }
-    function recordDataRead(data, to) {
-        if (!data.emitter)
-            data.emitter = new Emitter();
-        recordRead(data.emitter, to);
+    function logDataRead(data, to) {
+        if (!data.log)
+            data.log = new Log();
+        logRead(data.log, to);
     }
-    function recordComputationRead(node, to) {
-        if (!node.emitter)
-            node.emitter = new Emitter();
-        recordRead(node.emitter, to);
+    function logComputationRead(node, to) {
+        if (!node.log)
+            node.log = new Log();
+        logRead(node.log, to);
     }
-    function recordRead(from, to) {
+    function logRead(from, to) {
         var id = to.id, node = from.nodes[id];
         if (node === to)
             return;
-        if (node !== DETACHED)
-            from.index[from.count++] = id;
+        if (node !== REVIEWING)
+            from.ids[from.count++] = id;
         from.nodes[id] = to;
         to.sources[to.count++] = from;
     }
     function applyDataChange(data) {
         data.value = data.pending;
         data.pending = NOTPENDING;
-        if (data.emitter)
-            markComputationsStale(data.emitter);
+        if (data.log)
+            markComputationsStale(data.log);
     }
-    function markComputationsStale(emitter) {
-        var nodes = emitter.nodes, index = emitter.index, dead = 0;
-        for (var i = 0; i < emitter.count; i++) {
-            var id = index[i], node = nodes[id];
-            if (node === DETACHED) {
+    function markComputationsStale(log) {
+        var nodes = log.nodes, ids = log.ids, dead = 0;
+        for (var i = 0; i < log.count; i++) {
+            var id = ids[i], node = nodes[id];
+            if (node === REVIEWING) {
                 nodes[id] = DEAD;
                 dead++;
             }
@@ -336,19 +336,19 @@
                         Updates.add(node);
                         if (node.children)
                             markChildrenForDisposal(node.children);
-                        if (node.emitter)
-                            markComputationsStale(node.emitter);
+                        if (node.log)
+                            markComputationsStale(node.log);
                     }
                     else {
                         node.state = CURRENT;
                     }
                 }
                 if (dead)
-                    index[i - dead] = id;
+                    ids[i - dead] = id;
             }
         }
         if (dead)
-            emitter.count -= dead;
+            log.count -= dead;
     }
     function markChildrenForDisposal(children) {
         for (var i = 0; i < children.length; i++) {
@@ -363,7 +363,7 @@
         node.fn = null;
         node.trait = null;
         node.hold = null;
-        node.emitter = null;
+        node.log = null;
         cleanup(node, true);
         node.sources = null;
     }
@@ -382,7 +382,7 @@
             node.children = null;
         }
         for (var i = 0; i < node.count; i++) {
-            sources[i].nodes[node.id] = DETACHED;
+            sources[i].nodes[node.id] = REVIEWING;
             sources[i] = null;
         }
         node.count = 0;
@@ -413,7 +413,7 @@
         function DataNode(value) {
             this.value = value;
             this.pending = NOTPENDING;
-            this.emitter = null;
+            this.log = null;
         }
         return DataNode;
     })();
@@ -428,27 +428,27 @@
             this.hold = null;
             this.count = 0;
             this.sources = [];
-            this.emitter = null;
+            this.log = null;
             this.children = null;
             this.cleanups = null;
         }
         ComputationNode.count = 0;
         return ComputationNode;
     })();
-    var Emitter = (function () {
-        function Emitter() {
+    var Log = (function () {
+        function Log() {
             this.count = 0;
             this.nodes = [];
-            this.index = [];
+            this.ids = [];
         }
-        return Emitter;
+        return Log;
     })();
     // Queues for the phases of the update process
     var Changes = new Queue(), // batched changes to data nodes
     _Changes = new Queue(), // batched changes to data nodes
     Updates = new Queue(), // computations to update
     Disposes = new Queue(); // disposals to run after current batch of updates finishes
-    var DETACHED = new ComputationNode(null, null), DEAD = new ComputationNode(null, null);
+    var REVIEWING = new ComputationNode(null, null), DEAD = new ComputationNode(null, null);
     // UMD exporter
     /* globals define */
     if (typeof module === 'object' && typeof module.exports === 'object') {

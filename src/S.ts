@@ -52,7 +52,7 @@ declare var define : (deps: string[], fn: () => S) => void;
                     if (node.state === UPDATING) throw new Error("circular dependency");
                     else update(node);
                 }
-                if (!Sampling) recordComputationRead(node, Updating);
+                if (!Sampling) logComputationRead(node, Updating);
             }
             return node.value;
         }
@@ -107,7 +107,7 @@ declare var define : (deps: string[], fn: () => S) => void;
                         Changes.add(node);
                     }
                 } else { // not batching, respond to change now
-                    if (node.emitter) {
+                    if (node.log) {
                         node.pending = value;
                         handleEvent(node);
                     } else {
@@ -116,7 +116,7 @@ declare var define : (deps: string[], fn: () => S) => void;
                 }
                 return value;
             } else {
-                if (Updating && !Sampling) recordDataRead(node, Updating);
+                if (Updating && !Sampling) logDataRead(node, Updating);
                 return node.value;
             }
         }
@@ -135,7 +135,7 @@ declare var define : (deps: string[], fn: () => S) => void;
                         Changes.add(node);
                     }
                 } else { // not batching, respond to change now
-                    if (node.emitter) {
+                    if (node.log) {
                         node.pending = update(node.value);
                         handleEvent(node);
                     } else {
@@ -144,7 +144,7 @@ declare var define : (deps: string[], fn: () => S) => void;
                 }
                 return value;
             } else {
-                if (Updating && !Sampling) recordDataRead(node, Updating);
+                if (Updating && !Sampling) logDataRead(node, Updating);
                 return node.value;
             }
         }
@@ -231,7 +231,7 @@ declare var define : (deps: string[], fn: () => S) => void;
         function hold() {
             if (Time === gotime) return false;
             if (tick) tick();
-            recordDataRead(root, this);
+            logDataRead(root, this);
             return true;
         }
         
@@ -326,21 +326,21 @@ declare var define : (deps: string[], fn: () => S) => void;
         }
     }
     
-    function recordDataRead(data : DataNode, to : ComputationNode) {
-        if (!data.emitter) data.emitter = new Emitter();
-        recordRead(data.emitter, to);
+    function logDataRead(data : DataNode, to : ComputationNode) {
+        if (!data.log) data.log = new Log();
+        logRead(data.log, to);
     }
     
-    function recordComputationRead(node : ComputationNode, to : ComputationNode) {
-        if (!node.emitter) node.emitter = new Emitter();
-        recordRead(node.emitter, to);
+    function logComputationRead(node : ComputationNode, to : ComputationNode) {
+        if (!node.log) node.log = new Log();
+        logRead(node.log, to);
     }
     
-    function recordRead(from : Emitter, to : ComputationNode) {
+    function logRead(from : Log, to : ComputationNode) {
         var id = to.id,
             node = from.nodes[id];
         if (node === to) return;
-        if (node !== DETACHED) from.index[from.count++] = id;
+        if (node !== REVIEWING) from.ids[from.count++] = id;
         from.nodes[id] = to;
         to.sources[to.count++] = from;
     }
@@ -348,19 +348,19 @@ declare var define : (deps: string[], fn: () => S) => void;
     function applyDataChange(data : DataNode) {
         data.value = data.pending;
         data.pending = NOTPENDING;
-        if (data.emitter) markComputationsStale(data.emitter);
+        if (data.log) markComputationsStale(data.log);
     }
     
-    function markComputationsStale(emitter : Emitter) {
-        var nodes = emitter.nodes, 
-            index = emitter.index,
-            dead = 0;
+    function markComputationsStale(log : Log) {
+        var nodes = log.nodes, 
+            ids   = log.ids,
+            dead  = 0;
             
-        for (var i = 0; i < emitter.count; i++) {
-            var id = index[i],
+        for (var i = 0; i < log.count; i++) {
+            var id = ids[i],
                 node = nodes[id];
             
-            if (node === DETACHED) {
+            if (node === REVIEWING) {
                 nodes[id] = DEAD;
                 dead++;
             } else {
@@ -370,17 +370,17 @@ declare var define : (deps: string[], fn: () => S) => void;
                         node.state = STALE;
                         Updates.add(node);
                         if (node.children) markChildrenForDisposal(node.children);
-                        if (node.emitter) markComputationsStale(node.emitter);
+                        if (node.log) markComputationsStale(node.log);
                     } else {
                         node.state = CURRENT;
                     }
                 }
                 
-                if (dead) index[i - dead] = id;
+                if (dead) ids[i - dead] = id;
             } 
         }
         
-        if (dead) emitter.count -= dead;
+        if (dead) log.count -= dead;
     }
     
     function markChildrenForDisposal(children : ComputationNode[]) {
@@ -396,7 +396,7 @@ declare var define : (deps: string[], fn: () => S) => void;
         node.fn      = null;
         node.trait   = null;
         node.hold    = null;
-        node.emitter = null;
+        node.log = null;
         
         cleanup(node, true);
         
@@ -423,7 +423,7 @@ declare var define : (deps: string[], fn: () => S) => void;
         }
         
         for (var i = 0; i < node.count; i++) {
-            sources[i].nodes[node.id] = DETACHED;
+            sources[i].nodes[node.id] = REVIEWING;
             sources[i] = null;
         }
         node.count = 0;
@@ -454,7 +454,7 @@ declare var define : (deps: string[], fn: () => S) => void;
     /// Graph classes and operations
     class DataNode {
         pending = NOTPENDING as any;   
-        emitter = null as Emitter;
+        log     = null as Log;
         
         constructor(
             public value : any
@@ -470,8 +470,8 @@ declare var define : (deps: string[], fn: () => S) => void;
         state    = CURRENT;
         hold     = null as () => boolean;
         count    = 0;
-        sources  = [] as Emitter[];
-        emitter  = null as Emitter;
+        sources  = [] as Log[];
+        log      = null as Log;
         children = null as ComputationNode[];
         cleanups = null as ((final : boolean) => void)[];
         
@@ -481,10 +481,10 @@ declare var define : (deps: string[], fn: () => S) => void;
         ) { }
     }
     
-    class Emitter {
+    class Log {
         count = 0;
         nodes = [] as ComputationNode[];
-        index = [] as number[];
+        ids = [] as number[];
     }
         
     // Queues for the phases of the update process
@@ -493,7 +493,7 @@ declare var define : (deps: string[], fn: () => S) => void;
         Updates  = new Queue<ComputationNode>(), // computations to update
         Disposes = new Queue<ComputationNode>(); // disposals to run after current batch of updates finishes
     
-    var DETACHED = new ComputationNode(null, null),
+    var REVIEWING = new ComputationNode(null, null),
         DEAD = new ComputationNode(null, null);
     
     // UMD exporter
