@@ -6,19 +6,7 @@ declare var define : (deps: string[], fn: () => S) => void;
 (function () {
     "use strict";
     
-    // "Globals" used to keep track of current system state
-    var Time         = 1,
-        Batching     = false, // whether we're batching changes
-        Updating     = null as ComputationNode, // whether we're updating, null = no, non-null = node being updated
-        Sampling     = false, // whether we're sampling signals, with no dependencies
-        Disposing    = false; // whether we're disposing
-    
-    // Constants
-    var NOTPENDING = {},
-        CURRENT    = 0,
-        STALE      = 1,
-        UPDATING   = 2;
-        
+    // Public interface
     var S = <S>function S<T>(fn : () => T) : () => T {
         var parent   = Updating,
             sampling = Sampling,
@@ -55,21 +43,6 @@ declare var define : (deps: string[], fn: () => S) => void;
                 if (!Sampling) logComputationRead(node, Updating);
             }
             return node.value;
-        }
-    }
-    
-    function toplevelComputation<T>(node : ComputationNode, mod : (fn : () => T) => () => T) {
-        try {
-            if (node.trait) node.fn = node.trait(node.fn);
-            if (mod) node.fn = mod(node.fn);
-            node.value = node.fn();
-    
-            if (Changes.count > 0) resolve(null);
-        } finally {
-            Batching = false;
-            Updating = null;
-            Sampling = false;
-            Disposing = false;
         }
     }
         
@@ -263,6 +236,107 @@ declare var define : (deps: string[], fn: () => S) => void;
         }
     };
     
+    // Internal implementation
+    
+    /// Graph classes and operations
+    class DataNode {
+        pending = NOTPENDING as any;   
+        log     = null as Log;
+        
+        constructor(
+            public value : any
+        ) { }
+    }
+    
+    class ComputationNode {
+        static count = 0;
+        
+        id       = ComputationNode.count++;
+        value    = undefined as any;
+        age      = Time;
+        state    = CURRENT;
+        hold     = null as () => boolean;
+        count    = 0;
+        sources  = [] as Log[];
+        log      = null as Log;
+        children = null as ComputationNode[];
+        cleanups = null as ((final : boolean) => void)[];
+        
+        constructor(
+            public fn : () => any,
+            public trait  : (fn : () => any) => () => any
+        ) { }
+    }
+    
+    class Log {
+        count = 0;
+        nodes = [] as ComputationNode[];
+        ids = [] as number[];
+    }
+        
+    class Queue<T> {
+        items = [] as T[];
+        count = 0;
+        
+        reset() {
+            this.count = 0;
+        }
+        
+        add(item : T) {
+            this.items[this.count++] = item;
+        }
+        
+        run(fn : (item : T) => void) {
+            var items = this.items, count = this.count;
+            for (var i = 0; i < count; i++) {
+                fn(items[i]);
+                items[i] = null;
+            }
+            this.count = 0;
+        }
+    }
+    
+    // "Globals" used to keep track of current system state
+    var Time         = 1,
+        Batching     = false, // whether we're batching changes
+        Updating     = null as ComputationNode, // whether we're updating, null = no, non-null = node being updated
+        Sampling     = false, // whether we're sampling signals, with no dependencies
+        Disposing    = false; // whether we're disposing
+        
+    // Queues for the phases of the update process
+    var Changes  = new Queue<DataNode>(), // batched changes to data nodes
+        _Changes = new Queue<DataNode>(), // batched changes to data nodes
+        Updates  = new Queue<ComputationNode>(), // computations to update
+        Disposes = new Queue<ComputationNode>(); // disposals to run after current batch of updates finishes
+    
+    // Constants
+    var REVIEWING = new ComputationNode(null, null),
+        DEAD = new ComputationNode(null, null),
+        NOTPENDING = {},
+        CURRENT    = 0,
+        STALE      = 1,
+        UPDATING   = 2;
+    
+    // Functions
+    function logRead(from : Log, to : ComputationNode) {
+        var id = to.id,
+            node = from.nodes[id];
+        if (node === to) return; // already logged
+        if (node !== REVIEWING) from.ids[from.count++] = id; // not in ids array
+        from.nodes[id] = to;
+        to.sources[to.count++] = from;
+    }
+        
+    function logDataRead(data : DataNode, to : ComputationNode) {
+        if (!data.log) data.log = new Log();
+        logRead(data.log, to);
+    }
+    
+    function logComputationRead(node : ComputationNode, to : ComputationNode) {
+        if (!node.log) node.log = new Log();
+        logRead(node.log, to);
+    }
+    
     function handleEvent(change : DataNode) {
         try {
             resolve(change);
@@ -270,6 +344,21 @@ declare var define : (deps: string[], fn: () => S) => void;
             Batching  = false;
             Updating  = null;
             Sampling  = false;
+            Disposing = false;
+        }
+    }
+    
+    function toplevelComputation<T>(node : ComputationNode, mod : (fn : () => T) => () => T) {
+        try {
+            if (node.trait) node.fn = node.trait(node.fn);
+            if (mod) node.fn = mod(node.fn);
+            node.value = node.fn();
+    
+            if (Changes.count > 0) resolve(null);
+        } finally {
+            Batching = false;
+            Updating = null;
+            Sampling = false;
             Disposing = false;
         }
     }
@@ -306,43 +395,6 @@ declare var define : (deps: string[], fn: () => S) => void;
                 throw new Error("Runaway frames detected");
             }
         }
-    }
-    
-    function update<T>(node : ComputationNode) {
-        if (node.state === STALE) {
-            var updating = Updating,
-                sampling = Sampling;
-        
-            Updating = node;
-            Sampling = false;
-        
-            node.state = UPDATING;    
-            cleanup(node, false);
-            node.value = node.fn();
-            node.state = CURRENT;
-            
-            Updating = updating;
-            Sampling = sampling;
-        }
-    }
-    
-    function logDataRead(data : DataNode, to : ComputationNode) {
-        if (!data.log) data.log = new Log();
-        logRead(data.log, to);
-    }
-    
-    function logComputationRead(node : ComputationNode, to : ComputationNode) {
-        if (!node.log) node.log = new Log();
-        logRead(node.log, to);
-    }
-    
-    function logRead(from : Log, to : ComputationNode) {
-        var id = to.id,
-            node = from.nodes[id];
-        if (node === to) return;
-        if (node !== REVIEWING) from.ids[from.count++] = id;
-        from.nodes[id] = to;
-        to.sources[to.count++] = from;
     }
     
     function applyDataChange(data : DataNode) {
@@ -391,16 +443,23 @@ declare var define : (deps: string[], fn: () => S) => void;
             if (child.children) markChildrenForDisposal(child.children);
         }
     }
+    
+    function update<T>(node : ComputationNode) {
+        if (node.state === STALE) {
+            var updating = Updating,
+                sampling = Sampling;
         
-    function dispose(node : ComputationNode) {
-        node.fn      = null;
-        node.trait   = null;
-        node.hold    = null;
-        node.log = null;
+            Updating = node;
+            Sampling = false;
         
-        cleanup(node, true);
-        
-        node.sources = null;
+            node.state = UPDATING;    
+            cleanup(node, false);
+            node.value = node.fn();
+            node.state = CURRENT;
+            
+            Updating = updating;
+            Sampling = sampling;
+        }
     }
         
     function cleanup(node : ComputationNode, final : boolean) {
@@ -428,73 +487,17 @@ declare var define : (deps: string[], fn: () => S) => void;
         }
         node.count = 0;
     }
-    
-    class Queue<T> {
-        items = [] as T[];
-        count = 0;
         
-        reset() {
-            this.count = 0;
-        }
+    function dispose(node : ComputationNode) {
+        node.fn      = null;
+        node.trait   = null;
+        node.hold    = null;
+        node.log = null;
         
-        add(item : T) {
-            this.items[this.count++] = item;
-        }
+        cleanup(node, true);
         
-        run(fn : (item : T) => void) {
-            var items = this.items, count = this.count;
-            for (var i = 0; i < count; i++) {
-                fn(items[i]);
-                items[i] = null;
-            }
-            this.count = 0;
-        }
+        node.sources = null;
     }
-    
-    /// Graph classes and operations
-    class DataNode {
-        pending = NOTPENDING as any;   
-        log     = null as Log;
-        
-        constructor(
-            public value : any
-        ) { }
-    }
-    
-    class ComputationNode {
-        static count = 0;
-        
-        id       = ComputationNode.count++;
-        value    = undefined as any;
-        age      = Time;
-        state    = CURRENT;
-        hold     = null as () => boolean;
-        count    = 0;
-        sources  = [] as Log[];
-        log      = null as Log;
-        children = null as ComputationNode[];
-        cleanups = null as ((final : boolean) => void)[];
-        
-        constructor(
-            public fn : () => any,
-            public trait  : (fn : () => any) => () => any
-        ) { }
-    }
-    
-    class Log {
-        count = 0;
-        nodes = [] as ComputationNode[];
-        ids = [] as number[];
-    }
-        
-    // Queues for the phases of the update process
-    var Changes  = new Queue<DataNode>(), // batched changes to data nodes
-        _Changes = new Queue<DataNode>(), // batched changes to data nodes
-        Updates  = new Queue<ComputationNode>(), // computations to update
-        Disposes = new Queue<ComputationNode>(); // disposals to run after current batch of updates finishes
-    
-    var REVIEWING = new ComputationNode(null, null),
-        DEAD = new ComputationNode(null, null);
     
     // UMD exporter
     /* globals define */

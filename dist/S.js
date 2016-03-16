@@ -1,13 +1,7 @@
 /// <reference path="../S.d.ts" />
 (function () {
     "use strict";
-    // "Globals" used to keep track of current system state
-    var Time = 1, Batching = false, // whether we're batching changes
-    Updating = null, // whether we're updating, null = no, non-null = node being updated
-    Sampling = false, // whether we're sampling signals, with no dependencies
-    Disposing = false; // whether we're disposing
-    // Constants
-    var NOTPENDING = {}, CURRENT = 0, STALE = 1, UPDATING = 2;
+    // Public interface
     var S = function S(fn) {
         var parent = Updating, sampling = Sampling, opts = (this instanceof Builder ? this : null), node = new ComputationNode(fn, parent && parent.trait);
         Updating = node;
@@ -48,23 +42,6 @@
             return node.value;
         };
     };
-    function toplevelComputation(node, mod) {
-        try {
-            if (node.trait)
-                node.fn = node.trait(node.fn);
-            if (mod)
-                node.fn = mod(node.fn);
-            node.value = node.fn();
-            if (Changes.count > 0)
-                resolve(null);
-        }
-        finally {
-            Batching = false;
-            Updating = null;
-            Sampling = false;
-            Disposing = false;
-        }
-    }
     S.on = function on(ev, fn, seed) {
         var first = true;
         return this instanceof Builder ? this.S(on) : S(on);
@@ -245,9 +222,115 @@
             throw new Error("S.cleanup() must be called from within an S() computation.  Cannot call it at toplevel.");
         }
     };
+    // Internal implementation
+    /// Graph classes and operations
+    var DataNode = (function () {
+        function DataNode(value) {
+            this.value = value;
+            this.pending = NOTPENDING;
+            this.log = null;
+        }
+        return DataNode;
+    })();
+    var ComputationNode = (function () {
+        function ComputationNode(fn, trait) {
+            this.fn = fn;
+            this.trait = trait;
+            this.id = ComputationNode.count++;
+            this.value = undefined;
+            this.age = Time;
+            this.state = CURRENT;
+            this.hold = null;
+            this.count = 0;
+            this.sources = [];
+            this.log = null;
+            this.children = null;
+            this.cleanups = null;
+        }
+        ComputationNode.count = 0;
+        return ComputationNode;
+    })();
+    var Log = (function () {
+        function Log() {
+            this.count = 0;
+            this.nodes = [];
+            this.ids = [];
+        }
+        return Log;
+    })();
+    var Queue = (function () {
+        function Queue() {
+            this.items = [];
+            this.count = 0;
+        }
+        Queue.prototype.reset = function () {
+            this.count = 0;
+        };
+        Queue.prototype.add = function (item) {
+            this.items[this.count++] = item;
+        };
+        Queue.prototype.run = function (fn) {
+            var items = this.items, count = this.count;
+            for (var i = 0; i < count; i++) {
+                fn(items[i]);
+                items[i] = null;
+            }
+            this.count = 0;
+        };
+        return Queue;
+    })();
+    // "Globals" used to keep track of current system state
+    var Time = 1, Batching = false, // whether we're batching changes
+    Updating = null, // whether we're updating, null = no, non-null = node being updated
+    Sampling = false, // whether we're sampling signals, with no dependencies
+    Disposing = false; // whether we're disposing
+    // Queues for the phases of the update process
+    var Changes = new Queue(), // batched changes to data nodes
+    _Changes = new Queue(), // batched changes to data nodes
+    Updates = new Queue(), // computations to update
+    Disposes = new Queue(); // disposals to run after current batch of updates finishes
+    // Constants
+    var REVIEWING = new ComputationNode(null, null), DEAD = new ComputationNode(null, null), NOTPENDING = {}, CURRENT = 0, STALE = 1, UPDATING = 2;
+    // Functions
+    function logRead(from, to) {
+        var id = to.id, node = from.nodes[id];
+        if (node === to)
+            return; // already logged
+        if (node !== REVIEWING)
+            from.ids[from.count++] = id; // not in ids array
+        from.nodes[id] = to;
+        to.sources[to.count++] = from;
+    }
+    function logDataRead(data, to) {
+        if (!data.log)
+            data.log = new Log();
+        logRead(data.log, to);
+    }
+    function logComputationRead(node, to) {
+        if (!node.log)
+            node.log = new Log();
+        logRead(node.log, to);
+    }
     function handleEvent(change) {
         try {
             resolve(change);
+        }
+        finally {
+            Batching = false;
+            Updating = null;
+            Sampling = false;
+            Disposing = false;
+        }
+    }
+    function toplevelComputation(node, mod) {
+        try {
+            if (node.trait)
+                node.fn = node.trait(node.fn);
+            if (mod)
+                node.fn = mod(node.fn);
+            node.value = node.fn();
+            if (Changes.count > 0)
+                resolve(null);
         }
         finally {
             Batching = false;
@@ -281,38 +364,6 @@
                 throw new Error("Runaway frames detected");
             }
         }
-    }
-    function update(node) {
-        if (node.state === STALE) {
-            var updating = Updating, sampling = Sampling;
-            Updating = node;
-            Sampling = false;
-            node.state = UPDATING;
-            cleanup(node, false);
-            node.value = node.fn();
-            node.state = CURRENT;
-            Updating = updating;
-            Sampling = sampling;
-        }
-    }
-    function logDataRead(data, to) {
-        if (!data.log)
-            data.log = new Log();
-        logRead(data.log, to);
-    }
-    function logComputationRead(node, to) {
-        if (!node.log)
-            node.log = new Log();
-        logRead(node.log, to);
-    }
-    function logRead(from, to) {
-        var id = to.id, node = from.nodes[id];
-        if (node === to)
-            return;
-        if (node !== REVIEWING)
-            from.ids[from.count++] = id;
-        from.nodes[id] = to;
-        to.sources[to.count++] = from;
     }
     function applyDataChange(data) {
         data.value = data.pending;
@@ -359,13 +410,18 @@
                 markChildrenForDisposal(child.children);
         }
     }
-    function dispose(node) {
-        node.fn = null;
-        node.trait = null;
-        node.hold = null;
-        node.log = null;
-        cleanup(node, true);
-        node.sources = null;
+    function update(node) {
+        if (node.state === STALE) {
+            var updating = Updating, sampling = Sampling;
+            Updating = node;
+            Sampling = false;
+            node.state = UPDATING;
+            cleanup(node, false);
+            node.value = node.fn();
+            node.state = CURRENT;
+            Updating = updating;
+            Sampling = sampling;
+        }
     }
     function cleanup(node, final) {
         var sources = node.sources, cleanups = node.cleanups, children = node.children;
@@ -387,68 +443,14 @@
         }
         node.count = 0;
     }
-    var Queue = (function () {
-        function Queue() {
-            this.items = [];
-            this.count = 0;
-        }
-        Queue.prototype.reset = function () {
-            this.count = 0;
-        };
-        Queue.prototype.add = function (item) {
-            this.items[this.count++] = item;
-        };
-        Queue.prototype.run = function (fn) {
-            var items = this.items, count = this.count;
-            for (var i = 0; i < count; i++) {
-                fn(items[i]);
-                items[i] = null;
-            }
-            this.count = 0;
-        };
-        return Queue;
-    })();
-    /// Graph classes and operations
-    var DataNode = (function () {
-        function DataNode(value) {
-            this.value = value;
-            this.pending = NOTPENDING;
-            this.log = null;
-        }
-        return DataNode;
-    })();
-    var ComputationNode = (function () {
-        function ComputationNode(fn, trait) {
-            this.fn = fn;
-            this.trait = trait;
-            this.id = ComputationNode.count++;
-            this.value = undefined;
-            this.age = Time;
-            this.state = CURRENT;
-            this.hold = null;
-            this.count = 0;
-            this.sources = [];
-            this.log = null;
-            this.children = null;
-            this.cleanups = null;
-        }
-        ComputationNode.count = 0;
-        return ComputationNode;
-    })();
-    var Log = (function () {
-        function Log() {
-            this.count = 0;
-            this.nodes = [];
-            this.ids = [];
-        }
-        return Log;
-    })();
-    // Queues for the phases of the update process
-    var Changes = new Queue(), // batched changes to data nodes
-    _Changes = new Queue(), // batched changes to data nodes
-    Updates = new Queue(), // computations to update
-    Disposes = new Queue(); // disposals to run after current batch of updates finishes
-    var REVIEWING = new ComputationNode(null, null), DEAD = new ComputationNode(null, null);
+    function dispose(node) {
+        node.fn = null;
+        node.trait = null;
+        node.hold = null;
+        node.log = null;
+        cleanup(node, true);
+        node.sources = null;
+    }
     // UMD exporter
     /* globals define */
     if (typeof module === 'object' && typeof module.exports === 'object') {
