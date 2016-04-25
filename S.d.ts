@@ -1,7 +1,7 @@
 interface S {
 	// Computation constructors
 	<T>(fn : () => T) : () => T;
-    on<T>(ev : () => any, fn : (v? : T) => T, seed? : T);
+    on<T>(ev : () => any, fn : (v? : T) => T, seed? : T, runnow? : boolean);
 
 	// Data signal constructors
 	data<T>(value : T) : (newvalue? : T) => T;

@@ -46,24 +46,29 @@ declare var define : (deps: string[], fn: () => S) => void;
         }
     }
         
-    S.on = function on<T>(ev : () => any, fn : (v? : T) => T, seed? : T) {
-        var first = true;
+    S.on = function on<T>(ev : () => any, fn : (v? : T) => T, value? : T, runnow? : boolean) {
+        if (Array.isArray(ev)) ev = callAll(ev);
+        runnow = !!runnow;
         
         return this instanceof Builder ? this.S(on) : S(on);
         
         function on() : T { 
             ev(); 
-            if (first) first = false;
-            else if (Updating && !Sampling) {
+            if (!runnow) runnow = true;
+            else {
                 Sampling = true;
-                seed = fn(seed);
+                value = fn(value);
                 Sampling = false;
-            } else {
-                seed = fn(seed);
-            }
-            return seed;
+            } 
+            return value;
         }
     };
+    
+    function callAll(ss) {
+        return function all() {
+            for (var i = 0; i < ss.length; i++) ss[i]();
+        }
+    }
 
     S.data = function data<T>(value : T) : (value? : T) => T {
         var node = new DataNode(value);

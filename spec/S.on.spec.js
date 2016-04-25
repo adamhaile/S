@@ -40,7 +40,23 @@ describe("S.on(...)", function () {
         expect(spy.calls.count()).toBe(3);
     });
     
-    it("modifies its accumulator", function () {
+    it("allows an array of dependencies", function () {
+        var a = S.data(1),
+            b = S.data(2),
+            c = S.data(3),
+            spy = jasmine.createSpy(),
+            f = S.on([a, b, c], function () { spy(); }, null);
+
+        expect(spy.calls.count()).toBe(0);
+
+        a(4);
+        b(5);
+        c(6);
+
+        expect(spy.calls.count()).toBe(3);
+    });
+    
+    it("modifies its accumulator when reducing", function () {
         var a = S.data(1),
             c = S.on(a, function (sum) { return sum + a(); }, 0);
             
@@ -54,5 +70,16 @@ describe("S.on(...)", function () {
         a(4);
         
         expect(c()).toBe(9);
+    });
+    
+    it("runs on declaration runnow is true", function () {
+        var a = S.data(1),
+            c = S.on(a, function () { return a() * 2; }, null, true);
+            
+        expect(c()).toBe(2);
+        
+        a(2);
+        
+        expect(c()).toBe(4);
     })
 });
