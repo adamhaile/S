@@ -46,15 +46,15 @@ declare var define : (deps: string[], fn: () => S) => void;
         }
     }
         
-    S.on = function on<T>(ev : () => any, fn : (v? : T) => T, value? : T, runnow? : boolean) {
+    S.on = function on<T>(ev : () => any, fn : (v? : T) => T, value? : T, onchanges? : boolean) {
         if (Array.isArray(ev)) ev = callAll(ev);
-        runnow = !!runnow;
+        onchanges = !!onchanges;
         
         return this instanceof Builder ? this.S(on) : S(on);
         
         function on() : T { 
             ev(); 
-            if (!runnow) runnow = true;
+            if (onchanges) onchanges = false;
             else {
                 Sampling = true;
                 value = fn(value);

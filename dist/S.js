@@ -42,15 +42,15 @@
             return node.value;
         };
     };
-    S.on = function on(ev, fn, value, runnow) {
+    S.on = function on(ev, fn, value, onchanges) {
         if (Array.isArray(ev))
             ev = callAll(ev);
-        runnow = !!runnow;
+        onchanges = !!onchanges;
         return this instanceof Builder ? this.S(on) : S(on);
         function on() {
             ev();
-            if (!runnow)
-                runnow = true;
+            if (onchanges)
+                onchanges = false;
             else {
                 Sampling = true;
                 value = fn(value);
