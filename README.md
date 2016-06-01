@@ -1,6 +1,41 @@
 # S.js
 
-S.js is a small library for performing **simple, clean, fast reactive programming** in Javascript.  It aims for a simple mental model with a clean syntax and fast execution.  It takes its name from **signal**, a reactive term for a value that changes over time.
+S.js is a small library for performing **simple, clean, fast reactive programming** in Javascript: a simple mental model, a clean and expressive syntax, and fast execution.  It takes its name from two reactive terms: **signal**, a value that changes over time, and **synchronous**, a strategy for simplifying change.
+
+```javascript
+var a = S.data(1),                   //       
+    b = S.data(2),                   //       ^
+    c = S(() => a() + b()),          //   d() |  3    15    21    55  
+    d = S(() => c() * a()); // t0    //   c() |  3     5     7    11 
+                                     //   b() |  2     2     4     6
+a(3); // t1                          //   a() |  1     3     3     5
+b(4); // t2                          //       +------------------------>
+S.freeze(() => {                     //         t0    t1    t2    t3 
+    a(5);                            //
+    b(6);                            //
+}); // t3                            //
+```
+
+An S app consists of data and computations on data.  As the data changes, S updates the affected computations.
+
+To achieve this, the data and computations must be wrapped as *signals* using `S.data(<value>)` for data and `S(() => <code>)` for computations.
+
+S implements signals as closures: call a signal to read its current value; pass a data signal a new value to change it.
+
+If multiple computations need to be updated, S uses a *synchronous* execution model: it is as though all computations update simultaneously and instantly.  This removes worries about update order or stale values.
+
+- signals come in two types, *data signals* and *computations*
+- data signals are the "leaves" in the system, where data and change enters
+- computations perform calculations and/or useful side effects
+- S implements both as closures, aka small functions carrying state
+- calling a signal gets its current value; passing a data signal a value sets it
+- setting a data signal advances the application to the next "tick" (t0 ... 3 above)
+- each signal has exactly one value at each tick
+
+- which S apps are composed of settable *data signals* and *computations*
+- App state advances on a linear timeline of discrete instances
+- Changing a data signal advances to the next instant
+- Each signal has exactly one value at each instant
 
 In plain terms, S helps you **keep things up-to-date** in your Javascript program.  S implements a **live, performant dependency graph** of your running code.  When data changes, S uses this graph to determine which parts of your application need to be updated and in what order.  
 
@@ -12,7 +47,11 @@ S maintains a few useful properties as it runs:
 
 - **automatic graph pruning**: no manual disposal of stale computations. In an S app, you only need to manage a few top level computations.  Most of the graph automatically grows *and shrinks* with the size of your data.
 
-- **atomic updates**: no stale values, no missed or redundant updates.  S insures that your computations run exactly once per change event and that the signals they reference return current values.
+- **guaranteed currency**: no need to worry about how change propagates through the graph.  S insures that any signals referenced return updated values.
+
+- **exact updates**: no missed or redundant updates.  Computations run exactly once per change event.
+
+- **a unified global timeline**: no confusing nested or overlapping mutations of different sections of code. S apps advance through a series of discrete "instants" during which state is immutable.
 
 S is useful for any project that can be described in terms of keeping something up-to-date: web frameworks keep the DOM up to date with the data, client-side routers keep the application state up to date with the url, and so on.
 
@@ -45,46 +84,46 @@ In S, data signals are immutable during updates.  If the updates set any values,
 
 ## S API
 
-### S.data(<value>)
-Construct a data signal whose initial value is <value>.
+### `S.data(<value>)`
+Construct a data signal whose initial value is `<value>`.
 
-### S(<thunk>)
-Construct a computation whose value is the result of the given <thunk>.  <thunk> is run at time of construction, then again whenever a referenced signal changes.
+### `S(() => <code>)`
+Construct a computation whose value is the result of the given `<code>`.  `<code>` is run at time of construction, then again whenever a referenced signal changes.
 
-### S.event(<thunk>)
-Execute the given <thunk> as a single event in the system, meaning that any data changes produced are aggregated and run as a unit when the <thunk> completes.  Returns value of <thunk>.
+### `S.event(() => <code>)`
+Execute the given `<code>` as a single event in the system, meaning that any data changes produced are aggregated and run as a unit when the `<code>` completes.  Returns value of `<code>`.
 
-### S.on(<signal>, <reducer>, <seed>, <onchanges>)
-Create a reducing computation.  Run <reducer> on the current value, initially <seed>, at time of construction and every time <signal> changes.  If <onchanges> is true, then the initial run is suppressed and the value starts as <seed>.
+### `S.on(<signal>, <reducer>, <seed>, <onchanges>)`
+Create a reducing computation.  Run `<reducer>` on the current value, initially `<seed>`, at time of construction and every time `<signal>` changes.  If `<onchanges>` is true, then the initial run is suppressed and the value starts as `<seed>`.
 
-<seed> and <onchanges> are both optional, with defaults of `undefined` and `false`.
+`<seed>` and `<onchanges>` are both optional, with defaults of `undefined` and `false`.
 
-<signal> may be an array of signals, in which case the reducer runs whenever one or more of the signals changes.
+`<signal>` may be an array of signals, in which case the reducer runs whenever one or more of the signals changes.
 
-### S.sample(<signal>)
-Sample the current value of <signal> but don't create a dependency on it.
+### `S.sample(<signal>)`
+Sample the current value of `<signal>` but don't create a dependency on it.
 
-### S.dispose(<signal>)
-Dispose <signal>.  <signal> will still have its value, but that value will no longer update, as it is disconnected from the dependency graph.
+### `S.dispose(<computation>)`
+Dispose `<computation>`.  `<computation>` will still have its value, but that value will no longer update, as it is disconnected from the dependency graph.
 
 Note: S allows computations to create other computations, with the rule that these "child" computations are automatically disposed when their parent updates.  As a result, S.dispose() is generally only needed for top level and .orphan()'d computations.
 
-### S.cleanup(<unary function>)
-Run the given function just before the enclosing computation updates or is disposed.  The function receives a boolean parameter indicating whether this is the "final" cleanup, with `true` meaning the computation is being disposed, `false` it's being updated.
+### `S.cleanup(final => <code>)`
+Run the given function just before the enclosing computation updates or is disposed.  The function receives a boolean parameter indicating whether this is the "final" cleanup, with `true` meaning the computation is being disposed, `false` it's merely being updated.
 
-S.cleanup() is used to free external resources, like DOM event registrations, which a computation may have claimed.  Computations can register as many cleanup handlers as needed, usually adjacent to where the resources are claimed.
+S.cleanup() is used to free external resources, like DOM event subscriptions, which a computation may have claimed.  Computations can register as many cleanup handlers as needed, usually adjacent to where the resources are claimed.
 
-### S.orphan().S(...)
+### `S.orphan().S(...)`
 A computation created with the .orphan() modifier is disconnected from its parent, meaning that it is not disposed when the parent updates.  Such a computation will remain alive until it is manually disposed with S.dispose().
 
-### S.defer(<scheduler>).S(...)
-The .defer() modifier controls when a computation updates.  <scheduler> is passed the computation's real update function and returns a replacement which will be called in its stead.  This replacement can then determine when to run the real update.
+### `S.defer(<scheduler>).S(...)`
+The .defer() modifier controls when a computation updates.  `<scheduler>` is passed the computation's real update function and returns a replacement which will be called in its stead.  This replacement can then determine when to run the real update.
 
-### S.sum(<value>)
-Construct an accumulating data signal with the given <value>.  Sums are updated by passing in a function that takes the old value and returns the new.  Unlike S.data(), sums may be updated several times in the same event, in which case each subsequent update receives the result of the previous.
+### `S.sum(<value>)`
+Construct an accumulating data signal with the given `<value>`.  Sums are updated by passing in a function that takes the old value and returns the new.  Unlike S.data(), sums may be updated several times in the same event, in which case each subsequent update receives the result of the previous.
 
 ## An Example: TodoMVC in S (plus friends)
-What else, right?  This example uses the suite Surplus.js, aka "S plus" some companion libraries.  Most notably, it uses the htmlliterals preprocessor for embedded DOM construction and the S.array() utility for a data signal carrying an array.
+What else, right?  S is just a core library for dealing with change; it takes more to build an application.  This example uses the suite Surplus.js, aka "S plus" a few companion libraries.  Most notably, it uses the htmlliterals preprocessor for embedded DOM construction and the S.array() utility for a data signal carrying an array.
 ```javascript
 var Todo = t => ({               // our Todo model
         title: S.data(t.title),  // properties are data signals
