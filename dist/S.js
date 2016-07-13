@@ -2,8 +2,8 @@
 (function () {
     "use strict";
     // Public interface
-    var S = function S(fn) {
-        var parent = Updating, sampling = Sampling, opts = (this instanceof Builder ? this : null), node = new ComputationNode(fn, parent && parent.trait);
+    var S = function S(fn, seed) {
+        var parent = Updating, sampling = Sampling, opts = (this instanceof Builder ? this : null), node = new ComputationNode(fn, parent && parent.trait, seed);
         Updating = node;
         Sampling = false;
         if (Batching) {
@@ -11,7 +11,7 @@
                 node.fn = opts.mod(node.fn);
             if (node.trait)
                 node.fn = node.trait(node.fn);
-            node.value = node.fn();
+            node.value = node.fn(node.value);
         }
         else {
             Batching = true;
@@ -41,23 +41,6 @@
             }
             return node.value;
         };
-    };
-    S.on = function on(ev, fn, value, onchanges) {
-        if (Array.isArray(ev))
-            ev = callAll(ev);
-        onchanges = !!onchanges;
-        return this instanceof Builder ? this.S(on) : S(on);
-        function on() {
-            ev();
-            if (onchanges)
-                onchanges = false;
-            else {
-                Sampling = true;
-                value = fn(value);
-                Sampling = false;
-            }
-            return value;
-        }
     };
     function callAll(ss) {
         return function all() {
@@ -129,7 +112,7 @@
             }
         };
     };
-    S.event = function batch(fn) {
+    S.freeze = function freeze(fn) {
         var result;
         if (Batching) {
             result = fn();
@@ -166,21 +149,45 @@
             this.mod = prev && prev.mod ? mod ? compose(prev.mod, mod) : prev.mod : mod;
             this.orphan = prev && prev.orphan || orphan;
         }
-        Builder.prototype.async = function (scheduler) {
-            return new Builder(this, false, async(scheduler));
+        Builder.prototype.defer = function (scheduler) {
+            return new Builder(this, false, defer(scheduler));
+        };
+        Builder.prototype.on = function (ev, onchanges) {
+            return new Builder(this, false, on(ev, onchanges));
         };
         return Builder;
     })();
     function compose(a, b) { return function compose(x) { return a(b(x)); }; }
     Builder.prototype.S = S;
-    Builder.prototype.on = S.on;
     S.orphan = function orphan() {
         return new Builder(null, true, null);
     };
-    S.async = function (fn) {
-        return new Builder(null, false, async(fn));
+    S.on = function (ev, changes) {
+        return new Builder(null, false, on(ev, changes));
     };
-    function async(scheduler) {
+    function on(ev, onchanges) {
+        if (Array.isArray(ev))
+            ev = callAll(ev);
+        return function onmod(fn) {
+            var _onchanges = !!onchanges;
+            return function on(value) {
+                ev();
+                if (_onchanges)
+                    _onchanges = false;
+                else {
+                    Sampling = true;
+                    value = fn(value);
+                    Sampling = false;
+                }
+                return value;
+            };
+        };
+    }
+    ;
+    S.defer = function (fn) {
+        return new Builder(null, false, defer(fn));
+    };
+    function defer(scheduler) {
         var gotime = 0, root = new DataNode(null), tick = scheduler(go);
         return function asyncmod(fn) {
             if (Updating) {
@@ -238,11 +245,12 @@
         return DataNode;
     })();
     var ComputationNode = (function () {
-        function ComputationNode(fn, trait) {
+        function ComputationNode(fn, trait, value) {
+            if (value === void 0) { value = undefined; }
             this.fn = fn;
             this.trait = trait;
+            this.value = value;
             this.id = ComputationNode.count++;
-            this.value = undefined;
             this.age = Time;
             this.state = CURRENT;
             this.hold = null;
@@ -333,7 +341,7 @@
                 node.fn = node.trait(node.fn);
             if (mod)
                 node.fn = mod(node.fn);
-            node.value = node.fn();
+            node.value = node.fn(node.value);
             if (Changes.count > 0)
                 resolve(null);
         }
@@ -422,7 +430,7 @@
             Sampling = false;
             node.state = UPDATING;
             cleanup(node, false);
-            node.value = node.fn();
+            node.value = node.fn(node.value);
             node.state = CURRENT;
             Updating = updating;
             Sampling = sampling;

@@ -1,8 +1,8 @@
-describe("S.event", function () {
+describe("S.freeze", function () {
 	it("batches changes until end", function () {
 		var d = S.data(1);
 			
-		S.event(function () {
+		S.freeze(function () {
 			d(2);
 			expect(d()).toBe(1);
 		});
@@ -14,7 +14,7 @@ describe("S.event", function () {
 		var d = S.data(1),
 			f = S(function() { return d(); });
 			
-		S.event(function () {
+		S.freeze(function () {
 			d(2);
 			expect(f()).toBe(1);
 		});

@@ -158,6 +158,21 @@ describe("S()", function () {
         });
     });
 
+    describe("with a seed", function () {
+        var a, f;
+
+        beforeEach(function () {
+            a = S.data(5);
+            f = S(function (v) { return v + a(); }, 5);
+        });
+
+        it("reduces seed value", function () {
+            expect(f()).toBe(10);
+            a(6);
+            expect(f()).toBe(16);
+        });
+    });
+
     describe("with a dependency on a computation", function () {
         var d, fcount, f, gcount, g;
 
