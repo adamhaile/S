@@ -7,23 +7,22 @@ declare var define : (deps: string[], fn: () => S) => void;
     "use strict";
     
     // Public interface
-    var S = <S>function S<T>(fn : (last? : T) => T, seed? : T) : () => T {
+    var S = <S>function S<T>(fn : (v? : T) => T, seed? : T, opts? : SOptions) : () => T {
+        if (fn.length === 0) { opts = <SOptions><any>seed; seed = undefined; }
+
         var parent   = Updating,
             sampling = Sampling,
-            opts     = (this instanceof Builder ? this : null) as Builder<T>,
-            node     = new ComputationNode(fn, parent && parent.trait, seed);
+            node     = new ComputationNode(fn, seed, opts && opts.defer ? defer(opts.defer) : parent ? parent.hold : null);
             
         Updating = node;
         Sampling = false;
         
         if (Batching) {
-            if (opts && opts.mod) node.fn = opts.mod(node.fn);
-            if (node.trait) node.fn = node.trait(node.fn);
             node.value = node.fn(node.value);
         } else {
             Batching = true;
             Changes.reset();
-            toplevelComputation(node, opts && opts.mod);
+            toplevelComputation(node);
         }
         
         if (parent && (!opts || !opts.orphan)) (parent.children || (parent.children = [])).push(node);
@@ -46,6 +45,43 @@ declare var define : (deps: string[], fn: () => S) => void;
         }
     }
     
+    function defer<T>(scheduler : (go : () => void) => () => void) : () => boolean {
+        var gotime = 0,
+            root = new DataNode(null),
+            tick = scheduler(go);
+            
+        return function hold() {
+            if (Time === gotime) return false;
+            if (tick) tick();
+            logDataRead(root, this);
+            return true;
+        }
+        
+        function go() {
+            gotime = Time + 1;
+            if (Batching) Changes.add(root);
+            else event(root);
+        }
+    }
+
+    S.on = function on<T>(ev : () => any, fn : (v? : T) => T, seed? : T, onchanges? : boolean, opts? : SOptions) {
+        if (Array.isArray(ev)) ev = callAll(ev);
+        onchanges = !!onchanges;
+        
+        return S(on, seed, opts); 
+        
+        function on(value : T) {
+            ev(); 
+            if (onchanges) onchanges = false;
+            else {
+                Sampling = true;
+                value = fn(value);
+                Sampling = false;
+            } 
+            return value;
+        }
+    }
+
     function callAll(ss) {
         return function all() {
             for (var i = 0; i < ss.length; i++) ss[i]();
@@ -143,88 +179,6 @@ declare var define : (deps: string[], fn: () => S) => void;
         
         return result;
     }
-    
-    /// Builder
-    class Builder<T> implements SBuilder {
-        orphan = false;
-        mod : (fn : (v? : T) => T) => (v? : T) => T;
-        
-        constructor(prev : Builder<T>, orphan : boolean, mod : (fn : (v? : T) => T) => (v? : T) => T) {
-            this.mod = prev && prev.mod ? mod ? compose(prev.mod, mod) : prev.mod : mod;
-            this.orphan = prev && prev.orphan || orphan;
-        }
-        
-        S : any;
-        
-        defer<T>(scheduler : (go : () => T) => () => T) { 
-            return new Builder(this, false, defer(scheduler)); 
-        }
-        
-        on<T>(ev : () => any, onchanges? : boolean) {
-            return new Builder(this, false, on(ev, onchanges));
-        }
-    }
-    
-    function compose(a, b) { return function compose(x) { return a(b(x)); }; }
-    
-    Builder.prototype.S = S;
-
-    S.orphan = function orphan() {
-        return new Builder(null, true, null);
-    }
-    
-    S.on = function (ev, changes?) {
-        return new Builder(null, false, on(ev, changes));
-    }
-        
-    function on<T>(ev : () => any, onchanges? : boolean) {
-        if (Array.isArray(ev)) ev = callAll(ev);
-        
-        return function onmod(fn : (v? : T) => T) {
-            var _onchanges = !!onchanges;
-            return function on(value : T) { 
-                ev(); 
-                if (_onchanges) _onchanges = false;
-                else {
-                    Sampling = true;
-                    value = fn(value);
-                    Sampling = false;
-                } 
-                return value;
-            }
-        }
-    };
-    
-    S.defer = function (fn) { 
-        return new Builder(null, false, defer(fn)); 
-    };
-
-    function defer<T>(scheduler : (go : () => void) => () => void) : (fn : (v? : T) => T) => (v? : T) => T {
-        var gotime = 0,
-            root = new DataNode(null),
-            tick = scheduler(go);
-            
-        return function asyncmod(fn) {
-            if (Updating) {
-                Updating.trait = asyncmod;
-                Updating.hold = hold;
-            }
-            return fn;
-        }
-        
-        function hold() {
-            if (Time === gotime) return false;
-            if (tick) tick();
-            logDataRead(root, this);
-            return true;
-        }
-        
-        function go() {
-            gotime = Time + 1;
-            if (Batching) Changes.add(root);
-            else event(root);
-        }
-    }
 
     S.dispose = function dispose(signal : () => {}) {
         if (Disposing) {
@@ -265,7 +219,6 @@ declare var define : (deps: string[], fn: () => S) => void;
         id       = ComputationNode.count++;
         age      = Time;
         state    = CURRENT;
-        hold     = null as () => boolean;
         count    = 0;
         sources  = [] as Log[];
         log      = null as Log;
@@ -273,9 +226,9 @@ declare var define : (deps: string[], fn: () => S) => void;
         cleanups = null as ((final : boolean) => void)[];
         
         constructor(
-            public fn    : (last? : any) => any,
-            public trait : (fn : () => any) => () => any,
-            public value = undefined as any
+            public fn    : (v : any) => any,
+            public value : any,
+            public hold : () => boolean
         ) { }
     }
     
@@ -316,13 +269,13 @@ declare var define : (deps: string[], fn: () => S) => void;
         
     // Queues for the phases of the update process
     var Changes  = new Queue<DataNode>(), // batched changes to data nodes
-        _Changes = new Queue<DataNode>(), // batched changes to data nodes
+        _Changes = new Queue<DataNode>(), // alternate array of batched changes to data nodes
         Updates  = new Queue<ComputationNode>(), // computations to update
         Disposes = new Queue<ComputationNode>(); // disposals to run after current batch of updates finishes
     
     // Constants
-    var REVIEWING = new ComputationNode(null, null),
-        DEAD = new ComputationNode(null, null),
+    var REVIEWING = new ComputationNode(null, null, null),
+        DEAD = new ComputationNode(null, null, null),
         NOTPENDING = {},
         CURRENT    = 0,
         STALE      = 1,
@@ -359,10 +312,8 @@ declare var define : (deps: string[], fn: () => S) => void;
         }
     }
     
-    function toplevelComputation<T>(node : ComputationNode, mod : (fn : () => T) => () => T) {
+    function toplevelComputation<T>(node : ComputationNode) {
         try {
-            if (node.trait) node.fn = node.trait(node.fn);
-            if (mod) node.fn = mod(node.fn);
             node.value = node.fn(node.value);
     
             if (Changes.count > 0) resolve(null);
@@ -501,7 +452,6 @@ declare var define : (deps: string[], fn: () => S) => void;
         
     function dispose(node : ComputationNode) {
         node.fn      = null;
-        node.trait   = null;
         node.hold    = null;
         node.log = null;
         

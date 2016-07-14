@@ -3,7 +3,7 @@ describe("S.on(...)", function () {
     it("registers a dependency", function () {
         var d = S.data(1),
             spy = jasmine.createSpy(),
-            f = S.on(d).S(function () { spy(); });
+            f = S.on(d, function () { spy(); });
 
         expect(spy.calls.count()).toBe(1);
 
@@ -15,7 +15,7 @@ describe("S.on(...)", function () {
     it("prohibits dynamic dependencies", function () {
         var d = S.data(1),
             spy = jasmine.createSpy("spy"),
-            s = S.on(function () {}).S(function () { spy(); return d(); });
+            s = S.on(function () {}, function () { spy(); return d(); });
 
         expect(spy.calls.count()).toBe(1);
 
@@ -29,7 +29,7 @@ describe("S.on(...)", function () {
             b = S.data(2),
             c = S.data(3),
             spy = jasmine.createSpy(),
-            f = S.on(function () { a(); b(); c(); }).S(function () { spy(); });
+            f = S.on(function () { a(); b(); c(); }, function () { spy(); });
 
         expect(spy.calls.count()).toBe(1);
 
@@ -45,7 +45,7 @@ describe("S.on(...)", function () {
             b = S.data(2),
             c = S.data(3),
             spy = jasmine.createSpy(),
-            f = S.on([a, b, c]).S(function () { spy(); });
+            f = S.on([a, b, c], function () { spy(); });
 
         expect(spy.calls.count()).toBe(1);
 
@@ -58,7 +58,7 @@ describe("S.on(...)", function () {
     
     it("modifies its accumulator when reducing", function () {
         var a = S.data(1),
-            c = S.on(a).S(function (sum) { return sum + a(); }, 0);
+            c = S.on(a, function (sum) { return sum + a(); }, 0);
             
         expect(c()).toBe(1);
         
@@ -74,7 +74,7 @@ describe("S.on(...)", function () {
     
     it("suppresses initial run when onchanges is true", function () {
         var a = S.data(1),
-            c = S.on(a, true).S(function () { return a() * 2; }, 0);
+            c = S.on(a, function () { return a() * 2; }, 0, true);
             
         expect(c()).toBe(0);
         

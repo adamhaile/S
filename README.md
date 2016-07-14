@@ -22,11 +22,11 @@ To achieve this, the data and computations are wrapped as *signals* using `S.dat
 
 S implements signals as closures: call a signal to read its current value; pass a data signal a new value to change it.
 
-If a change affects multiple computations, S uses what's called a *synchronous* execution model: it is as though all computations update "instantly."  They can't, of course, but S maintains this illustion via three invariants: computations run exactly once per  change event (no missed or redundant updates), they always return current (not stale) values, and if they change any data signals, those changes don't take effect until all other computations have had a chance to update.
+If a change affects multiple computations, S uses what's called a *synchronous* execution model: it is as though all computations update together in the same "instant."  They can't, of course, but S maintains this illustion via three properties: computations run exactly once per change event (no missed or redundant updates), they always return current (not stale) values, and if they change any data signals, those changes don't take effect until all other computations have had a chance to update.
 
-S allows computations to generate more computations, with the rule that these "child" computations only live until their "parent" updates.  This allows an application to grow *and shrink* with the size of your data, without ever having to manually dispose stale computations.
+S allows computations to generate more computations, with the rule that these "child" computations only live until their "parent" updates.  This allows an application to grow *and shrink* with the size of your data.  In general, S applications never need to manually subscribe or unsubscribe from changes.
 
-S has a small API for doing things like aggreggating multiple changes into one event (S.freeze()), deferring updates (S.defer()), controlling dependencies (S.sample()), and so on.  See the full list below.
+S has a small API for doing things like aggreggating multiple changes into one event (S.freeze()), deferring updates (defer option), controlling dependencies (S.sample()), and so on.  See the full list below.
 
 ## How does S work?
 As your program runs, S's data signals and computations communicate with each other to build up a live, performant dependency graph of your code.  Computations set an internal 'calling card' variable which referenced signals use to register a dependency.  Since computations may reference the results of other computations, this graph may have _n_ layers, not just two.  
@@ -43,10 +43,28 @@ In S, data signals are immutable during updates.  If the updates set any values,
 Construct a data signal whose initial value is `<value>`.
 
 ### `S(() => <code>)`
-Construct a computation whose value is the result of the given `<code>`.  `<code>` is run at time of construction, then again whenever a referenced signal changes.
+Construct a computation whose value is the result of the given `<code>`.  `<code>` is run at time of construction, then again whenever referenced signals change.
 
 ### `S(val => <code>, <seed>)`
 Construct a reducing computation, whose new value is derived from the last one, staring with `<seed>`.
+
+### `S.on(<signal>, val => <code>, <seed>, <onchanges>)`
+Statically declare a computation's dependencies, rather than relying on S's automatical detection of dependencies. 
+
+`<seed>` is optional, with default `undefined`.
+
+`<onchanges>` is optional and defaults to `false`.  If `<onchanges>` is true, then the initial run is skipped (i.e. computation only runs on the changes).
+
+`<signal>` may be an array, in which case dependencies are created for each signal in the array.
+
+### Computation options
+Both forms of S() as well as S.on() can take a final options parameter:
+
+#### orphan: <true | false>
+If true, disconnect this computation from its parent, meaning that it is not disposed when the parent updates.  Such a computation will remain alive until it is manually disposed with S.dispose().
+
+#### defer: <scheduler>
+Controls when a computation's update runs.  `<scheduler>` is passed the computation's real update function and returns a replacement which will be called in its stead.  This replacement can then determine when to run the real update.
 
 ### `S.sum(<value>)`
 Construct an accumulating data signal with the given `<value>`.  Sums are updated by passing in a function that takes the old value and returns the new.  Unlike S.data(), sums may be updated several times in the same event, in which case each subsequent update receives the result of the previous.
@@ -58,21 +76,6 @@ Freeze the system until `<code>` completes, meaning that any data changes produc
 
 ### `S.sample(<signal>)`
 Sample the current value of `<signal>` but don't create a dependency on it.
-
-### Options
-
-### `S.on(<signal>, <onchanges>).S(...)`
-Statically declare a computation's dependencies, rather than relying on S's automatical detection of dependencies. 
-
-`<onchanges>` is optional and defaults to `false`.  If `<onchanges>` is true, then the initial run is skipped (i.e. computaiton only runs on the changes).
-
-`<signal>` may be an array, in which case dependencies are created for each signal in the array.
-
-### `S.orphan().S(...)`
-A computation created with the .orphan() option is disconnected from its parent, meaning that it is not disposed when the parent updates.  Such a computation will remain alive until it is manually disposed with S.dispose().
-
-### `S.defer(<scheduler>).S(...)`
-The .defer() modifier controls when a computation updates.  `<scheduler>` is passed the computation's real update function and returns a replacement which will be called in its stead.  This replacement can then determine when to run the real update.
 
 ### Destructors
 

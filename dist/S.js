@@ -2,21 +2,21 @@
 (function () {
     "use strict";
     // Public interface
-    var S = function S(fn, seed) {
-        var parent = Updating, sampling = Sampling, opts = (this instanceof Builder ? this : null), node = new ComputationNode(fn, parent && parent.trait, seed);
+    var S = function S(fn, seed, opts) {
+        if (fn.length === 0) {
+            opts = seed;
+            seed = undefined;
+        }
+        var parent = Updating, sampling = Sampling, node = new ComputationNode(fn, seed, opts && opts.defer ? defer(opts.defer) : parent ? parent.hold : null);
         Updating = node;
         Sampling = false;
         if (Batching) {
-            if (opts && opts.mod)
-                node.fn = opts.mod(node.fn);
-            if (node.trait)
-                node.fn = node.trait(node.fn);
             node.value = node.fn(node.value);
         }
         else {
             Batching = true;
             Changes.reset();
-            toplevelComputation(node, opts && opts.mod);
+            toplevelComputation(node);
         }
         if (parent && (!opts || !opts.orphan))
             (parent.children || (parent.children = [])).push(node);
@@ -41,6 +41,41 @@
             }
             return node.value;
         };
+    };
+    function defer(scheduler) {
+        var gotime = 0, root = new DataNode(null), tick = scheduler(go);
+        return function hold() {
+            if (Time === gotime)
+                return false;
+            if (tick)
+                tick();
+            logDataRead(root, this);
+            return true;
+        };
+        function go() {
+            gotime = Time + 1;
+            if (Batching)
+                Changes.add(root);
+            else
+                event(root);
+        }
+    }
+    S.on = function on(ev, fn, seed, onchanges, opts) {
+        if (Array.isArray(ev))
+            ev = callAll(ev);
+        onchanges = !!onchanges;
+        return S(on, seed, opts);
+        function on(value) {
+            ev();
+            if (onchanges)
+                onchanges = false;
+            else {
+                Sampling = true;
+                value = fn(value);
+                Sampling = false;
+            }
+            return value;
+        }
     };
     function callAll(ss) {
         return function all() {
@@ -142,76 +177,6 @@
         }
         return result;
     };
-    /// Builder
-    var Builder = (function () {
-        function Builder(prev, orphan, mod) {
-            this.orphan = false;
-            this.mod = prev && prev.mod ? mod ? compose(prev.mod, mod) : prev.mod : mod;
-            this.orphan = prev && prev.orphan || orphan;
-        }
-        Builder.prototype.defer = function (scheduler) {
-            return new Builder(this, false, defer(scheduler));
-        };
-        Builder.prototype.on = function (ev, onchanges) {
-            return new Builder(this, false, on(ev, onchanges));
-        };
-        return Builder;
-    })();
-    function compose(a, b) { return function compose(x) { return a(b(x)); }; }
-    Builder.prototype.S = S;
-    S.orphan = function orphan() {
-        return new Builder(null, true, null);
-    };
-    S.on = function (ev, changes) {
-        return new Builder(null, false, on(ev, changes));
-    };
-    function on(ev, onchanges) {
-        if (Array.isArray(ev))
-            ev = callAll(ev);
-        return function onmod(fn) {
-            var _onchanges = !!onchanges;
-            return function on(value) {
-                ev();
-                if (_onchanges)
-                    _onchanges = false;
-                else {
-                    Sampling = true;
-                    value = fn(value);
-                    Sampling = false;
-                }
-                return value;
-            };
-        };
-    }
-    ;
-    S.defer = function (fn) {
-        return new Builder(null, false, defer(fn));
-    };
-    function defer(scheduler) {
-        var gotime = 0, root = new DataNode(null), tick = scheduler(go);
-        return function asyncmod(fn) {
-            if (Updating) {
-                Updating.trait = asyncmod;
-                Updating.hold = hold;
-            }
-            return fn;
-        };
-        function hold() {
-            if (Time === gotime)
-                return false;
-            if (tick)
-                tick();
-            logDataRead(root, this);
-            return true;
-        }
-        function go() {
-            gotime = Time + 1;
-            if (Batching)
-                Changes.add(root);
-            else
-                event(root);
-        }
-    }
     S.dispose = function dispose(signal) {
         if (Disposing) {
             signal();
@@ -245,15 +210,13 @@
         return DataNode;
     })();
     var ComputationNode = (function () {
-        function ComputationNode(fn, trait, value) {
-            if (value === void 0) { value = undefined; }
+        function ComputationNode(fn, value, hold) {
             this.fn = fn;
-            this.trait = trait;
             this.value = value;
+            this.hold = hold;
             this.id = ComputationNode.count++;
             this.age = Time;
             this.state = CURRENT;
-            this.hold = null;
             this.count = 0;
             this.sources = [];
             this.log = null;
@@ -299,11 +262,11 @@
     Disposing = false; // whether we're disposing
     // Queues for the phases of the update process
     var Changes = new Queue(), // batched changes to data nodes
-    _Changes = new Queue(), // batched changes to data nodes
+    _Changes = new Queue(), // alternate array of batched changes to data nodes
     Updates = new Queue(), // computations to update
     Disposes = new Queue(); // disposals to run after current batch of updates finishes
     // Constants
-    var REVIEWING = new ComputationNode(null, null), DEAD = new ComputationNode(null, null), NOTPENDING = {}, CURRENT = 0, STALE = 1, UPDATING = 2;
+    var REVIEWING = new ComputationNode(null, null, null), DEAD = new ComputationNode(null, null, null), NOTPENDING = {}, CURRENT = 0, STALE = 1, UPDATING = 2;
     // Functions
     function logRead(from, to) {
         var id = to.id, node = from.nodes[id];
@@ -335,12 +298,8 @@
             Disposing = false;
         }
     }
-    function toplevelComputation(node, mod) {
+    function toplevelComputation(node) {
         try {
-            if (node.trait)
-                node.fn = node.trait(node.fn);
-            if (mod)
-                node.fn = mod(node.fn);
             node.value = node.fn(node.value);
             if (Changes.count > 0)
                 resolve(null);
@@ -458,7 +417,6 @@
     }
     function dispose(node) {
         node.fn = null;
-        node.trait = null;
         node.hold = null;
         node.log = null;
         cleanup(node, true);
