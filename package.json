@@ -1,5 +1,5 @@
 {
-  "name": "S",
+  "name": "s.js",
   "version": "0.0.1",
   "description": "simple, clean, fast reactive programming in Javascript",
   "main": "dist/S.js",
@@ -13,13 +13,16 @@
     "karma": "^0.12.25",
     "karma-jasmine": "^0.3.1",
     "karma-phantomjs-launcher": "^0.1.4",
-    "typescript": "^1.6.0-beta"
+    "typescript": "2.0.2"
   },
   "scripts": {
     "test": "karma start"
   },
   "keywords": [
-    "reactive"
+    "reactive",
+    "javascript",
+    "synchronous",
+    "signal"
   ],
   "author": "Adam Haile",
   "license": "MIT"
