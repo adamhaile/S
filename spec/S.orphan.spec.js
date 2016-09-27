@@ -11,12 +11,12 @@ describe("S.orphan()", function () {
             // register dependency to outer trigger
             outerTrigger();
             // inner computation
-            S(function () {
+            S.orphan().S(function () {
                 // register dependency on inner trigger
                 innerTrigger();
                 // count total runs
                 innerRuns++;
-            }, { orphan: true });
+            });
         });
 
         // at start, we have one inner computation, that's run once

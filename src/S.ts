@@ -7,12 +7,13 @@ declare var define : (deps: string[], fn: () => S) => void;
     "use strict";
     
     // Public interface
-    var S = <S>function S<T>(fn : (v? : T) => T, seed? : T, opts? : SOptions) : () => T {
-        if (fn.length === 0) { opts = <SOptions><any>seed; seed = undefined; }
-
+    var S = <S>function S<T>(fn : (v? : T) => T, seed? : T) : () => T {
         var parent   = Updating,
             sampling = Sampling,
-            node     = new ComputationNode(fn, seed, opts && opts.defer ? defer(opts.defer) : parent ? parent.hold : null);
+            options  = (this instanceof Options ? this : null) as Options,
+            hold     = options && options._defer ? defer(options._defer) : parent ? parent.hold : null,
+            orphan   = options && options._orphan,
+            node     = new ComputationNode(fn, seed, hold);
             
         Updating = node;
         Sampling = false;
@@ -25,7 +26,7 @@ declare var define : (deps: string[], fn: () => S) => void;
             toplevelComputation(node);
         }
         
-        if (parent && (!opts || !opts.orphan)) (parent.children || (parent.children = [])).push(node);
+        if (parent && !orphan) (parent.children || (parent.children = [])).push(node);
         
         Updating = parent;
         Sampling = sampling;
@@ -44,8 +45,54 @@ declare var define : (deps: string[], fn: () => S) => void;
             return node.value;
         }
     }
+
+    S.on = function on<T>(ev : () => any, fn : (v? : T) => T, seed? : T, onchanges? : boolean) {
+        if (Array.isArray(ev)) ev = callAll(ev);
+        onchanges = !!onchanges;
+
+        return this instanceof Options ? this.S(on, seed) : S(on, seed);
+        
+        function on(value : T) {
+            ev(); 
+            if (onchanges) onchanges = false;
+            else {
+                Sampling = true;
+                value = fn(value);
+                Sampling = false;
+            } 
+            return value;
+        }
+    }
+        
+    /// Fluent-style options
+    class Options implements SOptions {
+        constructor(prev : Options, public _orphan : boolean, public _defer : (go : () => void) => () => void) {
+            this._defer = _defer || prev && prev._defer;
+            this._orphan = _orphan || prev && prev._orphan;
+        }
+        
+        S : any;
+        on : any;
+        
+        defer(scheduler : (go : () => void) => () => void) { 
+            return new Options(this, false, scheduler); 
+        }
+    }
     
-    function defer<T>(scheduler : (go : () => void) => () => void) : () => boolean {
+    Options.prototype.S = S;
+    Options.prototype.on = S.on;
+
+    var _orphan = new Options(null, true, null);
+
+    S.orphan = function orphan() {
+        return _orphan;
+    }
+    
+    S.defer = function (fn) { 
+        return new Options(null, false, fn); 
+    };
+
+    function defer(scheduler : (go : () => void) => () => void) : () => boolean {
         var gotime = 0,
             root = new DataNode(null),
             tick = scheduler(go);
@@ -61,24 +108,6 @@ declare var define : (deps: string[], fn: () => S) => void;
             gotime = Time + 1;
             if (Batching) Changes.add(root);
             else event(root);
-        }
-    }
-
-    S.on = function on<T>(ev : () => any, fn : (v? : T) => T, seed? : T, onchanges? : boolean, opts? : SOptions) {
-        if (Array.isArray(ev)) ev = callAll(ev);
-        onchanges = !!onchanges;
-        
-        return S(on, seed, opts); 
-        
-        function on(value : T) {
-            ev(); 
-            if (onchanges) onchanges = false;
-            else {
-                Sampling = true;
-                value = fn(value);
-                Sampling = false;
-            } 
-            return value;
         }
     }
 

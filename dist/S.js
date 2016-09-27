@@ -2,12 +2,8 @@
 (function () {
     "use strict";
     // Public interface
-    var S = function S(fn, seed, opts) {
-        if (fn.length === 0) {
-            opts = seed;
-            seed = undefined;
-        }
-        var parent = Updating, sampling = Sampling, node = new ComputationNode(fn, seed, opts && opts.defer ? defer(opts.defer) : parent ? parent.hold : null);
+    var S = function S(fn, seed) {
+        var parent = Updating, sampling = Sampling, options = (this instanceof Options ? this : null), hold = options && options._defer ? defer(options._defer) : parent ? parent.hold : null, orphan = options && options._orphan, node = new ComputationNode(fn, seed, hold);
         Updating = node;
         Sampling = false;
         if (Batching) {
@@ -18,7 +14,7 @@
             Changes.reset();
             toplevelComputation(node);
         }
-        if (parent && (!opts || !opts.orphan))
+        if (parent && !orphan)
             (parent.children || (parent.children = [])).push(node);
         Updating = parent;
         Sampling = sampling;
@@ -42,6 +38,45 @@
             return node.value;
         };
     };
+    S.on = function on(ev, fn, seed, onchanges) {
+        if (Array.isArray(ev))
+            ev = callAll(ev);
+        onchanges = !!onchanges;
+        return this instanceof Options ? this.S(on, seed) : S(on, seed);
+        function on(value) {
+            ev();
+            if (onchanges)
+                onchanges = false;
+            else {
+                Sampling = true;
+                value = fn(value);
+                Sampling = false;
+            }
+            return value;
+        }
+    };
+    /// Fluent-style options
+    var Options = (function () {
+        function Options(prev, _orphan, _defer) {
+            this._orphan = _orphan;
+            this._defer = _defer;
+            this._defer = _defer || prev && prev._defer;
+            this._orphan = _orphan || prev && prev._orphan;
+        }
+        Options.prototype.defer = function (scheduler) {
+            return new Options(this, false, scheduler);
+        };
+        return Options;
+    }());
+    Options.prototype.S = S;
+    Options.prototype.on = S.on;
+    var _orphan = new Options(null, true, null);
+    S.orphan = function orphan() {
+        return _orphan;
+    };
+    S.defer = function (fn) {
+        return new Options(null, false, fn);
+    };
     function defer(scheduler) {
         var gotime = 0, root = new DataNode(null), tick = scheduler(go);
         return function hold() {
@@ -60,23 +95,6 @@
                 event(root);
         }
     }
-    S.on = function on(ev, fn, seed, onchanges, opts) {
-        if (Array.isArray(ev))
-            ev = callAll(ev);
-        onchanges = !!onchanges;
-        return S(on, seed, opts);
-        function on(value) {
-            ev();
-            if (onchanges)
-                onchanges = false;
-            else {
-                Sampling = true;
-                value = fn(value);
-                Sampling = false;
-            }
-            return value;
-        }
-    };
     function callAll(ss) {
         return function all() {
             for (var i = 0; i < ss.length; i++)
@@ -208,7 +226,7 @@
             this.log = null;
         }
         return DataNode;
-    })();
+    }());
     var ComputationNode = (function () {
         function ComputationNode(fn, value, hold) {
             this.fn = fn;
@@ -225,7 +243,7 @@
         }
         ComputationNode.count = 0;
         return ComputationNode;
-    })();
+    }());
     var Log = (function () {
         function Log() {
             this.count = 0;
@@ -233,7 +251,7 @@
             this.ids = [];
         }
         return Log;
-    })();
+    }());
     var Queue = (function () {
         function Queue() {
             this.items = [];
@@ -254,7 +272,7 @@
             this.count = 0;
         };
         return Queue;
-    })();
+    }());
     // "Globals" used to keep track of current system state
     var Time = 1, Batching = false, // whether we're batching changes
     Updating = null, // whether we're updating, null = no, non-null = node being updated

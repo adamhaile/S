@@ -66,11 +66,11 @@ describe("S() with subcomputations", function () {
         beforeEach(function () {
             d = S.data(1);
             go = null;
-            f = S(function () {
+            f = S.defer(function (g) { go = g; }).S(function () {
                 g = S(function () {
                     return d();
                 });
-            }, { defer: function (g) { go = g; }});
+            });
         });
 
         it("applies gate to child", function () {

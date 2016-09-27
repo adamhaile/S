@@ -2,7 +2,7 @@ describe('S.defer', function () {
     it('can delay updates', function () {
         var go = null,
             d = S.data(1),
-            f = S(function () { return d(); }, { defer: function (g) { go = g; }});
+            f = S.defer(function (g) { go = g; }).S(function () { return d(); });
 
         expect(f()).toBe(1);
         d(2);
@@ -16,7 +16,7 @@ describe('S.defer', function () {
             ticks = 0,
             tick = function () { ticks++; },
             a = S.data(1),
-            c = S(function () { return a(); }, { defer: function (g) { go = g; return tick; }});
+            c = S.defer(function (g) { go = g; return tick; }).S(function () { return a(); });
             
         expect(c()).toBe(1);
         expect(go).not.toBe(null);
