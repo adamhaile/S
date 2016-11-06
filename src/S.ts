@@ -65,7 +65,7 @@ declare var define : (deps: string[], fn: () => S) => void;
     }
         
     /// Fluent-style options
-    class Options implements SOptions {
+    class Options implements S.Options {
         constructor(prev : Options, public _orphan : boolean, public _defer : (go : () => void) => () => void) {
             this._defer = _defer || prev && prev._defer;
             this._orphan = _orphan || prev && prev._orphan;
@@ -147,6 +147,26 @@ declare var define : (deps: string[], fn: () => S) => void;
         }
     };
     
+    S.value = function value<T>(current : T, eq? : (a : T, b : T) => boolean) : S.DataSignal<T> {
+        var data = S.data(current),
+            age = 0;
+        return function value(update? : T) {
+            if (arguments.length === 0) {
+                return data();
+            } else {
+                var same = eq ? eq(current, update) : current === update;
+                if (!same) {
+                    if (age === Time) 
+                        throw new Error("conflicting values: " + value + " is not the same as " + current);
+                    age = Time;
+                    current = update;
+                    data(update);
+                }
+                return update;
+            }
+        }
+    };
+
     S.sum = function sum<T>(value : T) : (update? : (value : T) => T) => T {
         var node = new DataNode(value);
 

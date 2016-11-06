@@ -134,6 +134,25 @@
             }
         };
     };
+    S.value = function value(current, eq) {
+        var data = S.data(current), age = 0;
+        return function value(update) {
+            if (arguments.length === 0) {
+                return data();
+            }
+            else {
+                var same = eq ? eq(current, update) : current === update;
+                if (!same) {
+                    if (age === Time)
+                        throw new Error("conflicting values: " + value + " is not the same as " + current);
+                    age = Time;
+                    current = update;
+                    data(update);
+                }
+                return update;
+            }
+        };
+    };
     S.sum = function sum(value) {
         var node = new DataNode(value);
         return function sum(update) {
