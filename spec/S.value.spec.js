@@ -15,36 +15,42 @@ describe("S.value", function () {
     });
 
     it("does not propagate if set to equal value", function () {
-        var d = S.value(1),
-            e = 0,
-            f = S(function () { d(); return ++e; });
+        S.root(function () {
+            var d = S.value(1),
+                e = 0,
+                f = S(function () { d(); return ++e; });
 
-        expect(f()).toBe(1);
-        d(1);
-        expect(f()).toBe(1);
+            expect(f()).toBe(1);
+            d(1);
+            expect(f()).toBe(1);
+        });
     });
 
     it("propagate if set to unequal value", function () {
-        var d = S.value(1),
-            e = 0,
-            f = S(function () { d(); return ++e; });
+        S.root(function () {
+            var d = S.value(1),
+                e = 0,
+                f = S(function () { d(); return ++e; });
 
-        expect(f()).toBe(1);
-        d(1);
-        expect(f()).toBe(1);
-        d(2);
-        expect(f()).toBe(2);
+            expect(f()).toBe(1);
+            d(1);
+            expect(f()).toBe(1);
+            d(2);
+            expect(f()).toBe(2);
+        });
     });
 
     it("can take an equality predicate", function () {
-        var d = S.value([1], function (a, b) { return a[0] === b[0]; }),
-            e = 0,
-            f = S(function () { d(); return ++e; });
+        S.root(function () {
+            var d = S.value([1], function (a, b) { return a[0] === b[0]; }),
+                e = 0,
+                f = S(function () { d(); return ++e; });
 
-        expect(f()).toBe(1);
-        d([1]);
-        expect(f()).toBe(1);
-        d([2]);
-        expect(f()).toBe(2);
+            expect(f()).toBe(1);
+            d([1]);
+            expect(f()).toBe(1);
+            d([2]);
+            expect(f()).toBe(2);
+        });
     });
 });

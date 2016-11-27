@@ -3,9 +3,8 @@
     "use strict";
     // Public interface
     var S = function S(fn, seed) {
-        var parent = Updating, sampling = Sampling, options = (this instanceof Options ? this : null), hold = options && options._defer ? defer(options._defer) : parent ? parent.hold : null, orphan = options && options._orphan, node = new ComputationNode(fn, seed, hold);
-        Updating = node;
-        Sampling = false;
+        var parent = Parent, reader = Reader, options = (this instanceof Options ? this : null), hold = options && options._defer ? defer(options._defer) : parent ? parent.hold : null, node = new ComputationNode(fn, seed, hold);
+        Parent = Reader = node;
         if (Batching) {
             node.value = node.fn(node.value);
         }
@@ -14,29 +13,41 @@
             Changes.reset();
             toplevelComputation(node);
         }
-        if (parent && !orphan)
+        if (parent)
             (parent.children || (parent.children = [])).push(node);
-        Updating = parent;
-        Sampling = sampling;
+        else
+            throw new Error("all computations must be created under a parent or root");
+        Parent = parent;
+        Reader = reader;
         return function computation() {
-            if (Disposing) {
-                if (Updating)
-                    Disposes.add(node);
-                else
-                    dispose(node);
-            }
-            else if (Updating) {
+            if (Parent) {
                 if (node.age === Time) {
                     if (node.state === UPDATING)
                         throw new Error("circular dependency");
                     else
                         update(node);
                 }
-                if (!Sampling)
-                    logComputationRead(node, Updating);
+                if (Reader)
+                    logComputationRead(node, Reader);
             }
             return node.value;
         };
+    };
+    S.root = function root(fn) {
+        var parent = Parent, root = new ComputationNode(null, null, null);
+        Parent = root;
+        try {
+            return fn(_dispose);
+        }
+        finally {
+            Parent = parent;
+        }
+        function _dispose() {
+            if (Batching)
+                Disposes.add(root);
+            else
+                dispose(root);
+        }
     };
     S.on = function on(ev, fn, seed, onchanges) {
         if (Array.isArray(ev))
@@ -44,38 +55,33 @@
         onchanges = !!onchanges;
         return this instanceof Options ? this.S(on, seed) : S(on, seed);
         function on(value) {
+            var reader = Reader;
             ev();
             if (onchanges)
                 onchanges = false;
             else {
-                Sampling = true;
+                Reader = null;
                 value = fn(value);
-                Sampling = false;
+                Reader = reader;
             }
             return value;
         }
     };
     /// Fluent-style options
     var Options = (function () {
-        function Options(prev, _orphan, _defer) {
-            this._orphan = _orphan;
+        function Options(prev, _defer) {
             this._defer = _defer;
             this._defer = _defer || prev && prev._defer;
-            this._orphan = _orphan || prev && prev._orphan;
         }
         Options.prototype.defer = function (scheduler) {
-            return new Options(this, false, scheduler);
+            return new Options(this, scheduler);
         };
         return Options;
     }());
     Options.prototype.S = S;
     Options.prototype.on = S.on;
-    var _orphan = new Options(null, true, null);
-    S.orphan = function orphan() {
-        return _orphan;
-    };
     S.defer = function (fn) {
-        return new Options(null, false, fn);
+        return new Options(null, fn);
     };
     function defer(scheduler) {
         var gotime = 0, root = new DataNode(null), tick = scheduler(go);
@@ -128,8 +134,8 @@
                 return value;
             }
             else {
-                if (Updating && !Sampling)
-                    logDataRead(node, Updating);
+                if (Reader)
+                    logDataRead(node, Reader);
                 return node.value;
             }
         };
@@ -178,8 +184,8 @@
                 return value;
             }
             else {
-                if (Updating && !Sampling)
-                    logDataRead(node, Updating);
+                if (Reader)
+                    logDataRead(node, Reader);
                 return node.value;
             }
         };
@@ -203,34 +209,20 @@
         return result;
     };
     S.sample = function sample(fn) {
-        var result;
-        if (Updating && !Sampling) {
-            Sampling = true;
+        var result, reader = Reader;
+        if (reader) {
+            Reader = null;
             result = fn();
-            Sampling = false;
+            Reader = reader;
         }
         else {
             result = fn();
         }
         return result;
     };
-    S.dispose = function dispose(signal) {
-        if (Disposing) {
-            signal();
-        }
-        else {
-            Disposing = true;
-            try {
-                signal();
-            }
-            finally {
-                Disposing = false;
-            }
-        }
-    };
     S.cleanup = function cleanup(fn) {
-        if (Updating) {
-            (Updating.cleanups || (Updating.cleanups = [])).push(fn);
+        if (Parent) {
+            (Parent.cleanups || (Parent.cleanups = [])).push(fn);
         }
         else {
             throw new Error("S.cleanup() must be called from within an S() computation.  Cannot call it at toplevel.");
@@ -294,9 +286,8 @@
     }());
     // "Globals" used to keep track of current system state
     var Time = 1, Batching = false, // whether we're batching changes
-    Updating = null, // whether we're updating, null = no, non-null = node being updated
-    Sampling = false, // whether we're sampling signals, with no dependencies
-    Disposing = false; // whether we're disposing
+    Parent = null, // whether we're updating, null = no, non-null = node being updated
+    Reader = null; // whether we're recording signal reads or not (sampling)
     // Queues for the phases of the update process
     var Changes = new Queue(), // batched changes to data nodes
     _Changes = new Queue(), // alternate array of batched changes to data nodes
@@ -330,9 +321,7 @@
         }
         finally {
             Batching = false;
-            Updating = null;
-            Sampling = false;
-            Disposing = false;
+            Parent = Reader = null;
         }
     }
     function toplevelComputation(node) {
@@ -343,9 +332,7 @@
         }
         finally {
             Batching = false;
-            Updating = null;
-            Sampling = false;
-            Disposing = false;
+            Parent = Reader = null;
         }
     }
     function resolve(change) {
@@ -421,15 +408,14 @@
     }
     function update(node) {
         if (node.state === STALE) {
-            var updating = Updating, sampling = Sampling;
-            Updating = node;
-            Sampling = false;
+            var parent = Parent, reader = Reader;
+            Parent = Reader = node;
             node.state = UPDATING;
             cleanup(node, false);
             node.value = node.fn(node.value);
             node.state = CURRENT;
-            Updating = updating;
-            Sampling = sampling;
+            Parent = parent;
+            Reader = reader;
         }
     }
     function cleanup(node, final) {

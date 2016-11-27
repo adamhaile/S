@@ -1,4 +1,7 @@
 interface S {
+	// Computation root
+	root<T>(fn : (dispose? : () => void) => T) : T;
+
 	// Computation constructors
 	<T>(fn : () => T) : () => T;
 	<T>(fn : (v : T) => T, seed : T) : () => T;
@@ -11,7 +14,6 @@ interface S {
 	sum<T>(value : T) : S.SumSignal<T>;
 
 	// Computation options  
-	orphan() : S.Options;
 	defer(scheduler : (go : () => void) => () => void) : S.Options;
 
 	// Batching changes
@@ -19,9 +21,6 @@ interface S {
 
 	// Sampling a signal
 	sample<T>(fn : () => T) : T;
-
-	// Disposing computations	
-	dispose<T>(fn : () => T) : T;
 	
 	// Freeing external resources
 	cleanup(fn : (final : boolean) => any) : void;

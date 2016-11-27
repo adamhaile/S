@@ -8,15 +8,13 @@ declare var define : (deps: string[], fn: () => S) => void;
     
     // Public interface
     var S = <S>function S<T>(fn : (v? : T) => T, seed? : T) : () => T {
-        var parent   = Updating,
-            sampling = Sampling,
+        var parent   = Parent,
+            reader   = Reader,
             options  = (this instanceof Options ? this : null) as Options,
             hold     = options && options._defer ? defer(options._defer) : parent ? parent.hold : null,
-            orphan   = options && options._orphan,
             node     = new ComputationNode(fn, seed, hold);
             
-        Updating = node;
-        Sampling = false;
+        Parent = Reader = node;
         
         if (Batching) {
             node.value = node.fn(node.value);
@@ -26,25 +24,41 @@ declare var define : (deps: string[], fn: () => S) => void;
             toplevelComputation(node);
         }
         
-        if (parent && !orphan) (parent.children || (parent.children = [])).push(node);
+        if (parent) (parent.children || (parent.children = [])).push(node);
+        else throw new Error("all computations must be created under a parent or root");
         
-        Updating = parent;
-        Sampling = sampling;
+        Parent = parent;
+        Reader = reader;
 
         return function computation() {
-            if (Disposing) {
-                if (Updating) Disposes.add(node);
-                else dispose(node);
-            } else if (Updating) {
+            if (Parent) {
                 if (node.age === Time) {
                     if (node.state === UPDATING) throw new Error("circular dependency");
                     else update(node);
                 }
-                if (!Sampling) logComputationRead(node, Updating);
+                if (Reader) logComputationRead(node, Reader);
             }
             return node.value;
         }
-    }
+    };
+
+    S.root = function root<T>(fn : (dispose? : () => void) => T) {
+        var parent = Parent,
+            root = new ComputationNode(null, null, null);
+
+        Parent = root;
+
+        try {
+            return fn(_dispose);
+        } finally {
+            Parent = parent;
+        }
+
+        function _dispose() {
+            if (Batching) Disposes.add(root);
+            else dispose(root);
+        }
+    };
 
     S.on = function on<T>(ev : () => any, fn : (v? : T) => T, seed? : T, onchanges? : boolean) {
         if (Array.isArray(ev)) ev = callAll(ev);
@@ -53,43 +67,37 @@ declare var define : (deps: string[], fn: () => S) => void;
         return this instanceof Options ? this.S(on, seed) : S(on, seed);
         
         function on(value : T) {
+            var reader = Reader;
             ev(); 
             if (onchanges) onchanges = false;
             else {
-                Sampling = true;
+                Reader = null;
                 value = fn(value);
-                Sampling = false;
+                Reader = reader;
             } 
             return value;
         }
-    }
+    };
         
     /// Fluent-style options
     class Options implements S.Options {
-        constructor(prev : Options, public _orphan : boolean, public _defer : (go : () => void) => () => void) {
+        constructor(prev : Options, public _defer : (go : () => void) => () => void) {
             this._defer = _defer || prev && prev._defer;
-            this._orphan = _orphan || prev && prev._orphan;
         }
         
         S : any;
         on : any;
         
         defer(scheduler : (go : () => void) => () => void) { 
-            return new Options(this, false, scheduler); 
+            return new Options(this, scheduler); 
         }
     }
     
     Options.prototype.S = S;
     Options.prototype.on = S.on;
-
-    var _orphan = new Options(null, true, null);
-
-    S.orphan = function orphan() {
-        return _orphan;
-    }
     
     S.defer = function (fn) { 
-        return new Options(null, false, fn); 
+        return new Options(null, fn); 
     };
 
     function defer(scheduler : (go : () => void) => () => void) : () => boolean {
@@ -141,7 +149,7 @@ declare var define : (deps: string[], fn: () => S) => void;
                 }
                 return value;
             } else {
-                if (Updating && !Sampling) logDataRead(node, Updating);
+                if (Reader) logDataRead(node, Reader);
                 return node.value;
             }
         }
@@ -189,7 +197,7 @@ declare var define : (deps: string[], fn: () => S) => void;
                 }
                 return value;
             } else {
-                if (Updating && !Sampling) logDataRead(node, Updating);
+                if (Reader) logDataRead(node, Reader);
                 return node.value;
             }
         }
@@ -216,35 +224,23 @@ declare var define : (deps: string[], fn: () => S) => void;
     };
     
     S.sample = function sample<T>(fn : () => T) : T {
-        var result : T;
+        var result : T,
+            reader = Reader;
         
-        if (Updating && !Sampling) {
-            Sampling = true;
+        if (reader) {
+            Reader = null;
             result = fn();
-            Sampling = false;
+            Reader = reader;
         } else {
             result = fn();
         }
         
         return result;
     }
-
-    S.dispose = function dispose(signal : () => {}) {
-        if (Disposing) {
-            signal();
-        } else {
-            Disposing = true;
-            try {
-                signal();
-            } finally {
-                Disposing = false;
-            }
-        }
-    }
     
     S.cleanup = function cleanup(fn : () => void) : void {
-        if (Updating) {
-            (Updating.cleanups || (Updating.cleanups = [])).push(fn);
+        if (Parent) {
+            (Parent.cleanups || (Parent.cleanups = [])).push(fn);
         } else {
             throw new Error("S.cleanup() must be called from within an S() computation.  Cannot call it at toplevel.");
         }
@@ -310,11 +306,10 @@ declare var define : (deps: string[], fn: () => S) => void;
     }
     
     // "Globals" used to keep track of current system state
-    var Time         = 1,
-        Batching     = false, // whether we're batching changes
-        Updating     = null as ComputationNode, // whether we're updating, null = no, non-null = node being updated
-        Sampling     = false, // whether we're sampling signals, with no dependencies
-        Disposing    = false; // whether we're disposing
+    var Time     = 1,
+        Batching = false, // whether we're batching changes
+        Parent   = null as ComputationNode, // whether we're updating, null = no, non-null = node being updated
+        Reader   = null as ComputationNode; // whether we're recording signal reads or not (sampling)
         
     // Queues for the phases of the update process
     var Changes  = new Queue<DataNode>(), // batched changes to data nodes
@@ -355,9 +350,7 @@ declare var define : (deps: string[], fn: () => S) => void;
             resolve(change);
         } finally {
             Batching  = false;
-            Updating  = null;
-            Sampling  = false;
-            Disposing = false;
+            Parent = Reader = null;
         }
     }
     
@@ -368,9 +361,7 @@ declare var define : (deps: string[], fn: () => S) => void;
             if (Changes.count > 0) resolve(null);
         } finally {
             Batching = false;
-            Updating = null;
-            Sampling = false;
-            Disposing = false;
+            Parent = Reader = null;
         }
     }
         
@@ -457,19 +448,18 @@ declare var define : (deps: string[], fn: () => S) => void;
     
     function update<T>(node : ComputationNode) {
         if (node.state === STALE) {
-            var updating = Updating,
-                sampling = Sampling;
+            var parent = Parent,
+                reader = Reader;
         
-            Updating = node;
-            Sampling = false;
+            Parent = Reader = node;
         
             node.state = UPDATING;    
             cleanup(node, false);
             node.value = node.fn(node.value);
             node.state = CURRENT;
             
-            Updating = updating;
-            Sampling = sampling;
+            Parent = parent;
+            Reader = reader;
         }
     }
         
@@ -500,9 +490,9 @@ declare var define : (deps: string[], fn: () => S) => void;
     }
         
     function dispose(node : ComputationNode) {
-        node.fn      = null;
-        node.hold    = null;
-        node.log = null;
+        node.fn   = null;
+        node.hold = null;
+        node.log  = null;
         
         cleanup(node, true);
         
