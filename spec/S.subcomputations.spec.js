@@ -74,25 +74,6 @@ describe("S() with subcomputations", function () {
         });
     });
 
-    describe("with child and async", function () {
-        it("applies gate to child", function () {
-            S.root(function () {
-                var d = S.data(1),
-                    go = null,
-                    g = null, 
-                    f = S.defer(function (g) { go = g; }).S(function () {
-                        g = S(function () {
-                            return d();
-                        });
-                    });
-                d(2);
-                expect(g()).toBe(1);
-                go();
-                expect(g()).toBe(2);
-            });
-        });
-    });
-
     describe("which disposes sub that's being updated", function () {
         it("propagates successfully", function () {
             S.root(function () {

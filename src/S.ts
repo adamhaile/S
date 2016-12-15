@@ -10,9 +10,7 @@ declare var define : (deps: string[], fn: () => S) => void;
     var S = <S>function S<T>(fn : (v? : T) => T, seed? : T) : () => T {
         var parent   = Parent,
             reader   = Reader,
-            options  = (this instanceof Options ? this : null) as Options,
-            hold     = options && options._defer ? defer(options._defer) : parent ? parent.hold : null,
-            node     = new ComputationNode(fn, seed, hold);
+            node     = new ComputationNode(fn, seed);
             
         Parent = Reader = node;
         
@@ -44,7 +42,7 @@ declare var define : (deps: string[], fn: () => S) => void;
 
     S.root = function root<T>(fn : (dispose? : () => void) => T) {
         var parent = Parent,
-            root = new ComputationNode(null, null, null);
+            root = new ComputationNode(null, null);
 
         Parent = root;
 
@@ -64,7 +62,7 @@ declare var define : (deps: string[], fn: () => S) => void;
         if (Array.isArray(ev)) ev = callAll(ev);
         onchanges = !!onchanges;
 
-        return this instanceof Options ? this.S(on, seed) : S(on, seed);
+        return S(on, seed);
         
         function on(value : T) {
             var reader = Reader;
@@ -78,46 +76,6 @@ declare var define : (deps: string[], fn: () => S) => void;
             return value;
         }
     };
-        
-    /// Fluent-style options
-    class Options implements S.Options {
-        constructor(prev : Options, public _defer : (go : () => void) => () => void) {
-            this._defer = _defer || prev && prev._defer;
-        }
-        
-        S : any;
-        on : any;
-        
-        defer(scheduler : (go : () => void) => () => void) { 
-            return new Options(this, scheduler); 
-        }
-    }
-    
-    Options.prototype.S = S;
-    Options.prototype.on = S.on;
-    
-    S.defer = function (fn) { 
-        return new Options(null, fn); 
-    };
-
-    function defer(scheduler : (go : () => void) => () => void) : () => boolean {
-        var gotime = 0,
-            root = new DataNode(null),
-            tick = scheduler(go);
-            
-        return function hold() {
-            if (Time === gotime) return false;
-            if (tick) tick();
-            logDataRead(root, this);
-            return true;
-        }
-        
-        function go() {
-            gotime = Time + 1;
-            if (Batching) Changes.add(root);
-            else event(root);
-        }
-    }
 
     function callAll(ss) {
         return function all() {
@@ -272,8 +230,7 @@ declare var define : (deps: string[], fn: () => S) => void;
         
         constructor(
             public fn    : (v : any) => any,
-            public value : any,
-            public hold : () => boolean
+            public value : any
         ) { }
     }
     
@@ -318,8 +275,8 @@ declare var define : (deps: string[], fn: () => S) => void;
         Disposes = new Queue<ComputationNode>(); // disposals to run after current batch of updates finishes
     
     // Constants
-    var REVIEWING = new ComputationNode(null, null, null),
-        DEAD = new ComputationNode(null, null, null),
+    var REVIEWING = new ComputationNode(null, null),
+        DEAD = new ComputationNode(null, null),
         NOTPENDING = {},
         CURRENT    = 0,
         STALE      = 1,
@@ -420,14 +377,10 @@ declare var define : (deps: string[], fn: () => S) => void;
             } else {
                 if (node.age < Time) {
                     node.age = Time;
-                    if (!node.hold || !node.hold()) {
-                        node.state = STALE;
-                        Updates.add(node);
-                        if (node.children) markChildrenForDisposal(node.children);
-                        if (node.log) markComputationsStale(node.log);
-                    } else {
-                        node.state = CURRENT;
-                    }
+                    node.state = STALE;
+                    Updates.add(node);
+                    if (node.children) markChildrenForDisposal(node.children);
+                    if (node.log) markComputationsStale(node.log);
                 }
                 
                 if (dead) ids[i - dead] = id;
@@ -491,7 +444,6 @@ declare var define : (deps: string[], fn: () => S) => void;
         
     function dispose(node : ComputationNode) {
         node.fn   = null;
-        node.hold = null;
         node.log  = null;
         
         cleanup(node, true);

@@ -3,7 +3,7 @@
     "use strict";
     // Public interface
     var S = function S(fn, seed) {
-        var parent = Parent, reader = Reader, options = (this instanceof Options ? this : null), hold = options && options._defer ? defer(options._defer) : parent ? parent.hold : null, node = new ComputationNode(fn, seed, hold);
+        var parent = Parent, reader = Reader, node = new ComputationNode(fn, seed);
         Parent = Reader = node;
         if (Batching) {
             node.value = node.fn(node.value);
@@ -34,7 +34,7 @@
         };
     };
     S.root = function root(fn) {
-        var parent = Parent, root = new ComputationNode(null, null, null);
+        var parent = Parent, root = new ComputationNode(null, null);
         Parent = root;
         try {
             return fn(_dispose);
@@ -53,7 +53,7 @@
         if (Array.isArray(ev))
             ev = callAll(ev);
         onchanges = !!onchanges;
-        return this instanceof Options ? this.S(on, seed) : S(on, seed);
+        return S(on, seed);
         function on(value) {
             var reader = Reader;
             ev();
@@ -67,40 +67,6 @@
             return value;
         }
     };
-    /// Fluent-style options
-    var Options = (function () {
-        function Options(prev, _defer) {
-            this._defer = _defer;
-            this._defer = _defer || prev && prev._defer;
-        }
-        Options.prototype.defer = function (scheduler) {
-            return new Options(this, scheduler);
-        };
-        return Options;
-    }());
-    Options.prototype.S = S;
-    Options.prototype.on = S.on;
-    S.defer = function (fn) {
-        return new Options(null, fn);
-    };
-    function defer(scheduler) {
-        var gotime = 0, root = new DataNode(null), tick = scheduler(go);
-        return function hold() {
-            if (Time === gotime)
-                return false;
-            if (tick)
-                tick();
-            logDataRead(root, this);
-            return true;
-        };
-        function go() {
-            gotime = Time + 1;
-            if (Batching)
-                Changes.add(root);
-            else
-                event(root);
-        }
-    }
     function callAll(ss) {
         return function all() {
             for (var i = 0; i < ss.length; i++)
@@ -239,10 +205,9 @@
         return DataNode;
     }());
     var ComputationNode = (function () {
-        function ComputationNode(fn, value, hold) {
+        function ComputationNode(fn, value) {
             this.fn = fn;
             this.value = value;
-            this.hold = hold;
             this.id = ComputationNode.count++;
             this.age = Time;
             this.state = CURRENT;
@@ -294,7 +259,7 @@
     Updates = new Queue(), // computations to update
     Disposes = new Queue(); // disposals to run after current batch of updates finishes
     // Constants
-    var REVIEWING = new ComputationNode(null, null, null), DEAD = new ComputationNode(null, null, null), NOTPENDING = {}, CURRENT = 0, STALE = 1, UPDATING = 2;
+    var REVIEWING = new ComputationNode(null, null), DEAD = new ComputationNode(null, null), NOTPENDING = {}, CURRENT = 0, STALE = 1, UPDATING = 2;
     // Functions
     function logRead(from, to) {
         var id = to.id, node = from.nodes[id];
@@ -378,17 +343,12 @@
             else {
                 if (node.age < Time) {
                     node.age = Time;
-                    if (!node.hold || !node.hold()) {
-                        node.state = STALE;
-                        Updates.add(node);
-                        if (node.children)
-                            markChildrenForDisposal(node.children);
-                        if (node.log)
-                            markComputationsStale(node.log);
-                    }
-                    else {
-                        node.state = CURRENT;
-                    }
+                    node.state = STALE;
+                    Updates.add(node);
+                    if (node.children)
+                        markChildrenForDisposal(node.children);
+                    if (node.log)
+                        markComputationsStale(node.log);
                 }
                 if (dead)
                     ids[i - dead] = id;
@@ -440,7 +400,6 @@
     }
     function dispose(node) {
         node.fn = null;
-        node.hold = null;
         node.log = null;
         cleanup(node, true);
         node.sources = null;
