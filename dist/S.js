@@ -125,37 +125,6 @@
             }
         };
     };
-    S.sum = function sum(value) {
-        var node = new DataNode(value);
-        return function sum(update) {
-            if (arguments.length > 0) {
-                if (Batching) {
-                    if (node.pending !== NOTPENDING) {
-                        node.pending = update(node.pending);
-                    }
-                    else {
-                        node.pending = update(node.value);
-                        Changes.add(node);
-                    }
-                }
-                else {
-                    if (node.log) {
-                        node.pending = update(node.value);
-                        event(node);
-                    }
-                    else {
-                        node.value = update(node.value);
-                    }
-                }
-                return value;
-            }
-            else {
-                if (Reader)
-                    logDataRead(node, Reader);
-                return node.value;
-            }
-        };
-    };
     S.freeze = function freeze(fn) {
         var result;
         if (Batching) {

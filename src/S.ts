@@ -133,34 +133,6 @@ declare var define : (deps: string[], fn: () => S) => void;
         }
     };
 
-    S.sum = function sum<T>(value : T) : (update? : (value : T) => T) => T {
-        var node = new DataNode(value);
-
-        return function sum(update? : (value : T) => T) : T {
-            if (arguments.length > 0) {
-                if (Batching) {
-                    if (node.pending !== NOTPENDING) { // value has already been set once, update pending value
-                        node.pending = update(node.pending);
-                    } else { // add to list of changes
-                        node.pending = update(node.value);
-                        Changes.add(node);
-                    }
-                } else { // not batching, respond to change now
-                    if (node.log) {
-                        node.pending = update(node.value);
-                        event(node);
-                    } else {
-                        node.value = update(node.value);
-                    }
-                }
-                return value;
-            } else {
-                if (Reader) logDataRead(node, Reader);
-                return node.value;
-            }
-        }
-    };
-
     S.freeze = function freeze<T>(fn : () => T) : T {
         var result : T;
         
