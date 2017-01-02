@@ -1,8 +1,10 @@
 {
     "compilerOptions": {
-        "target": "ES6", //The key, of course.
+        "target": "ES5",
         "module": "amd",
-        "sourceMap": true
+        "sourceMap": true,
+        "strictNullChecks": true,
+        "noImplicitAny": true
     },
     "exclude": [
         "node_modules",

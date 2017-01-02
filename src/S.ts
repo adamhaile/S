@@ -15,7 +15,7 @@ declare var define : (deps: string[], fn: () => S) => void;
         Owner = Reader = node;
         
         if (Batching) {
-            node.value = node.fn(node.value);
+            node.value = node.fn!(node.value);
         } else {
             Batching = true;
             Changes.reset();
@@ -77,7 +77,7 @@ declare var define : (deps: string[], fn: () => S) => void;
         }
     };
 
-    function callAll(ss) {
+    function callAll(ss : (() => any)[]) {
         return function all() {
             for (var i = 0; i < ss.length; i++) ss[i]();
         }
@@ -105,7 +105,7 @@ declare var define : (deps: string[], fn: () => S) => void;
                         node.value = value;
                     }
                 }
-                return value;
+                return value!;
             } else {
                 if (Reader) logDataRead(node, Reader);
                 return node.value;
@@ -120,15 +120,15 @@ declare var define : (deps: string[], fn: () => S) => void;
             if (arguments.length === 0) {
                 return data();
             } else {
-                var same = eq ? eq(current, update) : current === update;
+                var same = eq ? eq(current, update!) : current === update;
                 if (!same) {
                     if (age === Time) 
                         throw new Error("conflicting values: " + value + " is not the same as " + current);
                     age = Time;
-                    current = update;
-                    data(update);
+                    current = update!;
+                    data(update!);
                 }
-                return update;
+                return update!;
             }
         }
     };
@@ -181,7 +181,7 @@ declare var define : (deps: string[], fn: () => S) => void;
     /// Graph classes and operations
     class DataNode {
         pending = NOTPENDING as any;   
-        log     = null as Log;
+        log     = null as Log | null;
         
         constructor(
             public value : any
@@ -196,12 +196,12 @@ declare var define : (deps: string[], fn: () => S) => void;
         state    = CURRENT;
         count    = 0;
         sources  = [] as Log[];
-        log      = null as Log;
-        owned = null as ComputationNode[];
-        cleanups = null as ((final : boolean) => void)[];
+        log      = null as Log | null;
+        owned    = null as ComputationNode[] | null;
+        cleanups = null as (((final : boolean) => void)[]) | null;
         
         constructor(
-            public fn    : (v : any) => any,
+            public fn    : ((v : any) => any) | null,
             public value : any
         ) { }
     }
@@ -227,8 +227,8 @@ declare var define : (deps: string[], fn: () => S) => void;
         run(fn : (item : T) => void) {
             var items = this.items, count = this.count;
             for (var i = 0; i < count; i++) {
-                fn(items[i]);
-                items[i] = null;
+                fn(items[i]!);
+                items[i] = null!;
             }
             this.count = 0;
         }
@@ -237,8 +237,8 @@ declare var define : (deps: string[], fn: () => S) => void;
     // "Globals" used to keep track of current system state
     var Time     = 1,
         Batching = false, // whether we're batching changes
-        Owner   = null as ComputationNode, // whether we're updating, null = no, non-null = node being updated
-        Reader   = null as ComputationNode; // whether we're recording signal reads or not (sampling)
+        Owner   = null as ComputationNode | null, // whether we're updating, null = no, non-null = node being updated
+        Reader   = null as ComputationNode | null; // whether we're recording signal reads or not (sampling)
         
     // Queues for the phases of the update process
     var Changes  = new Queue<DataNode>(), // batched changes to data nodes
@@ -274,7 +274,7 @@ declare var define : (deps: string[], fn: () => S) => void;
         logRead(node.log, to);
     }
     
-    function event(change : DataNode) {
+    function event(change : DataNode | null) {
         try {
             resolve(change);
         } finally {
@@ -285,7 +285,7 @@ declare var define : (deps: string[], fn: () => S) => void;
     
     function toplevelComputation<T>(node : ComputationNode) {
         try {
-            node.value = node.fn(node.value);
+            node.value = node.fn!(node.value);
     
             if (Changes.count > 0) resolve(null);
         } finally {
@@ -294,7 +294,7 @@ declare var define : (deps: string[], fn: () => S) => void;
         }
     }
         
-    function resolve(change : DataNode) {
+    function resolve(change : DataNode | null) {
         var count = 0,
             changes : Queue<DataNode>;
             
@@ -380,7 +380,7 @@ declare var define : (deps: string[], fn: () => S) => void;
         
             node.state = UPDATING;    
             cleanup(node, false);
-            node.value = node.fn(node.value);
+            node.value = node.fn!(node.value);
             node.state = CURRENT;
             
             Owner = owner;
@@ -408,8 +408,8 @@ declare var define : (deps: string[], fn: () => S) => void;
         }
         
         for (var i = 0; i < node.count; i++) {
-            sources[i].nodes[node.id] = REVIEWING;
-            sources[i] = null;
+            sources[i]!.nodes[node.id] = REVIEWING;
+            sources[i] = null!;
         }
         node.count = 0;
     }
@@ -419,8 +419,6 @@ declare var define : (deps: string[], fn: () => S) => void;
         node.log  = null;
         
         cleanup(node, true);
-        
-        node.sources = null;
     }
     
     // UMD exporter

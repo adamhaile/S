@@ -186,9 +186,9 @@
             this.owned = null;
             this.cleanups = null;
         }
-        ComputationNode.count = 0;
         return ComputationNode;
     }());
+    ComputationNode.count = 0;
     var Log = (function () {
         function Log() {
             this.count = 0;
@@ -371,7 +371,6 @@
         node.fn = null;
         node.log = null;
         cleanup(node, true);
-        node.sources = null;
     }
     // UMD exporter
     /* globals define */
