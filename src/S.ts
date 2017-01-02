@@ -8,11 +8,11 @@ declare var define : (deps: string[], fn: () => S) => void;
     
     // Public interface
     var S = <S>function S<T>(fn : (v? : T) => T, seed? : T) : () => T {
-        var parent   = Parent,
-            reader   = Reader,
-            node     = new ComputationNode(fn, seed);
+        var owner  = Owner,
+            reader = Reader,
+            node   = new ComputationNode(fn, seed);
             
-        Parent = Reader = node;
+        Owner = Reader = node;
         
         if (Batching) {
             node.value = node.fn(node.value);
@@ -22,14 +22,14 @@ declare var define : (deps: string[], fn: () => S) => void;
             toplevelComputation(node);
         }
         
-        if (parent) (parent.children || (parent.children = [])).push(node);
-        else throw new Error("all computations must be created under a parent or root");
+        if (owner) (owner.owned || (owner.owned = [])).push(node);
+        else throw new Error("all computations must be created under a parent computation or root");
         
-        Parent = parent;
+        Owner = owner;
         Reader = reader;
 
         return function computation() {
-            if (Parent) {
+            if (Owner) {
                 if (node.age === Time) {
                     if (node.state === UPDATING) throw new Error("circular dependency");
                     else update(node);
@@ -41,15 +41,15 @@ declare var define : (deps: string[], fn: () => S) => void;
     };
 
     S.root = function root<T>(fn : (dispose? : () => void) => T) {
-        var parent = Parent,
+        var owner = Owner,
             root = new ComputationNode(null, null);
 
-        Parent = root;
+        Owner = root;
 
         try {
             return fn(_dispose);
         } finally {
-            Parent = parent;
+            Owner = owner;
         }
 
         function _dispose() {
@@ -169,8 +169,8 @@ declare var define : (deps: string[], fn: () => S) => void;
     }
     
     S.cleanup = function cleanup(fn : () => void) : void {
-        if (Parent) {
-            (Parent.cleanups || (Parent.cleanups = [])).push(fn);
+        if (Owner) {
+            (Owner.cleanups || (Owner.cleanups = [])).push(fn);
         } else {
             throw new Error("S.cleanup() must be called from within an S() computation.  Cannot call it at toplevel.");
         }
@@ -197,7 +197,7 @@ declare var define : (deps: string[], fn: () => S) => void;
         count    = 0;
         sources  = [] as Log[];
         log      = null as Log;
-        children = null as ComputationNode[];
+        owned = null as ComputationNode[];
         cleanups = null as ((final : boolean) => void)[];
         
         constructor(
@@ -237,7 +237,7 @@ declare var define : (deps: string[], fn: () => S) => void;
     // "Globals" used to keep track of current system state
     var Time     = 1,
         Batching = false, // whether we're batching changes
-        Parent   = null as ComputationNode, // whether we're updating, null = no, non-null = node being updated
+        Owner   = null as ComputationNode, // whether we're updating, null = no, non-null = node being updated
         Reader   = null as ComputationNode; // whether we're recording signal reads or not (sampling)
         
     // Queues for the phases of the update process
@@ -279,7 +279,7 @@ declare var define : (deps: string[], fn: () => S) => void;
             resolve(change);
         } finally {
             Batching  = false;
-            Parent = Reader = null;
+            Owner = Reader = null;
         }
     }
     
@@ -290,7 +290,7 @@ declare var define : (deps: string[], fn: () => S) => void;
             if (Changes.count > 0) resolve(null);
         } finally {
             Batching = false;
-            Parent = Reader = null;
+            Owner = Reader = null;
         }
     }
         
@@ -351,7 +351,7 @@ declare var define : (deps: string[], fn: () => S) => void;
                     node.age = Time;
                     node.state = STALE;
                     Updates.add(node);
-                    if (node.children) markChildrenForDisposal(node.children);
+                    if (node.owned) markOwnedNodesForDisposal(node.owned);
                     if (node.log) markComputationsStale(node.log);
                 }
                 
@@ -362,28 +362,28 @@ declare var define : (deps: string[], fn: () => S) => void;
         if (dead) log.count -= dead;
     }
     
-    function markChildrenForDisposal(children : ComputationNode[]) {
-        for (var i = 0; i < children.length; i++) {
-            var child = children[i];
+    function markOwnedNodesForDisposal(owned : ComputationNode[]) {
+        for (var i = 0; i < owned.length; i++) {
+            var child = owned[i];
             child.age = Time;
             child.state = CURRENT;
-            if (child.children) markChildrenForDisposal(child.children);
+            if (child.owned) markOwnedNodesForDisposal(child.owned);
         }
     }
     
     function update<T>(node : ComputationNode) {
         if (node.state === STALE) {
-            var parent = Parent,
+            var owner = Owner,
                 reader = Reader;
         
-            Parent = Reader = node;
+            Owner = Reader = node;
         
             node.state = UPDATING;    
             cleanup(node, false);
             node.value = node.fn(node.value);
             node.state = CURRENT;
             
-            Parent = parent;
+            Owner = owner;
             Reader = reader;
         }
     }
@@ -391,7 +391,7 @@ declare var define : (deps: string[], fn: () => S) => void;
     function cleanup(node : ComputationNode, final : boolean) {
         var sources = node.sources,
             cleanups = node.cleanups,
-            children = node.children;
+            owned = node.owned;
             
         if (cleanups) {
             for (var i = 0; i < cleanups.length; i++) {
@@ -400,11 +400,11 @@ declare var define : (deps: string[], fn: () => S) => void;
             node.cleanups = null;
         }
         
-        if (children) {
-            for (var i = 0; i < children.length; i++) {
-                dispose(children[i]);
+        if (owned) {
+            for (var i = 0; i < owned.length; i++) {
+                dispose(owned[i]);
             }
-            node.children = null;
+            node.owned = null;
         }
         
         for (var i = 0; i < node.count; i++) {

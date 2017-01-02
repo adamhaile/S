@@ -3,8 +3,8 @@
     "use strict";
     // Public interface
     var S = function S(fn, seed) {
-        var parent = Parent, reader = Reader, node = new ComputationNode(fn, seed);
-        Parent = Reader = node;
+        var owner = Owner, reader = Reader, node = new ComputationNode(fn, seed);
+        Owner = Reader = node;
         if (Batching) {
             node.value = node.fn(node.value);
         }
@@ -13,14 +13,14 @@
             Changes.reset();
             toplevelComputation(node);
         }
-        if (parent)
-            (parent.children || (parent.children = [])).push(node);
+        if (owner)
+            (owner.owned || (owner.owned = [])).push(node);
         else
-            throw new Error("all computations must be created under a parent or root");
-        Parent = parent;
+            throw new Error("all computations must be created under a parent computation or root");
+        Owner = owner;
         Reader = reader;
         return function computation() {
-            if (Parent) {
+            if (Owner) {
                 if (node.age === Time) {
                     if (node.state === UPDATING)
                         throw new Error("circular dependency");
@@ -34,13 +34,13 @@
         };
     };
     S.root = function root(fn) {
-        var parent = Parent, root = new ComputationNode(null, null);
-        Parent = root;
+        var owner = Owner, root = new ComputationNode(null, null);
+        Owner = root;
         try {
             return fn(_dispose);
         }
         finally {
-            Parent = parent;
+            Owner = owner;
         }
         function _dispose() {
             if (Batching)
@@ -156,8 +156,8 @@
         return result;
     };
     S.cleanup = function cleanup(fn) {
-        if (Parent) {
-            (Parent.cleanups || (Parent.cleanups = [])).push(fn);
+        if (Owner) {
+            (Owner.cleanups || (Owner.cleanups = [])).push(fn);
         }
         else {
             throw new Error("S.cleanup() must be called from within an S() computation.  Cannot call it at toplevel.");
@@ -183,7 +183,7 @@
             this.count = 0;
             this.sources = [];
             this.log = null;
-            this.children = null;
+            this.owned = null;
             this.cleanups = null;
         }
         ComputationNode.count = 0;
@@ -220,7 +220,7 @@
     }());
     // "Globals" used to keep track of current system state
     var Time = 1, Batching = false, // whether we're batching changes
-    Parent = null, // whether we're updating, null = no, non-null = node being updated
+    Owner = null, // whether we're updating, null = no, non-null = node being updated
     Reader = null; // whether we're recording signal reads or not (sampling)
     // Queues for the phases of the update process
     var Changes = new Queue(), // batched changes to data nodes
@@ -255,7 +255,7 @@
         }
         finally {
             Batching = false;
-            Parent = Reader = null;
+            Owner = Reader = null;
         }
     }
     function toplevelComputation(node) {
@@ -266,7 +266,7 @@
         }
         finally {
             Batching = false;
-            Parent = Reader = null;
+            Owner = Reader = null;
         }
     }
     function resolve(change) {
@@ -314,8 +314,8 @@
                     node.age = Time;
                     node.state = STALE;
                     Updates.add(node);
-                    if (node.children)
-                        markChildrenForDisposal(node.children);
+                    if (node.owned)
+                        markOwnedNodesForDisposal(node.owned);
                     if (node.log)
                         markComputationsStale(node.log);
                 }
@@ -326,40 +326,40 @@
         if (dead)
             log.count -= dead;
     }
-    function markChildrenForDisposal(children) {
-        for (var i = 0; i < children.length; i++) {
-            var child = children[i];
+    function markOwnedNodesForDisposal(owned) {
+        for (var i = 0; i < owned.length; i++) {
+            var child = owned[i];
             child.age = Time;
             child.state = CURRENT;
-            if (child.children)
-                markChildrenForDisposal(child.children);
+            if (child.owned)
+                markOwnedNodesForDisposal(child.owned);
         }
     }
     function update(node) {
         if (node.state === STALE) {
-            var parent = Parent, reader = Reader;
-            Parent = Reader = node;
+            var owner = Owner, reader = Reader;
+            Owner = Reader = node;
             node.state = UPDATING;
             cleanup(node, false);
             node.value = node.fn(node.value);
             node.state = CURRENT;
-            Parent = parent;
+            Owner = owner;
             Reader = reader;
         }
     }
     function cleanup(node, final) {
-        var sources = node.sources, cleanups = node.cleanups, children = node.children;
+        var sources = node.sources, cleanups = node.cleanups, owned = node.owned;
         if (cleanups) {
             for (var i = 0; i < cleanups.length; i++) {
                 cleanups[i](final);
             }
             node.cleanups = null;
         }
-        if (children) {
-            for (var i = 0; i < children.length; i++) {
-                dispose(children[i]);
+        if (owned) {
+            for (var i = 0; i < owned.length; i++) {
+                dispose(owned[i]);
             }
-            node.children = null;
+            node.owned = null;
         }
         for (var i = 0; i < node.count; i++) {
             sources[i].nodes[node.id] = REVIEWING;
