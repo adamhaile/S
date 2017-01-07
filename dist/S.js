@@ -3,38 +3,38 @@
     "use strict";
     // Public interface
     var S = function S(fn, seed) {
-        var owner = Owner, reader = Reader, node = new ComputationNode(fn, seed);
-        Owner = Reader = node;
-        if (Batching) {
+        var owner = Owner, clock = Clock || TopClock, running = Running;
+        if (!owner)
+            throw new Error("all computations must be created under a parent computation or root");
+        var node = new ComputationNode(clock, fn, seed);
+        Owner = Running = node;
+        if (Clock) {
             node.value = node.fn(node.value);
         }
         else {
-            Batching = true;
-            Changes.reset();
+            Clock = clock;
+            clock.changes.reset();
             toplevelComputation(node);
         }
-        if (owner)
-            (owner.owned || (owner.owned = [])).push(node);
-        else
-            throw new Error("all computations must be created under a parent computation or root");
+        (owner.owned || (owner.owned = [])).push(node);
         Owner = owner;
-        Reader = reader;
+        Running = running;
         return function computation() {
             if (Owner) {
-                if (node.age === Time) {
-                    if (node.state === UPDATING)
+                if (node.age === node.clock.time) {
+                    if (node.state === RUNNING)
                         throw new Error("circular dependency");
                     else
                         update(node);
                 }
-                if (Reader)
-                    logComputationRead(node, Reader);
+                if (Running)
+                    logComputationRead(node, Running);
             }
             return node.value;
         };
     };
     S.root = function root(fn) {
-        var owner = Owner, root = new ComputationNode(null, null);
+        var owner = Owner, root = new ComputationNode(Clock || TopClock, null, null);
         Owner = root;
         try {
             return fn(_dispose);
@@ -43,8 +43,8 @@
             Owner = owner;
         }
         function _dispose() {
-            if (Batching)
-                Disposes.add(root);
+            if (Clock)
+                Clock.disposes.add(root);
             else
                 dispose(root);
         }
@@ -55,14 +55,14 @@
         onchanges = !!onchanges;
         return S(on, seed);
         function on(value) {
-            var reader = Reader;
+            var running = Running;
             ev();
             if (onchanges)
                 onchanges = false;
             else {
-                Reader = null;
+                Running = null;
                 value = fn(value);
-                Reader = reader;
+                Running = running;
             }
             return value;
         }
@@ -74,10 +74,10 @@
         };
     }
     S.data = function data(value) {
-        var node = new DataNode(value);
+        var node = new DataNode(Owner ? Owner.clock : TopClock, value);
         return function data(value) {
             if (arguments.length > 0) {
-                if (Batching) {
+                if (Clock) {
                     if (node.pending !== NOTPENDING) {
                         if (value !== node.pending) {
                             throw new Error("conflicting changes: " + value + " !== " + node.pending);
@@ -85,13 +85,13 @@
                     }
                     else {
                         node.pending = value;
-                        Changes.add(node);
+                        Clock.changes.add(node);
                     }
                 }
                 else {
                     if (node.log) {
                         node.pending = value;
-                        event(node);
+                        event(TopClock, node);
                     }
                     else {
                         node.value = value;
@@ -100,14 +100,14 @@
                 return value;
             }
             else {
-                if (Reader)
-                    logDataRead(node, Reader);
+                if (Running)
+                    logDataRead(node, Running);
                 return node.value;
             }
         };
     };
     S.value = function value(current, eq) {
-        var data = S.data(current), age = 0;
+        var data = S.data(current), clock = Clock || TopClock, age = 0;
         return function value(update) {
             if (arguments.length === 0) {
                 return data();
@@ -115,9 +115,9 @@
             else {
                 var same = eq ? eq(current, update) : current === update;
                 if (!same) {
-                    if (age === Time)
+                    if (age === clock.time)
                         throw new Error("conflicting values: " + value + " is not the same as " + current);
-                    age = Time;
+                    age = clock.time;
                     current = update;
                     data(update);
                 }
@@ -127,28 +127,28 @@
     };
     S.freeze = function freeze(fn) {
         var result;
-        if (Batching) {
+        if (Clock) {
             result = fn();
         }
         else {
-            Batching = true;
-            Changes.reset();
+            Clock = TopClock;
+            Clock.changes.reset();
             try {
                 result = fn();
-                event(null);
+                event(TopClock, null);
             }
             finally {
-                Batching = false;
+                Clock = null;
             }
         }
         return result;
     };
     S.sample = function sample(fn) {
-        var result, reader = Reader;
-        if (reader) {
-            Reader = null;
+        var result, running = Running;
+        if (running) {
+            Running = null;
             result = fn();
-            Reader = reader;
+            Running = running;
         }
         else {
             result = fn();
@@ -165,8 +165,18 @@
     };
     // Internal implementation
     /// Graph classes and operations
+    var SubClock = (function () {
+        function SubClock() {
+            this.time = 0;
+            this.changes = new Queue(); // batched changes to data nodes
+            this.updates = new Queue(); // computations to update
+            this.disposes = new Queue(); // disposals to run after current batch of updates finishes
+        }
+        return SubClock;
+    }());
     var DataNode = (function () {
-        function DataNode(value) {
+        function DataNode(clock, value) {
+            this.clock = clock;
             this.value = value;
             this.pending = NOTPENDING;
             this.log = null;
@@ -174,17 +184,18 @@
         return DataNode;
     }());
     var ComputationNode = (function () {
-        function ComputationNode(fn, value) {
+        function ComputationNode(clock, fn, value) {
+            this.clock = clock;
             this.fn = fn;
             this.value = value;
             this.id = ComputationNode.count++;
-            this.age = Time;
             this.state = CURRENT;
             this.count = 0;
             this.sources = [];
             this.log = null;
             this.owned = null;
             this.cleanups = null;
+            this.age = this.clock.time;
         }
         return ComputationNode;
     }());
@@ -219,16 +230,11 @@
         return Queue;
     }());
     // "Globals" used to keep track of current system state
-    var Time = 1, Batching = false, // whether we're batching changes
+    var TopClock = new SubClock(), Clock = null, // whether we're batching changes
     Owner = null, // whether we're updating, null = no, non-null = node being updated
-    Reader = null; // whether we're recording signal reads or not (sampling)
-    // Queues for the phases of the update process
-    var Changes = new Queue(), // batched changes to data nodes
-    _Changes = new Queue(), // alternate array of batched changes to data nodes
-    Updates = new Queue(), // computations to update
-    Disposes = new Queue(); // disposals to run after current batch of updates finishes
+    Running = null; // whether we're recording signal reads or not (sampling)
     // Constants
-    var REVIEWING = new ComputationNode(null, null), DEAD = new ComputationNode(null, null), NOTPENDING = {}, CURRENT = 0, STALE = 1, UPDATING = 2;
+    var REVIEWING = new ComputationNode(TopClock, null, null), DEAD = new ComputationNode(TopClock, null, null), NOTPENDING = {}, CURRENT = 0, STALE = 1, RUNNING = 2;
     // Functions
     function logRead(from, to) {
         var id = to.id, node = from.nodes[id];
@@ -249,46 +255,42 @@
             node.log = new Log();
         logRead(node.log, to);
     }
-    function event(change) {
+    function event(clock, change) {
         try {
-            resolve(change);
+            resolve(clock, change);
         }
         finally {
-            Batching = false;
-            Owner = Reader = null;
+            Clock = Owner = Running = null;
         }
     }
     function toplevelComputation(node) {
         try {
             node.value = node.fn(node.value);
-            if (Changes.count > 0)
-                resolve(null);
+            if (node.clock.changes.count > 0)
+                resolve(node.clock, null);
         }
         finally {
-            Batching = false;
-            Owner = Reader = null;
+            Clock = Owner = Running = null;
         }
     }
-    function resolve(change) {
-        var count = 0, changes;
-        Batching = true;
-        Updates.reset();
-        Disposes.reset();
+    function resolve(clock, change) {
+        var count = 0;
+        Clock = clock;
+        clock.updates.reset();
+        clock.disposes.reset();
         if (change) {
-            Changes.reset();
-            Time++;
+            clock.changes.reset();
+            clock.time++;
             applyDataChange(change);
-            Updates.run(update);
-            Disposes.run(dispose);
+            clock.updates.run(update);
+            clock.disposes.run(dispose);
         }
         // for each batch ...
-        while (Changes.count !== 0) {
-            changes = Changes, Changes = _Changes, _Changes = changes;
-            Changes.reset();
-            Time++;
-            changes.run(applyDataChange);
-            Updates.run(update);
-            Disposes.run(dispose);
+        while (clock.changes.count !== 0) {
+            clock.time++;
+            clock.changes.run(applyDataChange);
+            clock.updates.run(update);
+            clock.disposes.run(dispose);
             // if there are still changes after excessive batches, assume runaway            
             if (count++ > 1e5) {
                 throw new Error("Runaway frames detected");
@@ -310,10 +312,10 @@
                 dead++;
             }
             else {
-                if (node.age < Time) {
-                    node.age = Time;
+                if (node.age < node.clock.time) {
+                    node.age = node.clock.time;
                     node.state = STALE;
-                    Updates.add(node);
+                    node.clock.updates.add(node);
                     if (node.owned)
                         markOwnedNodesForDisposal(node.owned);
                     if (node.log)
@@ -329,7 +331,7 @@
     function markOwnedNodesForDisposal(owned) {
         for (var i = 0; i < owned.length; i++) {
             var child = owned[i];
-            child.age = Time;
+            child.age = child.clock.time;
             child.state = CURRENT;
             if (child.owned)
                 markOwnedNodesForDisposal(child.owned);
@@ -337,14 +339,14 @@
     }
     function update(node) {
         if (node.state === STALE) {
-            var owner = Owner, reader = Reader;
-            Owner = Reader = node;
-            node.state = UPDATING;
+            var owner = Owner, running = Running;
+            Owner = Running = node;
+            node.state = RUNNING;
             cleanup(node, false);
             node.value = node.fn(node.value);
             node.state = CURRENT;
             Owner = owner;
-            Reader = reader;
+            Running = running;
         }
     }
     function cleanup(node, final) {

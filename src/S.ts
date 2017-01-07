@@ -9,32 +9,35 @@ declare var define : (deps: string[], fn: () => S) => void;
     // Public interface
     var S = <S>function S<T>(fn : (v? : T) => T, seed? : T) : () => T {
         var owner  = Owner,
-            reader = Reader,
-            node   = new ComputationNode(fn, seed);
+            clock  = Clock || TopClock,
+            running = Running;
+
+        if (!owner) throw new Error("all computations must be created under a parent computation or root");
+
+        var node   = new ComputationNode(clock, fn, seed);
             
-        Owner = Reader = node;
+        Owner = Running = node;
         
-        if (Batching) {
+        if (Clock) {
             node.value = node.fn!(node.value);
         } else {
-            Batching = true;
-            Changes.reset();
+            Clock = clock;
+            clock.changes.reset();
             toplevelComputation(node);
         }
         
-        if (owner) (owner.owned || (owner.owned = [])).push(node);
-        else throw new Error("all computations must be created under a parent computation or root");
+        (owner.owned || (owner.owned = [])).push(node);
         
         Owner = owner;
-        Reader = reader;
+        Running = running;
 
         return function computation() {
             if (Owner) {
-                if (node.age === Time) {
-                    if (node.state === UPDATING) throw new Error("circular dependency");
+                if (node.age === node.clock.time) {
+                    if (node.state === RUNNING) throw new Error("circular dependency");
                     else update(node);
                 }
-                if (Reader) logComputationRead(node, Reader);
+                if (Running) logComputationRead(node, Running);
             }
             return node.value;
         }
@@ -42,7 +45,7 @@ declare var define : (deps: string[], fn: () => S) => void;
 
     S.root = function root<T>(fn : (dispose? : () => void) => T) {
         var owner = Owner,
-            root = new ComputationNode(null, null);
+            root = new ComputationNode(Clock || TopClock, null, null);
 
         Owner = root;
 
@@ -53,7 +56,7 @@ declare var define : (deps: string[], fn: () => S) => void;
         }
 
         function _dispose() {
-            if (Batching) Disposes.add(root);
+            if (Clock) Clock.disposes.add(root);
             else dispose(root);
         }
     };
@@ -65,13 +68,13 @@ declare var define : (deps: string[], fn: () => S) => void;
         return S(on, seed);
         
         function on(value : T) {
-            var reader = Reader;
+            var running = Running;
             ev(); 
             if (onchanges) onchanges = false;
             else {
-                Reader = null;
+                Running = null;
                 value = fn(value);
-                Reader = reader;
+                Running = running;
             } 
             return value;
         }
@@ -84,30 +87,30 @@ declare var define : (deps: string[], fn: () => S) => void;
     }
 
     S.data = function data<T>(value : T) : (value? : T) => T {
-        var node = new DataNode(value);
+        var node = new DataNode(Owner ? Owner.clock : TopClock, value);
 
         return function data(value? : T) : T {
             if (arguments.length > 0) {
-                if (Batching) {
+                if (Clock) {
                     if (node.pending !== NOTPENDING) { // value has already been set once, check for conflicts
                         if (value !== node.pending) {
                             throw new Error("conflicting changes: " + value + " !== " + node.pending);
                         }
                     } else { // add to list of changes
                         node.pending = value;
-                        Changes.add(node);
+                        Clock.changes.add(node);
                     }
                 } else { // not batching, respond to change now
                     if (node.log) {
                         node.pending = value;
-                        event(node);
+                        event(TopClock, node);
                     } else {
                         node.value = value;
                     }
                 }
                 return value!;
             } else {
-                if (Reader) logDataRead(node, Reader);
+                if (Running) logDataRead(node, Running);
                 return node.value;
             }
         }
@@ -115,6 +118,7 @@ declare var define : (deps: string[], fn: () => S) => void;
     
     S.value = function value<T>(current : T, eq? : (a : T, b : T) => boolean) : S.DataSignal<T> {
         var data = S.data(current),
+            clock = Clock || TopClock,
             age = 0;
         return function value(update? : T) {
             if (arguments.length === 0) {
@@ -122,9 +126,9 @@ declare var define : (deps: string[], fn: () => S) => void;
             } else {
                 var same = eq ? eq(current, update!) : current === update;
                 if (!same) {
-                    if (age === Time) 
+                    if (age === clock.time) 
                         throw new Error("conflicting values: " + value + " is not the same as " + current);
-                    age = Time;
+                    age = clock.time;
                     current = update!;
                     data(update!);
                 }
@@ -136,17 +140,17 @@ declare var define : (deps: string[], fn: () => S) => void;
     S.freeze = function freeze<T>(fn : () => T) : T {
         var result : T;
         
-        if (Batching) {
+        if (Clock) {
             result = fn();
         } else {
-            Batching = true;
-            Changes.reset();
+            Clock = TopClock;
+            Clock.changes.reset();
 
             try {
                 result = fn();
-                event(null);
+                event(TopClock, null);
             } finally {
-                Batching = false;
+                Clock = null;
             }
         }
             
@@ -155,12 +159,12 @@ declare var define : (deps: string[], fn: () => S) => void;
     
     S.sample = function sample<T>(fn : () => T) : T {
         var result : T,
-            reader = Reader;
+            running = Running;
         
-        if (reader) {
-            Reader = null;
+        if (running) {
+            Running = null;
             result = fn();
-            Reader = reader;
+            Running = running;
         } else {
             result = fn();
         }
@@ -179,11 +183,19 @@ declare var define : (deps: string[], fn: () => S) => void;
     // Internal implementation
     
     /// Graph classes and operations
+    class SubClock {
+        time = 0;
+        changes  = new Queue<DataNode>(); // batched changes to data nodes
+        updates  = new Queue<ComputationNode>(); // computations to update
+        disposes = new Queue<ComputationNode>(); // disposals to run after current batch of updates finishes
+    }
+
     class DataNode {
         pending = NOTPENDING as any;   
         log     = null as Log | null;
         
         constructor(
+            public clock : SubClock,
             public value : any
         ) { }
     }
@@ -192,7 +204,7 @@ declare var define : (deps: string[], fn: () => S) => void;
         static count = 0;
         
         id       = ComputationNode.count++;
-        age      = Time;
+        age      : number;
         state    = CURRENT;
         count    = 0;
         sources  = [] as Log[];
@@ -201,9 +213,12 @@ declare var define : (deps: string[], fn: () => S) => void;
         cleanups = null as (((final : boolean) => void)[]) | null;
         
         constructor(
+            public clock : SubClock,
             public fn    : ((v : any) => any) | null,
             public value : any
-        ) { }
+        ) { 
+            this.age = this.clock.time;
+        }
     }
     
     class Log {
@@ -235,24 +250,18 @@ declare var define : (deps: string[], fn: () => S) => void;
     }
     
     // "Globals" used to keep track of current system state
-    var Time     = 1,
-        Batching = false, // whether we're batching changes
-        Owner   = null as ComputationNode | null, // whether we're updating, null = no, non-null = node being updated
-        Reader   = null as ComputationNode | null; // whether we're recording signal reads or not (sampling)
-        
-    // Queues for the phases of the update process
-    var Changes  = new Queue<DataNode>(), // batched changes to data nodes
-        _Changes = new Queue<DataNode>(), // alternate array of batched changes to data nodes
-        Updates  = new Queue<ComputationNode>(), // computations to update
-        Disposes = new Queue<ComputationNode>(); // disposals to run after current batch of updates finishes
+    var TopClock = new SubClock(),
+        Clock    = null as SubClock | null, // whether we're batching changes
+        Owner    = null as ComputationNode | null, // whether we're updating, null = no, non-null = node being updated
+        Running  = null as ComputationNode | null; // whether we're recording signal reads or not (sampling)
     
     // Constants
-    var REVIEWING = new ComputationNode(null, null),
-        DEAD = new ComputationNode(null, null),
+    var REVIEWING = new ComputationNode(TopClock, null, null),
+        DEAD = new ComputationNode(TopClock, null, null),
         NOTPENDING = {},
         CURRENT    = 0,
         STALE      = 1,
-        UPDATING   = 2;
+        RUNNING   = 2;
     
     // Functions
     function logRead(from : Log, to : ComputationNode) {
@@ -274,12 +283,11 @@ declare var define : (deps: string[], fn: () => S) => void;
         logRead(node.log, to);
     }
     
-    function event(change : DataNode | null) {
+    function event(clock : SubClock, change : DataNode | null) {
         try {
-            resolve(change);
+            resolve(clock, change);
         } finally {
-            Batching  = false;
-            Owner = Reader = null;
+            Clock = Owner = Running = null;
         }
     }
     
@@ -287,39 +295,34 @@ declare var define : (deps: string[], fn: () => S) => void;
         try {
             node.value = node.fn!(node.value);
     
-            if (Changes.count > 0) resolve(null);
+            if (node.clock.changes.count > 0) resolve(node.clock, null);
         } finally {
-            Batching = false;
-            Owner = Reader = null;
+            Clock = Owner = Running = null;
         }
     }
         
-    function resolve(change : DataNode | null) {
-        var count = 0,
-            changes : Queue<DataNode>;
+    function resolve(clock : SubClock, change : DataNode | null) {
+        var count = 0;
             
-        Batching = true;
-        Updates.reset();
-        Disposes.reset();
+        Clock = clock;
+        clock.updates.reset();
+        clock.disposes.reset();
             
         if (change) {
-            Changes.reset();
+            clock.changes.reset();
             
-            Time++;
+            clock.time++;
             applyDataChange(change);
-            Updates.run(update);
-            Disposes.run(dispose);
+            clock.updates.run(update);
+            clock.disposes.run(dispose);
         }
         
         // for each batch ...
-        while (Changes.count !== 0) {
-            changes = Changes, Changes = _Changes, _Changes = changes;
-            Changes.reset();
-            
-            Time++;
-            changes.run(applyDataChange);
-            Updates.run(update);
-            Disposes.run(dispose);
+        while (clock.changes.count !== 0) {
+            clock.time++;
+            clock.changes.run(applyDataChange);
+            clock.updates.run(update);
+            clock.disposes.run(dispose);
 
             // if there are still changes after excessive batches, assume runaway            
             if (count++ > 1e5) {
@@ -347,10 +350,10 @@ declare var define : (deps: string[], fn: () => S) => void;
                 nodes[id] = DEAD;
                 dead++;
             } else {
-                if (node.age < Time) {
-                    node.age = Time;
+                if (node.age < node.clock.time) {
+                    node.age = node.clock.time;
                     node.state = STALE;
-                    Updates.add(node);
+                    node.clock.updates.add(node);
                     if (node.owned) markOwnedNodesForDisposal(node.owned);
                     if (node.log) markComputationsStale(node.log);
                 }
@@ -365,7 +368,7 @@ declare var define : (deps: string[], fn: () => S) => void;
     function markOwnedNodesForDisposal(owned : ComputationNode[]) {
         for (var i = 0; i < owned.length; i++) {
             var child = owned[i];
-            child.age = Time;
+            child.age = child.clock.time;
             child.state = CURRENT;
             if (child.owned) markOwnedNodesForDisposal(child.owned);
         }
@@ -374,17 +377,17 @@ declare var define : (deps: string[], fn: () => S) => void;
     function update<T>(node : ComputationNode) {
         if (node.state === STALE) {
             var owner = Owner,
-                reader = Reader;
+                running = Running;
         
-            Owner = Reader = node;
+            Owner = Running = node;
         
-            node.state = UPDATING;    
+            node.state = RUNNING;    
             cleanup(node, false);
             node.value = node.fn!(node.value);
             node.state = CURRENT;
             
             Owner = owner;
-            Reader = reader;
+            Running = running;
         }
     }
         
