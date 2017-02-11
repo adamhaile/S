@@ -3,38 +3,72 @@
     "use strict";
     // Public interface
     var S = function S(fn, seed) {
-        var owner = Owner, clock = Clock || TopClock, running = Running;
+        var owner = Owner, proc = RunningProcess || TopProcess, running = RunningNode;
         if (!owner)
             throw new Error("all computations must be created under a parent computation or root");
-        var node = new ComputationNode(clock, fn, seed);
-        Owner = Running = node;
-        if (Clock) {
+        var node = new ComputationNode(proc, fn, seed);
+        Owner = RunningNode = node;
+        if (RunningProcess) {
             node.value = node.fn(node.value);
         }
         else {
-            Clock = clock;
-            clock.changes.reset();
             toplevelComputation(node);
         }
         (owner.owned || (owner.owned = [])).push(node);
         Owner = owner;
-        Running = running;
+        RunningNode = running;
         return function computation() {
-            if (Owner) {
-                if (node.age === node.clock.time) {
-                    if (node.state === RUNNING)
-                        throw new Error("circular dependency");
-                    else
-                        update(node);
+            if (RunningNode) {
+                var rproc = RunningProcess, sproc = node.process;
+                while (rproc.depth > sproc.depth + 1)
+                    rproc = rproc.parent;
+                if (rproc === sproc || rproc.parent === sproc) {
+                    if (node.preprocs) {
+                        for (var i = 0; i < node.preprocs.count; i++) {
+                            var preproc = node.preprocs.procs[i];
+                            updateProcess(preproc);
+                        }
+                    }
+                    if (node.age === node.process.time()) {
+                        if (node.state === RUNNING)
+                            throw new Error("circular dependency");
+                        else
+                            update(node); // checks for state === STALE internally, so don't need to check here
+                    }
+                    if (node.preprocs) {
+                        for (var i = 0; i < node.preprocs.count; i++) {
+                            var preproc = node.preprocs.procs[i];
+                            if (rproc === sproc)
+                                logNodePreProcess(preproc, RunningNode);
+                            else
+                                logProcessPreProcess(preproc, rproc, RunningNode);
+                        }
+                    }
                 }
-                if (Running)
-                    logComputationRead(node, Running);
+                else {
+                    if (rproc.depth > sproc.depth)
+                        rproc = rproc.parent;
+                    while (sproc.depth > rproc.depth + 1)
+                        sproc = sproc.parent;
+                    if (sproc.parent === rproc) {
+                        logNodePreProcess(sproc, RunningNode);
+                    }
+                    else {
+                        if (sproc.depth > rproc.depth)
+                            sproc = sproc.parent;
+                        while (rproc.parent !== sproc.parent)
+                            rproc = rproc.parent, sproc = sproc.parent;
+                        logProcessPreProcess(sproc, rproc, RunningNode);
+                    }
+                    updateProcess(sproc);
+                }
+                logComputationRead(node, RunningNode);
             }
             return node.value;
         };
     };
     S.root = function root(fn) {
-        var owner = Owner, root = new ComputationNode(Clock || TopClock, null, null);
+        var owner = Owner, root = new ComputationNode(RunningProcess || TopProcess, null, null);
         Owner = root;
         try {
             return fn(_dispose);
@@ -43,8 +77,8 @@
             Owner = owner;
         }
         function _dispose() {
-            if (Clock)
-                Clock.disposes.add(root);
+            if (RunningProcess)
+                RunningProcess.disposes.add(root);
             else
                 dispose(root);
         }
@@ -55,14 +89,14 @@
         onchanges = !!onchanges;
         return S(on, seed);
         function on(value) {
-            var running = Running;
+            var running = RunningNode;
             ev();
             if (onchanges)
                 onchanges = false;
             else {
-                Running = null;
+                RunningNode = null;
                 value = fn(value);
-                Running = running;
+                RunningNode = running;
             }
             return value;
         }
@@ -74,10 +108,24 @@
         };
     }
     S.data = function data(value) {
-        var node = new DataNode(Owner ? Owner.clock : TopClock, value);
+        var node = new DataNode(RunningProcess || TopProcess, value);
         return function data(value) {
+            var rproc = RunningProcess, sproc = node.process;
+            if (RunningProcess) {
+                while (rproc.depth > sproc.depth)
+                    rproc = rproc.parent;
+                while (sproc.depth > rproc.depth && sproc.parent !== rproc)
+                    sproc = sproc.parent;
+                if (sproc.parent !== rproc)
+                    while (rproc.parent !== sproc.parent)
+                        rproc = rproc.parent, sproc = sproc.parent;
+                if (rproc !== sproc) {
+                    updateProcess(sproc);
+                }
+            }
+            var cproc = rproc === sproc ? sproc : sproc.parent;
             if (arguments.length > 0) {
-                if (Clock) {
+                if (RunningProcess) {
                     if (node.pending !== NOTPENDING) {
                         if (value !== node.pending) {
                             throw new Error("conflicting changes: " + value + " !== " + node.pending);
@@ -85,13 +133,15 @@
                     }
                     else {
                         node.pending = value;
-                        Clock.changes.add(node);
+                        cproc.changes.add(node);
+                        markProcessStale(cproc);
                     }
                 }
                 else {
                     if (node.log) {
                         node.pending = value;
-                        event(TopClock, node);
+                        TopProcess.changes.add(node);
+                        event();
                     }
                     else {
                         node.value = value;
@@ -100,14 +150,19 @@
                 return value;
             }
             else {
-                if (Running)
-                    logDataRead(node, Running);
+                if (RunningNode) {
+                    logDataRead(node, RunningNode);
+                    if (sproc.parent === rproc)
+                        logNodePreProcess(sproc, RunningNode);
+                    else if (sproc !== rproc)
+                        logProcessPreProcess(sproc, rproc, RunningNode);
+                }
                 return node.value;
             }
         };
     };
     S.value = function value(current, eq) {
-        var data = S.data(current), clock = Clock || TopClock, age = 0;
+        var data = S.data(current), proc = RunningProcess || TopProcess, age = 0;
         return function value(update) {
             if (arguments.length === 0) {
                 return data();
@@ -115,9 +170,10 @@
             else {
                 var same = eq ? eq(current, update) : current === update;
                 if (!same) {
-                    if (age === clock.time)
+                    var time = proc.time();
+                    if (age === time)
                         throw new Error("conflicting values: " + value + " is not the same as " + current);
-                    age = clock.time;
+                    age = time;
                     current = update;
                     data(update);
                 }
@@ -126,29 +182,29 @@
         };
     };
     S.freeze = function freeze(fn) {
-        var result;
-        if (Clock) {
+        var result = undefined;
+        if (RunningProcess) {
             result = fn();
         }
         else {
-            Clock = TopClock;
-            Clock.changes.reset();
+            RunningProcess = TopProcess;
+            RunningProcess.changes.reset();
             try {
                 result = fn();
-                event(TopClock, null);
+                event();
             }
             finally {
-                Clock = null;
+                RunningProcess = null;
             }
         }
         return result;
     };
     S.sample = function sample(fn) {
-        var result, running = Running;
+        var result, running = RunningNode;
         if (running) {
-            Running = null;
+            RunningNode = null;
             result = fn();
-            Running = running;
+            RunningNode = running;
         }
         else {
             result = fn();
@@ -163,20 +219,56 @@
             throw new Error("S.cleanup() must be called from within an S() computation.  Cannot call it at toplevel.");
         }
     };
+    S.process = function process() {
+        var proc = new Process(RunningProcess || TopProcess);
+        return function process(fn) {
+            var result = null, running = RunningProcess;
+            RunningProcess = proc;
+            proc.state = STALE;
+            try {
+                result = fn();
+                run(proc);
+            }
+            finally {
+                RunningProcess = running;
+            }
+            return result;
+        };
+    };
     // Internal implementation
     /// Graph classes and operations
-    var SubClock = (function () {
-        function SubClock() {
-            this.time = 0;
+    var Process = (function () {
+        function Process(parent) {
+            this.parent = parent;
+            this.id = Process.count++;
+            this.state = CURRENT;
+            this.proctime = 0;
+            this.preprocs = null;
             this.changes = new Queue(); // batched changes to data nodes
+            this.subprocs = new Queue(); // subprocesses that need to be updated
             this.updates = new Queue(); // computations to update
             this.disposes = new Queue(); // disposals to run after current batch of updates finishes
+            if (parent) {
+                this.age = parent.time();
+                this.depth = parent.depth + 1;
+            }
+            else {
+                this.age = 0;
+                this.depth = 0;
+            }
         }
-        return SubClock;
+        Process.prototype.time = function () {
+            var time = this.proctime, p = this;
+            while (p = p.parent)
+                time += p.proctime;
+            return time;
+        };
+        return Process;
     }());
+    Process.count = 0;
     var DataNode = (function () {
-        function DataNode(clock, value) {
-            this.clock = clock;
+        function DataNode(process, value) {
+            this.process = process;
             this.value = value;
             this.pending = NOTPENDING;
             this.log = null;
@@ -184,8 +276,8 @@
         return DataNode;
     }());
     var ComputationNode = (function () {
-        function ComputationNode(clock, fn, value) {
-            this.clock = clock;
+        function ComputationNode(process, fn, value) {
+            this.process = process;
             this.fn = fn;
             this.value = value;
             this.id = ComputationNode.count++;
@@ -193,9 +285,10 @@
             this.count = 0;
             this.sources = [];
             this.log = null;
+            this.preprocs = null;
             this.owned = null;
             this.cleanups = null;
-            this.age = this.clock.time;
+            this.age = this.process.time();
         }
         return ComputationNode;
     }());
@@ -207,6 +300,26 @@
             this.ids = [];
         }
         return Log;
+    }());
+    var NodePreProcessLog = (function () {
+        function NodePreProcessLog() {
+            this.count = 0;
+            this.procs = []; // [proc], where proc.parent === node.process
+            this.ages = []; // proc.id -> node.age
+            this.ucount = 0;
+            this.uprocs = [];
+            this.uprocids = [];
+        }
+        return NodePreProcessLog;
+    }());
+    var ProcessPreProcessLog = (function () {
+        function ProcessPreProcessLog() {
+            this.count = 0;
+            this.proccounts = []; // proc.id -> ref count
+            this.procs = []; // proc.id -> proc 
+            this.ids = []; // [proc.id]
+        }
+        return ProcessPreProcessLog;
     }());
     var Queue = (function () {
         function Queue() {
@@ -220,8 +333,8 @@
             this.items[this.count++] = item;
         };
         Queue.prototype.run = function (fn) {
-            var items = this.items, count = this.count;
-            for (var i = 0; i < count; i++) {
+            var items = this.items;
+            for (var i = 0; i < this.count; i++) {
                 fn(items[i]);
                 items[i] = null;
             }
@@ -229,12 +342,14 @@
         };
         return Queue;
     }());
-    // "Globals" used to keep track of current system state
-    var TopClock = new SubClock(), Clock = null, // whether we're batching changes
-    Owner = null, // whether we're updating, null = no, non-null = node being updated
-    Running = null; // whether we're recording signal reads or not (sampling)
     // Constants
-    var REVIEWING = new ComputationNode(TopClock, null, null), DEAD = new ComputationNode(TopClock, null, null), NOTPENDING = {}, CURRENT = 0, STALE = 1, RUNNING = 2;
+    var NOTPENDING = {}, CURRENT = 0, STALE = 1, RUNNING = 2;
+    // "Globals" used to keep track of current system state
+    var TopProcess = new Process(null), RunningProcess = null, // currently running process 
+    RunningNode = null, // currently running computation
+    Owner = null; // owner for new computations
+    // Constants
+    var REVIEWING = new ComputationNode(TopProcess, null, null), DEAD = new ComputationNode(TopProcess, null, null);
     // Functions
     function logRead(from, to) {
         var id = to.id, node = from.nodes[id];
@@ -255,42 +370,62 @@
             node.log = new Log();
         logRead(node.log, to);
     }
-    function event(clock, change) {
+    function logNodePreProcess(proc, to) {
+        if (!to.preprocs)
+            to.preprocs = new NodePreProcessLog();
+        else if (to.preprocs.ages[proc.id] === to.age)
+            return;
+        to.preprocs.ages[proc.id] = to.age;
+        to.preprocs.procs[to.preprocs.count++] = proc;
+    }
+    function logProcessPreProcess(sproc, rproc, rnode) {
+        var proclog = rproc.preprocs || (rproc.preprocs = new ProcessPreProcessLog()), nodelog = rnode.preprocs || (rnode.preprocs = new NodePreProcessLog());
+        if (nodelog.ages[sproc.id] === rnode.age)
+            return;
+        nodelog.ages[sproc.id] = rnode.age;
+        nodelog.uprocs[nodelog.ucount] = rproc;
+        nodelog.uprocids[nodelog.ucount++] = sproc.id;
+        var proccount = proclog.proccounts[sproc.id];
+        if (!proccount) {
+            if (proccount === undefined)
+                proclog.ids[proclog.count++] = sproc.id;
+            proclog.proccounts[sproc.id] = 1;
+            proclog.procs[sproc.id] = sproc;
+        }
+        else {
+            proclog.proccounts[sproc.id]++;
+        }
+    }
+    function event() {
         try {
-            resolve(clock, change);
+            run(TopProcess);
         }
         finally {
-            Clock = Owner = Running = null;
+            RunningProcess = Owner = RunningNode = null;
         }
     }
     function toplevelComputation(node) {
+        RunningProcess = TopProcess;
+        TopProcess.changes.reset();
         try {
             node.value = node.fn(node.value);
-            if (node.clock.changes.count > 0)
-                resolve(node.clock, null);
+            if (TopProcess.changes.count > 0)
+                run(TopProcess);
         }
         finally {
-            Clock = Owner = Running = null;
+            RunningProcess = Owner = RunningNode = null;
         }
     }
-    function resolve(clock, change) {
-        var count = 0;
-        Clock = clock;
-        clock.updates.reset();
-        clock.disposes.reset();
-        if (change) {
-            clock.changes.reset();
-            clock.time++;
-            applyDataChange(change);
-            clock.updates.run(update);
-            clock.disposes.run(dispose);
-        }
+    function run(proc) {
+        var running = RunningProcess, count = 0;
+        proc.disposes.reset();
         // for each batch ...
-        while (clock.changes.count !== 0) {
-            clock.time++;
-            clock.changes.run(applyDataChange);
-            clock.updates.run(update);
-            clock.disposes.run(dispose);
+        while (proc.changes.count || proc.subprocs.count || proc.updates.count) {
+            proc.proctime++;
+            proc.changes.run(applyDataChange);
+            proc.subprocs.run(updateProcess);
+            proc.updates.run(update);
+            proc.disposes.run(dispose);
             // if there are still changes after excessive batches, assume runaway            
             if (count++ > 1e5) {
                 throw new Error("Runaway frames detected");
@@ -312,10 +447,12 @@
                 dead++;
             }
             else {
-                if (node.age < node.clock.time) {
-                    node.age = node.clock.time;
+                var time = node.process.time();
+                if (node.age < time) {
+                    node.age = time;
                     node.state = STALE;
-                    node.clock.updates.add(node);
+                    node.process.updates.add(node);
+                    markProcessStale(node.process);
                     if (node.owned)
                         markOwnedNodesForDisposal(node.owned);
                     if (node.log)
@@ -331,26 +468,62 @@
     function markOwnedNodesForDisposal(owned) {
         for (var i = 0; i < owned.length; i++) {
             var child = owned[i];
-            child.age = child.clock.time;
+            child.age = child.process.time();
             child.state = CURRENT;
             if (child.owned)
                 markOwnedNodesForDisposal(child.owned);
         }
     }
+    function markProcessStale(proc) {
+        var time = 0;
+        if ((proc.parent && proc.age < (time = proc.parent.time())) || proc.state === CURRENT) {
+            proc.state = STALE;
+            if (proc.parent) {
+                proc.age = time;
+                proc.parent.subprocs.add(proc);
+                markProcessStale(proc.parent);
+            }
+        }
+    }
+    function updateProcess(proc) {
+        var time = proc.parent.time();
+        if (proc.age < time || proc.state === STALE) {
+            if (proc.age < time)
+                proc.state = CURRENT;
+            if (proc.preprocs) {
+                for (var i = 0; i < proc.preprocs.ids.length; i++) {
+                    var preproc = proc.preprocs.procs[proc.preprocs.ids[i]];
+                    if (preproc)
+                        updateProcess(preproc);
+                }
+            }
+            proc.age = time;
+        }
+        if (proc.state === RUNNING) {
+            throw new Error("process circular reference");
+        }
+        else if (proc.state === STALE) {
+            proc.state = RUNNING;
+            run(proc);
+            proc.state = CURRENT;
+        }
+    }
     function update(node) {
         if (node.state === STALE) {
-            var owner = Owner, running = Running;
-            Owner = Running = node;
+            var owner = Owner, running = RunningNode, proc = RunningProcess;
+            Owner = RunningNode = node;
+            RunningProcess = node.process;
             node.state = RUNNING;
             cleanup(node, false);
             node.value = node.fn(node.value);
             node.state = CURRENT;
             Owner = owner;
-            Running = running;
+            RunningNode = running;
+            RunningProcess = proc;
         }
     }
     function cleanup(node, final) {
-        var sources = node.sources, cleanups = node.cleanups, owned = node.owned;
+        var sources = node.sources, cleanups = node.cleanups, owned = node.owned, preprocs = node.preprocs;
         if (cleanups) {
             for (var i = 0; i < cleanups.length; i++) {
                 cleanups[i](final);
@@ -368,10 +541,24 @@
             sources[i] = null;
         }
         node.count = 0;
+        if (preprocs) {
+            for (i = 0; i < preprocs.count; i++) {
+                preprocs.procs[i] = null;
+            }
+            preprocs.count = 0;
+            for (i = 0; i < preprocs.ucount; i++) {
+                var upreprocs = preprocs.uprocs[i].preprocs, uprocid = preprocs.uprocids[i];
+                if (--upreprocs.proccounts[uprocid] === 0) {
+                    upreprocs.procs[uprocid] = null;
+                }
+            }
+            preprocs.ucount = 0;
+        }
     }
     function dispose(node) {
         node.fn = null;
         node.log = null;
+        node.preprocs = null;
         cleanup(node, true);
     }
     // UMD exporter

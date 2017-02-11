@@ -13,9 +13,6 @@ interface S {
 	value<T>(value : T, eq? : (a : T, b : T) => boolean) : S.DataSignal<T>;
 	sum<T>(value : T) : S.SumSignal<T>;
 
-	// Computation options  
-	defer(scheduler : (go : () => void) => () => void) : S.Options;
-
 	// Batching changes
 	freeze<T>(fn : () => T) : T;
 
@@ -24,18 +21,12 @@ interface S {
 	
 	// Freeing external resources
 	cleanup(fn : (final : boolean) => any) : void;
+
+	// subprocesses
+	process() : <T>(fn : () => T) => T;
 }
 
 declare namespace S { 
-	interface Options {
-		S<T>(fn : () => T) : () => T;
-		S<T>(fn : (v : T) => T, seed : T) : () => T;
-		on<T>(ev : () => any, fn : () => T) : () => T;
-		on<T>(ev : () => any, fn : (v : T) => T, seed : T, onchanges?: boolean) : () => T;
-		
-		defer(fn : (go : () => void) => () => void) : Options;
-	}
-
 	interface DataSignal<T> {
 		() : T;
 		(val : T) : T;
