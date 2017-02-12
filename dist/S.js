@@ -14,7 +14,8 @@
         else {
             toplevelComputation(node);
         }
-        (owner.owned || (owner.owned = [])).push(node);
+        if (owner !== UNOWNED)
+            (owner.owned || (owner.owned = [])).push(node);
         Owner = owner;
         RunningNode = running;
         return function computation() {
@@ -68,20 +69,20 @@
         };
     };
     S.root = function root(fn) {
-        var owner = Owner, root = new ComputationNode(RunningProcess || TopProcess, null, null);
+        var owner = Owner, root = fn.length === 0 ? UNOWNED : new ComputationNode(RunningProcess || TopProcess, null, null), result = undefined;
         Owner = root;
         try {
-            return fn(_dispose);
+            result = fn.length === 0 ? fn() : fn(function _dispose() {
+                if (RunningProcess)
+                    RunningProcess.disposes.add(root);
+                else
+                    dispose(root);
+            });
         }
         finally {
             Owner = owner;
         }
-        function _dispose() {
-            if (RunningProcess)
-                RunningProcess.disposes.add(root);
-            else
-                dispose(root);
-        }
+        return result;
     };
     S.on = function on(ev, fn, seed, onchanges) {
         if (Array.isArray(ev))
@@ -349,7 +350,7 @@
     RunningNode = null, // currently running computation
     Owner = null; // owner for new computations
     // Constants
-    var REVIEWING = new ComputationNode(TopProcess, null, null), DEAD = new ComputationNode(TopProcess, null, null);
+    var REVIEWING = new ComputationNode(TopProcess, null, null), DEAD = new ComputationNode(TopProcess, null, null), UNOWNED = new ComputationNode(TopProcess, null, null);
     // Functions
     function logRead(from, to) {
         var id = to.id, node = from.nodes[id];

@@ -24,7 +24,7 @@ declare var define : (deps: string[], fn: () => S) => void;
             toplevelComputation(node);
         }
         
-        (owner.owned || (owner.owned = [])).push(node);
+        if (owner !== UNOWNED) (owner.owned || (owner.owned = [])).push(node);
         
         Owner = owner;
         RunningNode = running;
@@ -79,22 +79,23 @@ declare var define : (deps: string[], fn: () => S) => void;
         }
     };
 
-    S.root = function root<T>(fn : (dispose? : () => void) => T) {
+    S.root = function root<T>(fn : (dispose? : () => void) => T) : T {
         var owner = Owner,
-            root = new ComputationNode(RunningProcess || TopProcess, null, null);
+            root = fn.length === 0 ? UNOWNED : new ComputationNode(RunningProcess || TopProcess, null, null),
+            result : T = undefined!;
 
         Owner = root;
 
         try {
-            return fn(_dispose);
+            result = fn.length === 0 ? fn() : fn(function _dispose() {
+                if (RunningProcess) RunningProcess.disposes.add(root);
+                else dispose(root);
+            });
         } finally {
             Owner = owner;
         }
 
-        function _dispose() {
-            if (RunningProcess) RunningProcess.disposes.add(root);
-            else dispose(root);
-        }
+        return result;
     };
 
     S.on = function on<T>(ev : () => any, fn : (v? : T) => T, seed? : T, onchanges? : boolean) {
@@ -385,7 +386,8 @@ declare var define : (deps: string[], fn: () => S) => void;
 
     // Constants
     var REVIEWING  = new ComputationNode(TopProcess, null, null),
-        DEAD       = new ComputationNode(TopProcess, null, null);
+        DEAD       = new ComputationNode(TopProcess, null, null),
+        UNOWNED    = new ComputationNode(TopProcess, null, null);
     
     // Functions
     function logRead(from : Log, to : ComputationNode) {
