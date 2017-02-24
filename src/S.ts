@@ -9,16 +9,16 @@ declare var define : (deps: string[], fn: () => S) => void;
     // Public interface
     var S = <S>function S<T>(fn : (v? : T) => T, seed? : T) : () => T {
         var owner  = Owner,
-            proc  = RunningProcess || TopProcess,
+            clock  = RunningClock || RootClock,
             running = RunningNode;
 
         if (!owner) throw new Error("all computations must be created under a parent computation or root");
 
-        var node = new ComputationNode(proc, fn, seed);
+        var node = new ComputationNode(clock, fn, seed);
             
         Owner = RunningNode = node;
         
-        if (RunningProcess) {
+        if (RunningClock) {
             node.value = node.fn!(node.value);
         } else {
             toplevelComputation(node);
@@ -31,45 +31,45 @@ declare var define : (deps: string[], fn: () => S) => void;
 
         return function computation() {
             if (RunningNode) {
-                var rproc = RunningProcess!,
-                    sproc = node.process;
+                var rclock = RunningClock!,
+                    sclock = node.clock;
 
-                while (rproc.depth > sproc.depth + 1) rproc = rproc.parent!;
+                while (rclock.depth > sclock.depth + 1) rclock = rclock.parent!;
 
-                if (rproc === sproc || rproc.parent === sproc) {
-                    if (node.preprocs) {
-                        for (var i = 0; i < node.preprocs.count; i++) {
-                            var preproc = node.preprocs.procs[i];
-                            updateProcess(preproc);
+                if (rclock === sclock || rclock.parent === sclock) {
+                    if (node.preclocks) {
+                        for (var i = 0; i < node.preclocks.count; i++) {
+                            var preclock = node.preclocks.clocks[i];
+                            updateClock(preclock);
                         }
                     }
 
-                    if (node.age === node.process.time()) {
+                    if (node.age === node.clock.time()) {
                         if (node.state === RUNNING) throw new Error("circular dependency");
-                        else update(node); // checks for state === STALE internally, so don't need to check here
+                        else updateNode(node); // checks for state === STALE internally, so don't need to check here
                     }
 
-                    if (node.preprocs) {
-                        for (var i = 0; i < node.preprocs.count; i++) {
-                            var preproc = node.preprocs.procs[i];
-                            if (rproc === sproc) logNodePreProcess(preproc, RunningNode);
-                            else logProcessPreProcess(preproc, rproc, RunningNode);
+                    if (node.preclocks) {
+                        for (var i = 0; i < node.preclocks.count; i++) {
+                            var preclock = node.preclocks.clocks[i];
+                            if (rclock === sclock) logNodePreClock(preclock, RunningNode);
+                            else logClockPreClock(preclock, rclock, RunningNode);
                         }
                     }
                 } else {
-                    if (rproc.depth > sproc.depth) rproc = rproc.parent!;
+                    if (rclock.depth > sclock.depth) rclock = rclock.parent!;
 
-                    while (sproc.depth > rproc.depth + 1) sproc = sproc.parent!;
+                    while (sclock.depth > rclock.depth + 1) sclock = sclock.parent!;
 
-                    if (sproc.parent === rproc) {
-                        logNodePreProcess(sproc, RunningNode);
+                    if (sclock.parent === rclock) {
+                        logNodePreClock(sclock, RunningNode);
                     } else {
-                        if (sproc.depth > rproc.depth) sproc = sproc.parent!;
-                        while (rproc.parent !== sproc.parent) rproc = rproc.parent!, sproc = sproc.parent!;
-                        logProcessPreProcess(sproc, rproc, RunningNode);
+                        if (sclock.depth > rclock.depth) sclock = sclock.parent!;
+                        while (rclock.parent !== sclock.parent) rclock = rclock.parent!, sclock = sclock.parent!;
+                        logClockPreClock(sclock, rclock, RunningNode);
                     }
 
-                    updateProcess(sproc);
+                    updateClock(sclock);
                 }
 
                 logComputationRead(node, RunningNode);
@@ -81,14 +81,14 @@ declare var define : (deps: string[], fn: () => S) => void;
 
     S.root = function root<T>(fn : (dispose? : () => void) => T) : T {
         var owner = Owner,
-            root = fn.length === 0 ? UNOWNED : new ComputationNode(RunningProcess || TopProcess, null, null),
+            root = fn.length === 0 ? UNOWNED : new ComputationNode(RunningClock || RootClock, null, null),
             result : T = undefined!;
 
         Owner = root;
 
         try {
             result = fn.length === 0 ? fn() : fn(function _dispose() {
-                if (RunningProcess) RunningProcess.disposes.add(root);
+                if (RunningClock) RunningClock.disposes.add(root);
                 else dispose(root);
             });
         } finally {
@@ -124,40 +124,40 @@ declare var define : (deps: string[], fn: () => S) => void;
     }
 
     S.data = function data<T>(value : T) : (value? : T) => T {
-        var node = new DataNode(RunningProcess || TopProcess, value);
+        var node = new DataNode(RunningClock || RootClock, value);
 
         return function data(value? : T) : T {
-            var rproc = RunningProcess!,
-                sproc = node.process;
+            var rclock = RunningClock!,
+                sclock = node.clock;
 
-            if (RunningProcess) {
-                while (rproc.depth > sproc.depth) rproc = rproc.parent!;
-                while (sproc.depth > rproc.depth && sproc.parent !== rproc) sproc = sproc.parent!;
-                if (sproc.parent !== rproc)
-                    while (rproc.parent !== sproc.parent) rproc = rproc.parent!, sproc = sproc.parent!;
+            if (RunningClock) {
+                while (rclock.depth > sclock.depth) rclock = rclock.parent!;
+                while (sclock.depth > rclock.depth && sclock.parent !== rclock) sclock = sclock.parent!;
+                if (sclock.parent !== rclock)
+                    while (rclock.parent !== sclock.parent) rclock = rclock.parent!, sclock = sclock.parent!;
 
-                if (rproc !== sproc) {
-                    updateProcess(sproc);
+                if (rclock !== sclock) {
+                    updateClock(sclock);
                 }
             }
 
-            var cproc = rproc === sproc ? sproc! : sproc.parent!;
+            var cclock = rclock === sclock ? sclock! : sclock.parent!;
 
             if (arguments.length > 0) {
-                if (RunningProcess) {
+                if (RunningClock) {
                     if (node.pending !== NOTPENDING) { // value has already been set once, check for conflicts
                         if (value !== node.pending) {
                             throw new Error("conflicting changes: " + value + " !== " + node.pending);
                         }
                     } else { // add to list of changes
                         node.pending = value;
-                        cproc.changes.add(node);
-                        markProcessStale(cproc);
+                        cclock.changes.add(node);
+                        markClockStale(cclock);
                     }
                 } else { // not batching, respond to change now
                     if (node.log) {
                         node.pending = value;
-                        TopProcess.changes.add(node);
+                        RootClock.changes.add(node);
                         event();
                     } else {
                         node.value = value;
@@ -167,8 +167,8 @@ declare var define : (deps: string[], fn: () => S) => void;
             } else {
                 if (RunningNode) {
                     logDataRead(node, RunningNode);
-                    if (sproc.parent === rproc) logNodePreProcess(sproc, RunningNode);
-                    else if (sproc !== rproc) logProcessPreProcess(sproc, rproc, RunningNode);
+                    if (sclock.parent === rclock) logNodePreClock(sclock, RunningNode);
+                    else if (sclock !== rclock) logClockPreClock(sclock, rclock, RunningNode);
                 }
                 return node.value;
             }
@@ -176,16 +176,16 @@ declare var define : (deps: string[], fn: () => S) => void;
     };
     
     S.value = function value<T>(current : T, eq? : (a : T, b : T) => boolean) : S.DataSignal<T> {
-        var data = S.data(current),
-            proc = RunningProcess || TopProcess,
-            age = 0;
+        var data  = S.data(current),
+            clock = RunningClock || RootClock,
+            age   = 0;
         return function value(update? : T) {
             if (arguments.length === 0) {
                 return data();
             } else {
                 var same = eq ? eq(current, update!) : current === update;
                 if (!same) {
-                    var time = proc.time();
+                    var time = clock.time();
                     if (age === time) 
                         throw new Error("conflicting values: " + value + " is not the same as " + current);
                     age = time;
@@ -200,17 +200,17 @@ declare var define : (deps: string[], fn: () => S) => void;
     S.freeze = function freeze<T>(fn : () => T) : T {
         var result : T = undefined!;
         
-        if (RunningProcess) {
+        if (RunningClock) {
             result = fn();
         } else {
-            RunningProcess = TopProcess;
-            RunningProcess.changes.reset();
+            RunningClock = RootClock;
+            RunningClock.changes.reset();
 
             try {
                 result = fn();
                 event();
             } finally {
-                RunningProcess = null;
+                RunningClock = null;
             }
         }
             
@@ -240,22 +240,22 @@ declare var define : (deps: string[], fn: () => S) => void;
         }
     };
 
-    S.process = function process<T>(fn? : () => T) {
-        var proc = new Process(RunningProcess || TopProcess);
+    S.subclock = function subclock<T>(fn? : () => T) {
+        var clock = new Clock(RunningClock || RootClock);
 
-        return fn ? process(fn) : process;
+        return fn ? subclock(fn) : subclock;
         
-        function process<T>(fn : () => T) {
+        function subclock<T>(fn : () => T) {
             var result : T = null!,
-                running = RunningProcess;
-            RunningProcess = proc;
-            proc.state = STALE;
+                running = RunningClock;
+            RunningClock = clock;
+            clock.state = STALE;
             try {
                 result = fn();
-                proc.proctime++;
-                run(proc);
+                clock.subtime++;
+                run(clock);
             } finally {
-                RunningProcess = running;
+                RunningClock = running;
             }
             return result;
         }
@@ -264,23 +264,23 @@ declare var define : (deps: string[], fn: () => S) => void;
     // Internal implementation
     
     /// Graph classes and operations
-    class Process {
+    class Clock {
         static count = 0;
 
-        id        = Process.count++;
+        id        = Clock.count++;
         depth     : number;
         age       : number;
         state     = CURRENT;
-        proctime  = 0;
+        subtime   = 0;
 
-        preprocs  = null as ProcessPreProcessLog | null;
+        preclocks = null as ClockPreClockLog | null;
         changes   = new Queue<DataNode>(); // batched changes to data nodes
-        subprocs  = new Queue<Process>(); // subprocesses that need to be updated
+        subclocks = new Queue<Clock>(); // subclocks that need to be updated
         updates   = new Queue<ComputationNode>(); // computations to update
         disposes  = new Queue<ComputationNode>(); // disposals to run after current batch of updates finishes
 
         constructor(
-            public parent : Process | null
+            public parent : Clock | null
         ) { 
             if (parent) {
                 this.age = parent.time();
@@ -292,9 +292,9 @@ declare var define : (deps: string[], fn: () => S) => void;
         }
 
         time () {
-            var time = this.proctime,
-                p = this as Process;
-            while (p = p.parent!) time += p.proctime;
+            var time = this.subtime,
+                p = this as Clock;
+            while (p = p.parent!) time += p.subtime;
             return time;
         }
     }
@@ -304,7 +304,7 @@ declare var define : (deps: string[], fn: () => S) => void;
         log     = null as Log | null;
         
         constructor(
-            public process : Process,
+            public clock : Clock,
             public value : any
         ) { }
     }
@@ -312,22 +312,22 @@ declare var define : (deps: string[], fn: () => S) => void;
     class ComputationNode {
         static count = 0;
         
-        id       = ComputationNode.count++;
-        age      : number;
-        state    = CURRENT;
-        count    = 0;
-        sources  = [] as Log[];
-        log      = null as Log | null;
-        preprocs = null as NodePreProcessLog | null;
-        owned    = null as ComputationNode[] | null;
-        cleanups = null as (((final : boolean) => void)[]) | null;
+        id        = ComputationNode.count++;
+        age       : number;
+        state     = CURRENT;
+        count     = 0;
+        sources   = [] as Log[];
+        log       = null as Log | null;
+        preclocks = null as NodePreClockLog | null;
+        owned     = null as ComputationNode[] | null;
+        cleanups  = null as (((final : boolean) => void)[]) | null;
         
         constructor(
-            public process : Process,
+            public clock : Clock,
             public fn    : ((v : any) => any) | null,
             public value : any
         ) { 
-            this.age = this.process.time();
+            this.age = this.clock.time();
         }
     }
     
@@ -337,20 +337,20 @@ declare var define : (deps: string[], fn: () => S) => void;
         ids = [] as number[];
     }
 
-    class NodePreProcessLog {
-        count = 0;
-        procs = [] as Process[]; // [proc], where proc.parent === node.process
-        ages = [] as number[]; // proc.id -> node.age
-        ucount = 0;
-        uprocs = [] as Process[];
-        uprocids = [] as number[];
+    class NodePreClockLog {
+        count     = 0;
+        clocks    = [] as Clock[]; // [clock], where clock.parent === node.clock
+        ages      = [] as number[]; // clock.id -> node.age
+        ucount    = 0; // number of ancestor clocks with preclocks from this node
+        uclocks   = [] as Clock[];
+        uclockids = [] as number[];
     }
 
-    class ProcessPreProcessLog {
-        count = 0;
-        proccounts = [] as number[]; // proc.id -> ref count
-        procs = [] as (Process | null)[]; // proc.id -> proc 
-        ids = [] as number[]; // [proc.id]
+    class ClockPreClockLog {
+        count       = 0;
+        clockcounts = [] as number[]; // clock.id -> ref count
+        clocks      = [] as (Clock | null)[]; // clock.id -> clock 
+        ids         = [] as number[]; // [clock.id]
     }
         
     class Queue<T> {
@@ -382,15 +382,15 @@ declare var define : (deps: string[], fn: () => S) => void;
         RUNNING    = 2;
     
     // "Globals" used to keep track of current system state
-    var TopProcess     = new Process(null),
-        RunningProcess = null as Process | null, // currently running process 
-        RunningNode    = null as ComputationNode | null, // currently running computation
-        Owner          = null as ComputationNode | null; // owner for new computations
+    var RootClock    = new Clock(null),
+        RunningClock = null as Clock | null, // currently running clock 
+        RunningNode  = null as ComputationNode | null, // currently running computation
+        Owner        = null as ComputationNode | null; // owner for new computations
 
     // Constants
-    var REVIEWING  = new ComputationNode(TopProcess, null, null),
-        DEAD       = new ComputationNode(TopProcess, null, null),
-        UNOWNED    = new ComputationNode(TopProcess, null, null);
+    var REVIEWING  = new ComputationNode(RootClock, null, null),
+        DEAD       = new ComputationNode(RootClock, null, null),
+        UNOWNED    = new ComputationNode(RootClock, null, null);
     
     // Functions
     function logRead(from : Log, to : ComputationNode) {
@@ -412,77 +412,77 @@ declare var define : (deps: string[], fn: () => S) => void;
         logRead(node.log, to);
     }
 
-    function logNodePreProcess(proc : Process, to : ComputationNode) {
-        if (!to.preprocs) to.preprocs = new NodePreProcessLog();
-        else if (to.preprocs.ages[proc.id] === to.age) return;
-        to.preprocs.ages[proc.id] = to.age;
-        to.preprocs.procs[to.preprocs.count++] = proc;
+    function logNodePreClock(clock : Clock, to : ComputationNode) {
+        if (!to.preclocks) to.preclocks = new NodePreClockLog();
+        else if (to.preclocks.ages[clock.id] === to.age) return;
+        to.preclocks.ages[clock.id] = to.age;
+        to.preclocks.clocks[to.preclocks.count++] = clock;
     }
     
-    function logProcessPreProcess(sproc : Process, rproc : Process, rnode : ComputationNode) {
-        var proclog = rproc.preprocs || (rproc.preprocs = new ProcessPreProcessLog()),
-            nodelog = rnode.preprocs || (rnode.preprocs = new NodePreProcessLog());
+    function logClockPreClock(sclock : Clock, rclock : Clock, rnode : ComputationNode) {
+        var clocklog = rclock.preclocks || (rclock.preclocks = new ClockPreClockLog()),
+            nodelog = rnode.preclocks || (rnode.preclocks = new NodePreClockLog());
 
-        if (nodelog.ages[sproc.id] === rnode.age) return;
+        if (nodelog.ages[sclock.id] === rnode.age) return;
 
-        nodelog.ages[sproc.id] = rnode.age;
-        nodelog.uprocs[nodelog.ucount] = rproc;
-        nodelog.uprocids[nodelog.ucount++] = sproc.id;
+        nodelog.ages[sclock.id] = rnode.age;
+        nodelog.uclocks[nodelog.ucount] = rclock;
+        nodelog.uclockids[nodelog.ucount++] = sclock.id;
 
-        var proccount = proclog.proccounts[sproc.id];
-        if (!proccount) {
-            if (proccount === undefined) proclog.ids[proclog.count++] = sproc.id;
-            proclog.proccounts[sproc.id] = 1;
-            proclog.procs[sproc.id] = sproc;
+        var clockcount = clocklog.clockcounts[sclock.id];
+        if (!clockcount) {
+            if (clockcount === undefined) clocklog.ids[clocklog.count++] = sclock.id;
+            clocklog.clockcounts[sclock.id] = 1;
+            clocklog.clocks[sclock.id] = sclock;
         } else {
-            proclog.proccounts[sproc.id]++;
+            clocklog.clockcounts[sclock.id]++;
         }
     }
     
     function event() {
-        TopProcess.proctime++;
+        RootClock.subtime++;
         try {
-            run(TopProcess);
+            run(RootClock);
         } finally {
-            RunningProcess = Owner = RunningNode = null;
+            RunningClock = Owner = RunningNode = null;
         }
     }
     
     function toplevelComputation<T>(node : ComputationNode) {
-        RunningProcess = TopProcess;
-        TopProcess.changes.reset();
+        RunningClock = RootClock;
+        RootClock.changes.reset();
 
         try {
             node.value = node.fn!(node.value);
     
-            if (TopProcess.changes.count > 0 || TopProcess.subprocs.count > 0 || TopProcess.updates.count > 0) {
-                TopProcess.proctime++;
-                run(TopProcess);
+            if (RootClock.changes.count > 0 || RootClock.subclocks.count > 0 || RootClock.updates.count > 0) {
+                RootClock.subtime++;
+                run(RootClock);
             }
         } finally {
-            RunningProcess = Owner = RunningNode = null;
+            RunningClock = Owner = RunningNode = null;
         }
     }
         
-    function run(proc : Process) {
-        var running = RunningProcess,
+    function run(clock : Clock) {
+        var running = RunningClock,
             count = 0;
             
-        proc.disposes.reset();
+        clock.disposes.reset();
         
         // for each batch ...
-        while (proc.changes.count > 0 || proc.subprocs.count > 0 || proc.updates.count > 0) {
+        while (clock.changes.count > 0 || clock.subclocks.count > 0 || clock.updates.count > 0) {
             if (count > 0) // don't tick on first run, or else we expire already scheduled updates
-                proc.proctime++;
+                clock.subtime++;
 
-            proc.changes.run(applyDataChange);
-            proc.subprocs.run(updateProcess);
-            proc.updates.run(update);
-            proc.disposes.run(dispose);
+            clock.changes.run(applyDataChange);
+            clock.subclocks.run(updateClock);
+            clock.updates.run(updateNode);
+            clock.disposes.run(dispose);
 
             // if there are still changes after excessive batches, assume runaway            
             if (count++ > 1e5) {
-                throw new Error("Runaway frames detected");
+                throw new Error("Runaway clock detected");
             }
         }
     }
@@ -506,12 +506,12 @@ declare var define : (deps: string[], fn: () => S) => void;
                 nodes[id] = DEAD;
                 dead++;
             } else {
-                var time = node.process.time();
+                var time = node.clock.time();
                 if (node.age < time) {
                     node.age = time;
                     node.state = STALE;
-                    node.process.updates.add(node);
-                    markProcessStale(node.process);
+                    node.clock.updates.add(node);
+                    markClockStale(node.clock);
                     if (node.owned) markOwnedNodesForDisposal(node.owned);
                     if (node.log) markComputationsStale(node.log);
                 }
@@ -526,71 +526,71 @@ declare var define : (deps: string[], fn: () => S) => void;
     function markOwnedNodesForDisposal(owned : ComputationNode[]) {
         for (var i = 0; i < owned.length; i++) {
             var child = owned[i];
-            child.age = child.process.time();
+            child.age = child.clock.time();
             child.state = CURRENT;
             if (child.owned) markOwnedNodesForDisposal(child.owned);
         }
     }
 
-    function markProcessStale(proc : Process) {
+    function markClockStale(clock : Clock) {
         var time = 0;
-        if ((proc.parent && proc.age < (time = proc.parent!.time())) || proc.state === CURRENT) {
-            proc.state = STALE;
-            if (proc.parent) {
-                proc.age = time;
-                proc.parent.subprocs.add(proc);
-                markProcessStale(proc.parent);
+        if ((clock.parent && clock.age < (time = clock.parent!.time())) || clock.state === CURRENT) {
+            clock.state = STALE;
+            if (clock.parent) {
+                clock.age = time;
+                clock.parent.subclocks.add(clock);
+                markClockStale(clock.parent);
             }
         }
     }
     
-    function updateProcess(proc : Process) {
-        var time = proc.parent!.time();
-        if (proc.age < time || proc.state === STALE) {
-            if (proc.age < time) proc.state = CURRENT;
-            if (proc.preprocs) {
-                for (var i = 0; i < proc.preprocs.ids.length; i++) {
-                    var preproc = proc.preprocs.procs[proc.preprocs.ids[i]];
-                    if (preproc) updateProcess(preproc);
+    function updateClock(clock : Clock) {
+        var time = clock.parent!.time();
+        if (clock.age < time || clock.state === STALE) {
+            if (clock.age < time) clock.state = CURRENT;
+            if (clock.preclocks) {
+                for (var i = 0; i < clock.preclocks.ids.length; i++) {
+                    var preclock = clock.preclocks.clocks[clock.preclocks.ids[i]];
+                    if (preclock) updateClock(preclock);
                 }
             }
-            proc.age = time;
+            clock.age = time;
         }
 
-        if (proc.state === RUNNING) {
-            throw new Error("process circular reference");
-        } else if (proc.state === STALE) {
-            proc.state = RUNNING;
-            run(proc);
-            proc.state = CURRENT;
+        if (clock.state === RUNNING) {
+            throw new Error("clock circular reference");
+        } else if (clock.state === STALE) {
+            clock.state = RUNNING;
+            run(clock);
+            clock.state = CURRENT;
         }
     }
 
-    function update<T>(node : ComputationNode) {
+    function updateNode<T>(node : ComputationNode) {
         if (node.state === STALE) {
             var owner = Owner,
                 running = RunningNode,
-                proc = RunningProcess;
+                clock = RunningClock;
         
             Owner = RunningNode = node;
-            RunningProcess = node.process;
+            RunningClock = node.clock;
         
-            node.state = RUNNING;    
+            node.state = RUNNING;
             cleanup(node, false);
             node.value = node.fn!(node.value);
             node.state = CURRENT;
             
             Owner = owner;
             RunningNode = running;
-            RunningProcess = proc;
+            RunningClock = clock;
         }
     }
         
     function cleanup(node : ComputationNode, final : boolean) {
-        var sources = node.sources,
-            cleanups = node.cleanups,
-            owned = node.owned,
-            preprocs = node.preprocs;
+        var sources   = node.sources,
+            cleanups  = node.cleanups,
+            owned     = node.owned,
+            preclocks = node.preclocks;
             
         if (cleanups) {
             for (var i = 0; i < cleanups.length; i++) {
@@ -612,27 +612,27 @@ declare var define : (deps: string[], fn: () => S) => void;
         }
         node.count = 0;
 
-        if (preprocs) {
-            for (i = 0; i < preprocs.count; i++) {
-                preprocs.procs[i] = null!;
+        if (preclocks) {
+            for (i = 0; i < preclocks.count; i++) {
+                preclocks.clocks[i] = null!;
             }
-            preprocs.count = 0;
+            preclocks.count = 0;
 
-            for (i = 0; i < preprocs.ucount; i++) {
-                var upreprocs = preprocs.uprocs[i].preprocs!,
-                    uprocid = preprocs.uprocids[i];
-                if (--upreprocs.proccounts[uprocid] === 0) {
-                    upreprocs.procs[uprocid] = null;
+            for (i = 0; i < preclocks.ucount; i++) {
+                var upreclocks = preclocks.uclocks[i].preclocks!,
+                    uclockid   = preclocks.uclockids[i];
+                if (--upreclocks.clockcounts[uclockid] === 0) {
+                    upreclocks.clocks[uclockid] = null;
                 }
             }
-            preprocs.ucount = 0;
+            preclocks.ucount = 0;
         }
     }
         
     function dispose(node : ComputationNode) {
         node.fn       = null;
         node.log      = null;
-        node.preprocs = null;
+        node.preclocks = null;
         
         cleanup(node, true);
     }

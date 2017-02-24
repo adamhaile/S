@@ -1,8 +1,8 @@
-describe("S.process", () => {
+describe("S.subclock()", () => {
     it("runs enclosed computations to completion before returning", function () {
         S.root(() => {
             var d = S.data(1),
-                f = S.process()(() => {
+                f = S.subclock()(() => {
                     var out = S.data(2);
                     S(() => d() < 10 && out(d()));
                     return out;
@@ -25,9 +25,9 @@ describe("S.process", () => {
 
     it("descendent computations see all states", () => {
         S.root(() => {
-            var { d, f } = S.process(() => {
+            var { d, f } = S.subclock(() => {
                 var d = S.data(5),
-                    f = S.process(() =>
+                    f = S.subclock(() =>
                         S.on(d, c => c + 1, 0)
                     );
 
@@ -44,8 +44,8 @@ describe("S.process", () => {
     
     it("ancestor computations only see final state", function () {
         S.root(function () {
-            var { d, f } = S.process(() => {
-                var d = S.process(() => {
+            var { d, f } = S.subclock(() => {
+                var d = S.subclock(() => {
                         var d = S.data(5);
                         S(() => d() >= 5 || d(d() + 1));
                         return d;
@@ -65,13 +65,13 @@ describe("S.process", () => {
     it("sibling processes and nodes only see final state", function () {
         S.root(()=>{
             var d = S.data("abcdefgh"),
-                c1 = S.process(()=>{
+                c1 = S.subclock(()=>{
                     var d1 = S.data(""),
                         n1 = S(() => d1(d())),
                         n2 = S(() => d1().length < 6 || d1(d1().substr(1)));
                     return { d1, n1, n2 };
                 }),
-                c2 = S.process(()=>{
+                c2 = S.subclock(()=>{
                     var d1 = S.data(""),
                         n1 = S(() => d1(c1.d1())),
                         n2 = S(() => d1().length < 4 || d1(d1().substr(0, d1().length - 1)));
@@ -98,14 +98,14 @@ describe("S.process", () => {
         S.root(function () {
             var t = "",
                 d = S.data(1),
-                p1 = S.process()(function () {
+                p1 = S.subclock()(function () {
                     var c1 = S(() => {
                             t += 'p1c1,';
                             return d() + (d() > 1 ? c2() : 0);
                         });
                     return { c1 };
                 }),
-                p2 = S.process()(function () {
+                p2 = S.subclock()(function () {
                     var d1 = S.data(1),
                         c1 = S(() => {
                             t += 'p2c1,';
@@ -113,7 +113,7 @@ describe("S.process", () => {
                         });
                     return { d1, c1 };
                 }),
-                p3 = S.process()(function () {
+                p3 = S.subclock()(function () {
                     var d1 = S.data(1),
                         c1 = S(() => {
                             t += 'p3c1,';

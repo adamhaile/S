@@ -21,9 +21,9 @@ interface S {
 	// Freeing external resources
 	cleanup(fn : (final : boolean) => any) : void;
 
-	// subprocesses
-	process() : <T>(fn : () => T) => T;
-	process<T>(fn : () => T) : T;
+	// subclocks
+	subclock() : <T>(fn : () => T) => T;
+	subclock<T>(fn : () => T) : T;
 }
 
 declare namespace S { 
