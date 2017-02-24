@@ -38,4 +38,10 @@ describe("S.root()", function () {
             expect(innerRuns).toBe(3);
         });
     });
+
+    it("is necessary to create a toplevel computation", function () {
+        expect(() => {
+            S(() => 1)
+        }).toThrowError(/root/);
+    });
 });
