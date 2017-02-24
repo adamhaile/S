@@ -220,21 +220,23 @@
             throw new Error("S.cleanup() must be called from within an S() computation.  Cannot call it at toplevel.");
         }
     };
-    S.process = function process() {
+    S.process = function process(fn) {
         var proc = new Process(RunningProcess || TopProcess);
-        return function process(fn) {
+        return fn ? process(fn) : process;
+        function process(fn) {
             var result = null, running = RunningProcess;
             RunningProcess = proc;
             proc.state = STALE;
             try {
                 result = fn();
+                proc.proctime++;
                 run(proc);
             }
             finally {
                 RunningProcess = running;
             }
             return result;
-        };
+        }
     };
     // Internal implementation
     /// Graph classes and operations
@@ -398,6 +400,7 @@
         }
     }
     function event() {
+        TopProcess.proctime++;
         try {
             run(TopProcess);
         }
@@ -410,8 +413,10 @@
         TopProcess.changes.reset();
         try {
             node.value = node.fn(node.value);
-            if (TopProcess.changes.count > 0)
+            if (TopProcess.changes.count > 0 || TopProcess.subprocs.count > 0 || TopProcess.updates.count > 0) {
+                TopProcess.proctime++;
                 run(TopProcess);
+            }
         }
         finally {
             RunningProcess = Owner = RunningNode = null;
@@ -421,8 +426,9 @@
         var running = RunningProcess, count = 0;
         proc.disposes.reset();
         // for each batch ...
-        while (proc.changes.count || proc.subprocs.count || proc.updates.count) {
-            proc.proctime++;
+        while (proc.changes.count > 0 || proc.subprocs.count > 0 || proc.updates.count > 0) {
+            if (count > 0)
+                proc.proctime++;
             proc.changes.run(applyDataChange);
             proc.subprocs.run(updateProcess);
             proc.updates.run(update);

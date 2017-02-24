@@ -240,22 +240,25 @@ declare var define : (deps: string[], fn: () => S) => void;
         }
     };
 
-    S.process = function process() {
+    S.process = function process<T>(fn? : () => T) {
         var proc = new Process(RunningProcess || TopProcess);
 
-        return function process<T>(fn : () => T) {
+        return fn ? process(fn) : process;
+        
+        function process<T>(fn : () => T) {
             var result : T = null!,
                 running = RunningProcess;
             RunningProcess = proc;
             proc.state = STALE;
             try {
                 result = fn();
+                proc.proctime++;
                 run(proc);
             } finally {
                 RunningProcess = running;
             }
             return result;
-        };
+        }
     }
     
     // Internal implementation
@@ -437,6 +440,7 @@ declare var define : (deps: string[], fn: () => S) => void;
     }
     
     function event() {
+        TopProcess.proctime++;
         try {
             run(TopProcess);
         } finally {
@@ -451,7 +455,10 @@ declare var define : (deps: string[], fn: () => S) => void;
         try {
             node.value = node.fn!(node.value);
     
-            if (TopProcess.changes.count > 0) run(TopProcess);
+            if (TopProcess.changes.count > 0 || TopProcess.subprocs.count > 0 || TopProcess.updates.count > 0) {
+                TopProcess.proctime++;
+                run(TopProcess);
+            }
         } finally {
             RunningProcess = Owner = RunningNode = null;
         }
@@ -464,8 +471,9 @@ declare var define : (deps: string[], fn: () => S) => void;
         proc.disposes.reset();
         
         // for each batch ...
-        while (proc.changes.count || proc.subprocs.count || proc.updates.count) {
-            proc.proctime++;
+        while (proc.changes.count > 0 || proc.subprocs.count > 0 || proc.updates.count > 0) {
+            if (count > 0) // don't tick on first run, or else we expire already scheduled updates
+                proc.proctime++;
 
             proc.changes.run(applyDataChange);
             proc.subprocs.run(updateProcess);

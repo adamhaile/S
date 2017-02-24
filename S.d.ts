@@ -11,7 +11,6 @@ interface S {
 	// Data signal constructors
 	data<T>(value : T) : S.DataSignal<T>;
 	value<T>(value : T, eq? : (a : T, b : T) => boolean) : S.DataSignal<T>;
-	sum<T>(value : T) : S.SumSignal<T>;
 
 	// Batching changes
 	freeze<T>(fn : () => T) : T;
@@ -24,6 +23,7 @@ interface S {
 
 	// subprocesses
 	process() : <T>(fn : () => T) => T;
+	process<T>(fn : () => T) : T;
 }
 
 declare namespace S { 

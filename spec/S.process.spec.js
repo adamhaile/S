@@ -1,12 +1,10 @@
-describe("S.process", function () {
+describe("S.process", () => {
     it("runs enclosed computations to completion before returning", function () {
-        S.root(function () {
+        S.root(() => {
             var d = S.data(1),
-                f = S.process()(function () {
-                    var out = S.data(2),
-                        c = S(function () {
-                            if (d() < 10) out(d());
-                        });
+                f = S.process()(() => {
+                    var out = S.data(2);
+                    S(() => d() < 10 && out(d()));
                     return out;
                 }),
                 c = S.on(f, c => c + 1, 0);
@@ -24,6 +22,77 @@ describe("S.process", function () {
             expect(c()).toBe(3);
         });
     });
+
+    it("descendent computations see all states", () => {
+        S.root(() => {
+            var { d, f } = S.process(() => {
+                var d = S.data(5),
+                    f = S.process(() =>
+                        S.on(d, c => c + 1, 0)
+                    );
+
+                S(() => d() >= 5 || d(d() + 1));
+
+                return { d, f };
+            });
+            
+            expect(f()).toBe(1);
+            d(1);
+            expect(f()).toBe(6);
+        });
+    });
+    
+    it("ancestor computations only see final state", function () {
+        S.root(function () {
+            var { d, f } = S.process(() => {
+                var d = S.process(() => {
+                        var d = S.data(5);
+                        S(() => d() >= 5 || d(d() + 1));
+                        return d;
+                    }),
+                    f = S.on(d, c => c + 1, 0);
+                return { d, f };
+            });
+            
+            expect(d()).toBe(5);
+            expect(f()).toBe(1);
+            d(1);
+            expect(d()).toBe(5);
+            expect(f()).toBe(2);
+        });
+    });
+
+    it("sibling processes and nodes only see final state", function () {
+        S.root(()=>{
+            var d = S.data("abcdefgh"),
+                c1 = S.process(()=>{
+                    var d1 = S.data(""),
+                        n1 = S(() => d1(d())),
+                        n2 = S(() => d1().length < 6 || d1(d1().substr(1)));
+                    return { d1, n1, n2 };
+                }),
+                c2 = S.process(()=>{
+                    var d1 = S.data(""),
+                        n1 = S(() => d1(c1.d1())),
+                        n2 = S(() => d1().length < 4 || d1(d1().substr(0, d1().length - 1)));
+                    return { d1, n1, n2 };
+                }),
+                n3 = S(() => c2.d1()),
+                n3c = S.on(n3, c => c + 1, 0);
+            
+            expect(d()).toBe("abcdefgh");
+            expect(c1.d1()).toBe("defgh");
+            expect(c2.d1()).toBe("def");
+            expect(n3()).toBe("def");
+            expect(n3c()).toBe(1);
+
+            d("1234567");
+            expect(c1.d1()).toBe("34567");
+            expect(c2.d1()).toBe("345");
+            expect(n3()).toBe("345");
+            expect(n3c()).toBe(2);
+        });
+    })
 
     it("handles whiteboard case", function () {
         S.root(function () {
