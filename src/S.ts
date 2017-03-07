@@ -88,8 +88,12 @@ declare var define : (deps: string[], fn: () => S) => void;
 
         try {
             result = fn.length === 0 ? fn() : fn(function _dispose() {
-                if (RunningClock) RunningClock.disposes.add(root);
-                else dispose(root);
+                if (RunningClock) {
+                    markClockStale(root.clock);
+                    root.clock.disposes.add(root);
+                } else {
+                    dispose(root);
+                }
             });
         } finally {
             Owner = owner;
@@ -470,10 +474,12 @@ declare var define : (deps: string[], fn: () => S) => void;
         var running = RunningClock,
             count = 0;
             
+        RunningClock = clock;
+
         clock.disposes.reset();
         
         // for each batch ...
-        while (clock.changes.count > 0 || clock.subclocks.count > 0 || clock.updates.count > 0) {
+        while (clock.changes.count !== 0 || clock.subclocks.count !== 0 || clock.updates.count !== 0 || clock.disposes.count !== 0) {
             if (count > 0) // don't tick on first run, or else we expire already scheduled updates
                 clock.subtime++;
 
@@ -487,6 +493,8 @@ declare var define : (deps: string[], fn: () => S) => void;
                 throw new Error("Runaway clock detected");
             }
         }
+
+        RunningClock = running;
     }
     
     function applyDataChange(data : DataNode) {

@@ -1,10 +1,10 @@
 describe("S.subclock()", () => {
-    it("runs enclosed computations to completion before returning", function () {
+    it("runs computations to completion before they are visible to surrounding code", function () {
         S.root(() => {
             var d = S.data(1),
                 f = S.subclock()(() => {
                     var out = S.data(2);
-                    S(() => d() < 10 && out(d()));
+                    S(() => d() >= 10 || out(d()));
                     return out;
                 }),
                 c = S.on(f, c => c + 1, 0);
@@ -14,16 +14,18 @@ describe("S.subclock()", () => {
             d(2);
             expect(f()).toBe(2);
             expect(c()).toBe(2);
+            // setting d() to > 10 does not update f()
             d(12);
             expect(f()).toBe(2);
             expect(c()).toBe(2);
+            // going back < 10 does update f()
             d(8);
             expect(f()).toBe(8);
             expect(c()).toBe(3);
         });
     });
 
-    it("descendent computations see all states", () => {
+    it("descendant computations see all states", () => {
         S.root(() => {
             var { d, f } = S.subclock(() => {
                 var d = S.data(5),
@@ -92,7 +94,64 @@ describe("S.subclock()", () => {
             expect(n3()).toBe("345");
             expect(n3c()).toBe(2);
         });
-    })
+    });
+
+    it("can reference computions in a higher clock", function () {
+        S.root(() => {
+            var a = S.data(1),
+                b = S(() => a()),
+                c = S.subclock(() => 
+                        S(() => a() + b())
+                    );
+
+            a(2);
+
+            expect(c()).toBe(4);
+        });
+    });
+
+    it("allows mutations from inside and outside a subclock", function () {
+        S.root(() => {
+            var sub = S.subclock(() => {
+                    var a = S.data(""),
+                        b = S(() => (a().length % 3) === 0 || a(a() + "i"));
+                    return { a };
+                }),
+                c = S(() => (sub.a().length % 5) === 0 || sub.a(sub.a() + "o"));
+
+            expect(sub.a()).toBe("");
+            sub.a("g");
+            // doesn't stabilize until a().length is divisible by both 3 and 5, i.e. length of 15
+            expect(sub.a()).toBe("giioiioiioiioii");
+        });
+    });
+
+    it("throw an exception when there's a circular dependency between a computation and a clock", function () {
+        S.root(() => {
+            var a = S.data(true),
+                b = S(() => a() || sub.c()), // b() depends on sub when a() is false
+                sub = S.subclock(() => ({
+                    c: S(() => a()),
+                    d: S(() => b()) // sub depends on b()
+                }));
+
+            expect(() => a(false)).toThrowError(/circular/);
+        });
+    });
+
+    it("throw an exception when there's a circular dependency between two clocks", function () {
+        S.root(() => {
+            var a = S.data(true),
+                sub1 = S.subclock(() => ({
+                    b: S(() => a() || sub2.c()) // sub1 depends on sub2 when a() is false
+                })), 
+                sub2 = S.subclock(() => ({
+                    c: S(() => sub1.b()) // sub2 depends on sub1
+                }));
+
+            expect(() => a(false)).toThrowError(/circular/);
+        });
+    });
 
     it("handles whiteboard case", function () {
         S.root(function () {
