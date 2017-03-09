@@ -2,11 +2,11 @@
 (function () {
     "use strict";
     // Public interface
-    var S = function S(fn, seed) {
+    var S = function S(fn, value) {
         var owner = Owner, clock = RunningClock || RootClock, running = RunningNode;
         if (!owner)
             throw new Error("all computations must be created under a parent computation or root");
-        var node = new ComputationNode(clock, fn, seed);
+        var node = newComputationNode(clock, fn, value);
         Owner = RunningNode = node;
         if (RunningClock) {
             node.value = node.fn(node.value);
@@ -19,6 +19,8 @@
         Owner = owner;
         RunningNode = running;
         return function computation() {
+            if (node.fn !== fn)
+                return value;
             if (RunningNode) {
                 var rclock = RunningClock, sclock = node.clock;
                 while (rclock.depth > sclock.depth + 1)
@@ -65,11 +67,11 @@
                 }
                 logComputationRead(node, RunningNode);
             }
-            return node.value;
+            return value = node.value;
         };
     };
     S.root = function root(fn) {
-        var owner = Owner, root = fn.length === 0 ? UNOWNED : new ComputationNode(RunningClock || RootClock, null, null), result = undefined;
+        var owner = Owner, root = fn.length === 0 ? UNOWNED : newComputationNode(RunningClock || RootClock, null, null), result = undefined;
         Owner = root;
         try {
             result = fn.length === 0 ? fn() : fn(function _dispose() {
@@ -355,8 +357,10 @@
     var RootClock = new Clock(null), RunningClock = null, // currently running clock 
     RunningNode = null, // currently running computation
     Owner = null; // owner for new computations
+    // object pools
+    var ComputationNodePool = [], LogPool = [];
     // Constants
-    var UNOWNED = new ComputationNode(RootClock, null, null);
+    var UNOWNED = newComputationNode(RootClock, null, null);
     // Functions
     function logRead(from, to) {
         var fromslot = from.freecount ? from.freeslots[--from.freecount] : from.count++, toslot = to.count++;
@@ -367,12 +371,12 @@
     }
     function logDataRead(data, to) {
         if (!data.log)
-            data.log = new Log();
+            data.log = newLog();
         logRead(data.log, to);
     }
     function logComputationRead(node, to) {
         if (!node.log)
-            node.log = new Log();
+            node.log = newLog();
         logRead(node.log, to);
     }
     function logNodePreClock(clock, to) {
@@ -583,10 +587,46 @@
         }
     }
     function dispose(node) {
+        var log = node.log;
+        node.clock = null;
         node.fn = null;
-        node.log = null;
         node.preclocks = null;
+        if (log) {
+            node.log = null;
+            for (var i = 0; i < log.count; i++) {
+                log.nodes[i] = null;
+            }
+            LogPool.push(log);
+        }
         cleanup(node, true);
+        ComputationNodePool.push(node);
+    }
+    function newComputationNode(clock, fn, value) {
+        var node;
+        if (ComputationNodePool.length === 0) {
+            node = new ComputationNode(clock, fn, value);
+        }
+        else {
+            node = ComputationNodePool.pop();
+            node.age = clock.time();
+            node.state = CURRENT;
+            node.clock = clock;
+            node.fn = fn;
+            node.value = value;
+        }
+        return node;
+    }
+    function newLog() {
+        var log;
+        if (LogPool.length === 0) {
+            log = new Log();
+        }
+        else {
+            log = LogPool.pop();
+            log.count = 0;
+            log.freecount = 0;
+        }
+        return log;
     }
     // UMD exporter
     /* globals define */

@@ -34,6 +34,7 @@ describe("S() with subcomputations", function () {
                 });
             });
             h = g;
+            h();
         }
 
         it("creates child on initialization", function () {

@@ -7,14 +7,14 @@ declare var define : (deps: string[], fn: () => S) => void;
     "use strict";
     
     // Public interface
-    var S = <S>function S<T>(fn : (v? : T) => T, seed? : T) : () => T {
+    var S = <S>function S<T>(fn : (v? : T) => T, value? : T) : () => T {
         var owner  = Owner,
             clock  = RunningClock || RootClock,
             running = RunningNode;
 
         if (!owner) throw new Error("all computations must be created under a parent computation or root");
 
-        var node = new ComputationNode(clock, fn, seed);
+        var node = newComputationNode(clock, fn, value);
             
         Owner = RunningNode = node;
         
@@ -30,6 +30,7 @@ declare var define : (deps: string[], fn: () => S) => void;
         RunningNode = running;
 
         return function computation() {
+            if (node.fn !== fn) return value; // disposed, node has been re-used
             if (RunningNode) {
                 var rclock = RunningClock!,
                     sclock = node.clock;
@@ -75,13 +76,13 @@ declare var define : (deps: string[], fn: () => S) => void;
                 logComputationRead(node, RunningNode);
             }
 
-            return node.value;
+            return value = node.value;
         }
     };
 
     S.root = function root<T>(fn : (dispose? : () => void) => T) : T {
         var owner = Owner,
-            root = fn.length === 0 ? UNOWNED : new ComputationNode(RunningClock || RootClock, null, null),
+            root = fn.length === 0 ? UNOWNED : newComputationNode(RunningClock || RootClock, null, null),
             result : T = undefined!;
 
         Owner = root;
@@ -391,8 +392,12 @@ declare var define : (deps: string[], fn: () => S) => void;
         RunningNode  = null as ComputationNode | null, // currently running computation
         Owner        = null as ComputationNode | null; // owner for new computations
 
+    // object pools
+    var ComputationNodePool = [] as ComputationNode[],
+        LogPool = [] as Log[];
+
     // Constants
-    var UNOWNED    = new ComputationNode(RootClock, null, null);
+    var UNOWNED    = newComputationNode(RootClock, null, null);
     
     // Functions
     function logRead(from : Log, to : ComputationNode) {
@@ -405,12 +410,12 @@ declare var define : (deps: string[], fn: () => S) => void;
     }
 
     function logDataRead(data : DataNode, to : ComputationNode) {
-        if (!data.log) data.log = new Log();
+        if (!data.log) data.log = newLog();
         logRead(data.log, to);
     }
     
     function logComputationRead(node : ComputationNode, to : ComputationNode) {
-        if (!node.log) node.log = new Log();
+        if (!node.log) node.log = newLog();
         logRead(node.log, to);
     }
 
@@ -658,11 +663,50 @@ declare var define : (deps: string[], fn: () => S) => void;
     }
         
     function dispose(node : ComputationNode) {
-        node.fn       = null;
-        node.log      = null;
+        var log = node.log;
+
+        node.clock     = null!;
+        node.fn        = null;
         node.preclocks = null;
+
+        if (log) {        
+            node.log = null;
+            for (var i = 0; i < log.count; i++) {
+                log.nodes[i] = null;
+            }
+            LogPool.push(log);
+        }
         
         cleanup(node, true);
+
+        ComputationNodePool.push(node);
+    }
+
+    function newComputationNode(clock : Clock, fn : ((v : any) => any) | null, value : any) {
+        var node : ComputationNode;
+        if (ComputationNodePool.length === 0) {
+            node = new ComputationNode(clock, fn, value);
+        } else {
+            node = ComputationNodePool.pop()!;
+            node.age = clock.time();
+            node.state = CURRENT;
+            node.clock = clock;
+            node.fn = fn;
+            node.value = value;
+        }
+        return node;
+    }
+
+    function newLog() {
+        var log : Log;
+        if (LogPool.length === 0) {
+            log = new Log();
+        } else {
+            log = LogPool.pop()!;
+            log.count = 0;
+            log.freecount = 0;
+        }
+        return log;
     }
     
     // UMD exporter
