@@ -25,11 +25,14 @@ To achieve this, the data and computations are wrapped as *signals* using `S.dat
 
 S implements signals as closures: call a signal to read its current value; pass a data signal a new value to change it.
 
-If a change affects multiple computations, S uses what's called a *synchronous* execution model: it is as though all computations update "instantly."  They can't, of course, but S maintains this behavior by three invariants: computations always return current (not stale) values, they run exactly once per change event (no missed or redundant updates), and if they change any data signals, those changes don't take effect until all other updates have finished.
+If a change affects multiple computations, S uses what's called a *synchronous* execution model: it is as though all computations update "instantly."  They can't, of course, but S maintains this behavior by three invariants: 
+1) computations always return current (not stale) values
+2) they run exactly once per change event (no missed or redundant updates) 
+3) if they change any data signals, those changes don't take effect until all other updates have finished
 
-S allows computations to generate more computations, with the rule that these "child" computations only live until their "parent" updates.  This allows an application to grow *and shrink* with the size of your data.  In general, S applications never need to manually subscribe or unsubscribe from changes.
+S allows computations to generate more computations, with the rule that these "child" computations only live until their "parent" updates.  This allows an application to grow *and shrink* with the size of your data.  As a result, S applications rarely need to manually subscribe or unsubscribe from changes.
 
-S has a small API for doing things like aggreggating multiple changes into one event (S.freeze()), deferring updates (S.defer()), controlling dependencies (S.sample()), and so on.  See the full list below.
+S has a small API for doing things like aggreggating multiple changes into one event (S.freeze()), controlling dependencies (S.sample()), and so on.  See the full API below.
 
 ## How does S work?
 As your program runs, S's data signals and computations communicate with each other to build up a live dependency graph of your code.  Computations set an internal 'calling card' variable which referenced signals use to register a dependency.  Since computations may reference the results of other computations, this graph may have _n_ layers, not just two. 
@@ -42,7 +45,7 @@ When data signal(s) change, S starts from the changed signals and traverses the 
 
 S usually gets the order of updates correct, but if execution changes, like a different conditional branch, S may need to suspend a calling computation in order to update a called one before returning the updated value.
 
-In S, data signals are immutable during updates.  If the updates set any values, those values are held in a pending state until the update finishes.  At that point their new values are committed and the system updates accordingly.  This process repeats until the system reaches a quiet state with no more changes.  It then awaits the next external change.
+In S, data signals are immutable while a round of updates is running.  If running code sets any values, those values are held in a pending state until the update finishes.  At that point the new values are committed and the system updates accordingly.  This process repeats until the system reaches a quiet state with no more changes.  It then awaits the next external change.
 
 ## S API
 
@@ -86,26 +89,29 @@ S.cleanup() is used to free external resources which a computation may have clai
 Run computations and data signals created by `<code>` on a subclock, meaning that they don't just run but run *to completion* before surrounding code reads them.
 
 ## An Example: TodoMVC in S (plus friends)
-What else, right?  S is just a core library for dealing with change; it takes more to build an application.  This example uses the suite Surplus.js, aka "S plus" a few companion libraries.  Most notably, it uses the htmlliterals preprocessor for embedded DOM construction and the S.array() utility for a data signal carrying an array.
-```javascript
+What else, right?  S is just a core library for dealing with change; it takes more to build an application.  This example uses Surplus.js, aka "S plus" a few companion libraries.  Most notably, it uses Surplus' JSX preprocessor for embedded DOM construction.
+```jsx
 var Todo = t => ({               // our Todo constructor
-        title: S.data(t.title),  // properties are data signals
-        done: S.data(t.done)
+       title: S.data(t.title),   // properties are data signals
+       done: S.data(t.done)
     }),
-    todos = S.array([]),         // our array of todos
+    todos = SArray([]),          // our array of todos
     newTitle = S.data(""),       // title for new todos
     addTodo = () => {            // push new title onto list
-        todos.push(Todo({ title: newTitle(), done: false }));
-        newTitle("");            // clear new title
+       todos.push(Todo({ title: newTitle(), done: false }));
+       newTitle("");             // clear new title
     },
-    view = S.root(() =>          // declarative view
-        <input type="text" @data(newTitle)/> <a onclick = addTodo>+</a>
-        @todos.map(todo =>       // insert todo views
-            <div>
-                <input type="checkbox" @data(todo.done) />
-                <input type="text" @data(todo.title) />
-                <a onclick = (() => todos.remove(todo))>&times;</a>
-            </div>));
+    view = S.root(() =>
+       <div>                     // declarative main view
+          <input type="text" {...data(newTitle)}/>
+          <a onClick={addTodo}>+</a>
+          {todos.map(todo =>     // insert todo views
+             <div>
+                <input type="checkbox" {...data(todo.done)}/>
+                <input type="text" {...data(todo.title)}/>
+                <a onClick={() => todos.remove(todo)}>&times;</a>
+             </div>)}
+       </div>);
 
 document.body.appendChild(view); // add view to document
 ```
@@ -113,9 +119,9 @@ Some things to note:
 
 - There's no code to handle updating the application.  Other than a liberal sprinkling of `()'s`, this could be static code.  In the lingo, S enables declarative programming, where we focus on defining how things should be and S handles updating the app from one state to the next as our data changes.
 
-- The htmlliterals library leverages S computations to construct the dynamic parts of the view (note the '@' expressions).  Whenever our data changes, S updates the affected parts of the DOM automatically.  
+- The Surplus library leverages S computations to construct the dynamic parts of the view (the '{ ... }' expressions).  Whenever our data changes, S updates the affected parts of the DOM automatically.  
 
-- S handles updates in as efficient a manner as possible: Surplus.js apps generally place at or near the top of the various web framework benchmarks (ToDoMVC, dbmonster, etc).
+- S handles updates in as efficient a manner as possible: Surplus apps generally place at or near the top of the various web framework benchmarks (ToDoMVC, dbmonster, js-framework-benchmark, etc).
 
 Reactive programs also have the benefit of an open structure that enables extensibility.  For instance, we can add localStorage persistence with no changes to the code above and only a handful of new lines:
 
