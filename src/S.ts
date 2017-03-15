@@ -1,4 +1,4 @@
-/// <reference path="../S.d.ts" />
+/// <reference path="../index.d.ts" />
 
 declare var module : { exports : {} };
 declare var define : (deps: string[], fn: () => S) => void;

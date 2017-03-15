@@ -1,4 +1,4 @@
-/// <reference path="../S.d.ts" />
+/// <reference path="../index.d.ts" />
 (function () {
     "use strict";
     // Public interface
@@ -20,7 +20,7 @@
         RunningNode = running;
         return function computation() {
             if (node.fn !== fn)
-                return value;
+                return value; // disposed, node has been re-used
             if (RunningNode) {
                 var rclock = RunningClock, sclock = node.clock;
                 while (rclock.depth > sclock.depth + 1)

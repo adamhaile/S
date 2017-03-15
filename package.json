@@ -1,7 +1,7 @@
 {
-  "name": "s.js",
-  "version": "0.0.1",
-  "description": "simple, clean, fast reactive programming in Javascript",
+  "name": "s-js",
+  "version": "0.4.0",
+  "description": "S.js - simple, clean, fast reactive programming in Javascript",
   "main": "dist/S.js",
   "dependencies": {},
   "devDependencies": {
@@ -22,7 +22,8 @@
     "reactive",
     "javascript",
     "synchronous",
-    "signal"
+    "signal",
+    "dependency"
   ],
   "author": "Adam Haile",
   "license": "MIT"

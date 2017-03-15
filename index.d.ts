@@ -31,13 +31,8 @@ declare namespace S {
 		() : T;
 		(val : T) : T;
 	}
-
-	interface SumSignal<T> {
-		() : T;
-		(update? : (value: T) => T) : T;
-	}
 }
 
 declare var S : S;
 
-//export = S;
+export = S;
