@@ -3,30 +3,34 @@
     "use strict";
     // Public interface
     var S = function S(fn, value) {
-        var owner = Owner, clock = RunningClock || RootClock, running = RunningNode;
-        if (!owner)
+        var owner = Owner, clock = RunningClock === null ? RootClock : RunningClock, running = RunningNode;
+        if (owner === null)
             throw new Error("all computations must be created under a parent computation or root");
         var node = newComputationNode(clock, fn, value);
         Owner = RunningNode = node;
-        if (RunningClock) {
-            node.value = node.fn(node.value);
-        }
-        else {
+        if (RunningClock === null) {
             toplevelComputation(node);
         }
-        if (owner !== UNOWNED)
-            (owner.owned || (owner.owned = [])).push(node);
+        else {
+            node.value = node.fn(node.value);
+        }
+        if (owner !== UNOWNED) {
+            if (owner.owned === null)
+                owner.owned = [node];
+            else
+                owner.owned.push(node);
+        }
         Owner = owner;
         RunningNode = running;
         return function computation() {
             if (node.fn !== fn)
                 return value; // disposed, node has been re-used
-            if (RunningNode) {
+            if (RunningNode !== null) {
                 var rclock = RunningClock, sclock = node.clock;
                 while (rclock.depth > sclock.depth + 1)
                     rclock = rclock.parent;
                 if (rclock === sclock || rclock.parent === sclock) {
-                    if (node.preclocks) {
+                    if (node.preclocks !== null) {
                         for (var i = 0; i < node.preclocks.count; i++) {
                             var preclock = node.preclocks.clocks[i];
                             updateClock(preclock);
@@ -38,7 +42,7 @@
                         else
                             updateNode(node); // checks for state === STALE internally, so don't need to check here
                     }
-                    if (node.preclocks) {
+                    if (node.preclocks !== null) {
                         for (var i = 0; i < node.preclocks.count; i++) {
                             var preclock = node.preclocks.clocks[i];
                             if (rclock === sclock)
@@ -75,7 +79,7 @@
         Owner = root;
         try {
             result = fn.length === 0 ? fn() : fn(function _dispose() {
-                if (RunningClock) {
+                if (RunningClock !== null) {
                     markClockStale(root.clock);
                     root.clock.disposes.add(root);
                 }
@@ -114,10 +118,10 @@
         };
     }
     S.data = function data(value) {
-        var node = new DataNode(RunningClock || RootClock, value);
+        var node = new DataNode(RunningClock === null ? RootClock : RunningClock, value);
         return function data(value) {
             var rclock = RunningClock, sclock = node.clock;
-            if (RunningClock) {
+            if (RunningClock !== null) {
                 while (rclock.depth > sclock.depth)
                     rclock = rclock.parent;
                 while (sclock.depth > rclock.depth && sclock.parent !== rclock)
@@ -131,7 +135,7 @@
             }
             var cclock = rclock === sclock ? sclock : sclock.parent;
             if (arguments.length > 0) {
-                if (RunningClock) {
+                if (RunningClock !== null) {
                     if (node.pending !== NOTPENDING) {
                         if (value !== node.pending) {
                             throw new Error("conflicting changes: " + value + " !== " + node.pending);
@@ -144,7 +148,7 @@
                     }
                 }
                 else {
-                    if (node.log) {
+                    if (node.log !== null) {
                         node.pending = value;
                         RootClock.changes.add(node);
                         event();
@@ -156,7 +160,7 @@
                 return value;
             }
             else {
-                if (RunningNode) {
+                if (RunningNode !== null) {
                     logDataRead(node, RunningNode);
                     if (sclock.parent === rclock)
                         logNodePreClock(sclock, RunningNode);
@@ -189,7 +193,7 @@
     };
     S.freeze = function freeze(fn) {
         var result = undefined;
-        if (RunningClock) {
+        if (RunningClock !== null) {
             result = fn();
         }
         else {
@@ -207,7 +211,7 @@
     };
     S.sample = function sample(fn) {
         var result, running = RunningNode;
-        if (running) {
+        if (running !== null) {
             RunningNode = null;
             result = fn();
             RunningNode = running;
@@ -218,8 +222,11 @@
         return result;
     };
     S.cleanup = function cleanup(fn) {
-        if (Owner) {
-            (Owner.cleanups || (Owner.cleanups = [])).push(fn);
+        if (Owner !== null) {
+            if (Owner.cleanups === null)
+                Owner.cleanups = [fn];
+            else
+                Owner.cleanups.push(fn);
         }
         else {
             throw new Error("S.cleanup() must be called from within an S() computation.  Cannot call it at toplevel.");
@@ -227,7 +234,7 @@
     };
     S.subclock = function subclock(fn) {
         var clock = new Clock(RunningClock || RootClock);
-        return fn ? subclock(fn) : subclock;
+        return fn === undefined ? subclock : subclock(fn);
         function subclock(fn) {
             var result = null, running = RunningClock;
             RunningClock = clock;
@@ -256,7 +263,7 @@
             this.subclocks = new Queue(); // subclocks that need to be updated
             this.updates = new Queue(); // computations to update
             this.disposes = new Queue(); // disposals to run after current batch of updates finishes
-            if (parent) {
+            if (parent !== null) {
                 this.age = parent.time();
                 this.depth = parent.depth + 1;
             }
@@ -267,7 +274,7 @@
         }
         Clock.prototype.time = function () {
             var time = this.subtime, p = this;
-            while (p = p.parent)
+            while ((p = p.parent) !== null)
                 time += p.subtime;
             return time;
         };
@@ -363,24 +370,24 @@
     var UNOWNED = newComputationNode(RootClock, null, null);
     // Functions
     function logRead(from, to) {
-        var fromslot = from.freecount ? from.freeslots[--from.freecount] : from.count++, toslot = to.count++;
+        var fromslot = from.freecount !== 0 ? from.freeslots[--from.freecount] : from.count++, toslot = to.count++;
         from.nodes[fromslot] = to;
         from.nodeslots[fromslot] = toslot;
         to.sources[toslot] = from;
         to.sourceslots[toslot] = fromslot;
     }
     function logDataRead(data, to) {
-        if (!data.log)
+        if (data.log === null)
             data.log = newLog();
         logRead(data.log, to);
     }
     function logComputationRead(node, to) {
-        if (!node.log)
+        if (node.log === null)
             node.log = newLog();
         logRead(node.log, to);
     }
     function logNodePreClock(clock, to) {
-        if (!to.preclocks)
+        if (to.preclocks === null)
             to.preclocks = new NodePreClockLog();
         else if (to.preclocks.ages[clock.id] === to.age)
             return;
@@ -388,16 +395,19 @@
         to.preclocks.clocks[to.preclocks.count++] = clock;
     }
     function logClockPreClock(sclock, rclock, rnode) {
-        var clocklog = rclock.preclocks || (rclock.preclocks = new ClockPreClockLog()), nodelog = rnode.preclocks || (rnode.preclocks = new NodePreClockLog());
+        var clocklog = rclock.preclocks === null ? (rclock.preclocks = new ClockPreClockLog()) : rclock.preclocks, nodelog = rnode.preclocks === null ? (rnode.preclocks = new NodePreClockLog()) : rnode.preclocks;
         if (nodelog.ages[sclock.id] === rnode.age)
             return;
         nodelog.ages[sclock.id] = rnode.age;
         nodelog.uclocks[nodelog.ucount] = rclock;
         nodelog.uclockids[nodelog.ucount++] = sclock.id;
         var clockcount = clocklog.clockcounts[sclock.id];
-        if (!clockcount) {
-            if (clockcount === undefined)
-                clocklog.ids[clocklog.count++] = sclock.id;
+        if (clockcount === undefined) {
+            clocklog.ids[clocklog.count++] = sclock.id;
+            clocklog.clockcounts[sclock.id] = 1;
+            clocklog.clocks[sclock.id] = sclock;
+        }
+        else if (clockcount === 0) {
             clocklog.clockcounts[sclock.id] = 1;
             clocklog.clocks[sclock.id] = sclock;
         }
@@ -495,14 +505,14 @@
             var child = owned[i];
             child.age = child.clock.time();
             child.state = CURRENT;
-            if (child.owned)
+            if (child.owned !== null)
                 markOwnedNodesForDisposal(child.owned);
         }
     }
     function markClockStale(clock) {
         var time = 0;
-        if ((clock.parent && clock.age < (time = clock.parent.time())) || clock.state === CURRENT) {
-            if (clock.parent) {
+        if ((clock.parent !== null && clock.age < (time = clock.parent.time())) || clock.state === CURRENT) {
+            if (clock.parent !== null) {
                 clock.age = time;
                 markClockStale(clock.parent);
                 clock.parent.subclocks.add(clock);
@@ -518,7 +528,7 @@
         if (clock.age < time || clock.state === STALE) {
             if (clock.age < time)
                 clock.state = CURRENT;
-            if (clock.preclocks) {
+            if (clock.preclocks !== null) {
                 for (var i = 0; i < clock.preclocks.ids.length; i++) {
                     var preclock = clock.preclocks.clocks[clock.preclocks.ids[i]];
                     if (preclock)
@@ -552,13 +562,13 @@
     }
     function cleanup(node, final) {
         var sources = node.sources, sourceslots = node.sourceslots, cleanups = node.cleanups, owned = node.owned, preclocks = node.preclocks, i, source, slot;
-        if (cleanups) {
+        if (cleanups !== null) {
             for (i = 0; i < cleanups.length; i++) {
                 cleanups[i](final);
             }
             node.cleanups = null;
         }
-        if (owned) {
+        if (owned !== null) {
             for (i = 0; i < owned.length; i++) {
                 dispose(owned[i]);
             }
@@ -572,7 +582,7 @@
             sources[i] = null;
         }
         node.count = 0;
-        if (preclocks) {
+        if (preclocks !== null) {
             for (i = 0; i < preclocks.count; i++) {
                 preclocks.clocks[i] = null;
             }
@@ -591,7 +601,7 @@
         node.clock = null;
         node.fn = null;
         node.preclocks = null;
-        if (log) {
+        if (log !== null) {
             node.log = null;
             for (var i = 0; i < log.count; i++) {
                 log.nodes[i] = null;

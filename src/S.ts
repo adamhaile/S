@@ -9,36 +9,39 @@ declare var define : (deps: string[], fn: () => S) => void;
     // Public interface
     var S = <S>function S<T>(fn : (v? : T) => T, value? : T) : () => T {
         var owner  = Owner,
-            clock  = RunningClock || RootClock,
+            clock  = RunningClock === null ? RootClock : RunningClock,
             running = RunningNode;
 
-        if (!owner) throw new Error("all computations must be created under a parent computation or root");
+        if (owner === null) throw new Error("all computations must be created under a parent computation or root");
 
         var node = newComputationNode(clock, fn, value);
             
         Owner = RunningNode = node;
         
-        if (RunningClock) {
-            node.value = node.fn!(node.value);
-        } else {
+        if (RunningClock === null) {
             toplevelComputation(node);
+        } else {
+            node.value = node.fn!(node.value);
         }
         
-        if (owner !== UNOWNED) (owner.owned || (owner.owned = [])).push(node);
+        if (owner !== UNOWNED) {
+            if (owner.owned === null) owner.owned = [node];
+            else owner.owned.push(node);
+        }
         
         Owner = owner;
         RunningNode = running;
 
         return function computation() {
             if (node.fn !== fn) return value; // disposed, node has been re-used
-            if (RunningNode) {
+            if (RunningNode !== null) {
                 var rclock = RunningClock!,
                     sclock = node.clock;
 
                 while (rclock.depth > sclock.depth + 1) rclock = rclock.parent!;
 
                 if (rclock === sclock || rclock.parent === sclock) {
-                    if (node.preclocks) {
+                    if (node.preclocks !== null) {
                         for (var i = 0; i < node.preclocks.count; i++) {
                             var preclock = node.preclocks.clocks[i];
                             updateClock(preclock);
@@ -50,7 +53,7 @@ declare var define : (deps: string[], fn: () => S) => void;
                         else updateNode(node); // checks for state === STALE internally, so don't need to check here
                     }
 
-                    if (node.preclocks) {
+                    if (node.preclocks !== null) {
                         for (var i = 0; i < node.preclocks.count; i++) {
                             var preclock = node.preclocks.clocks[i];
                             if (rclock === sclock) logNodePreClock(preclock, RunningNode);
@@ -89,7 +92,7 @@ declare var define : (deps: string[], fn: () => S) => void;
 
         try {
             result = fn.length === 0 ? fn() : fn(function _dispose() {
-                if (RunningClock) {
+                if (RunningClock !== null) {
                     markClockStale(root.clock);
                     root.clock.disposes.add(root);
                 } else {
@@ -129,13 +132,13 @@ declare var define : (deps: string[], fn: () => S) => void;
     }
 
     S.data = function data<T>(value : T) : (value? : T) => T {
-        var node = new DataNode(RunningClock || RootClock, value);
+        var node = new DataNode(RunningClock === null ? RootClock : RunningClock, value);
 
         return function data(value? : T) : T {
             var rclock = RunningClock!,
                 sclock = node.clock;
 
-            if (RunningClock) {
+            if (RunningClock !== null) {
                 while (rclock.depth > sclock.depth) rclock = rclock.parent!;
                 while (sclock.depth > rclock.depth && sclock.parent !== rclock) sclock = sclock.parent!;
                 if (sclock.parent !== rclock)
@@ -149,7 +152,7 @@ declare var define : (deps: string[], fn: () => S) => void;
             var cclock = rclock === sclock ? sclock! : sclock.parent!;
 
             if (arguments.length > 0) {
-                if (RunningClock) {
+                if (RunningClock !== null) {
                     if (node.pending !== NOTPENDING) { // value has already been set once, check for conflicts
                         if (value !== node.pending) {
                             throw new Error("conflicting changes: " + value + " !== " + node.pending);
@@ -160,7 +163,7 @@ declare var define : (deps: string[], fn: () => S) => void;
                         cclock.changes.add(node);
                     }
                 } else { // not batching, respond to change now
-                    if (node.log) {
+                    if (node.log !== null) {
                         node.pending = value;
                         RootClock.changes.add(node);
                         event();
@@ -170,7 +173,7 @@ declare var define : (deps: string[], fn: () => S) => void;
                 }
                 return value!;
             } else {
-                if (RunningNode) {
+                if (RunningNode !== null) {
                     logDataRead(node, RunningNode);
                     if (sclock.parent === rclock) logNodePreClock(sclock, RunningNode);
                     else if (sclock !== rclock) logClockPreClock(sclock, rclock, RunningNode);
@@ -205,7 +208,7 @@ declare var define : (deps: string[], fn: () => S) => void;
     S.freeze = function freeze<T>(fn : () => T) : T {
         var result : T = undefined!;
         
-        if (RunningClock) {
+        if (RunningClock !== null) {
             result = fn();
         } else {
             RunningClock = RootClock;
@@ -226,7 +229,7 @@ declare var define : (deps: string[], fn: () => S) => void;
         var result : T,
             running = RunningNode;
         
-        if (running) {
+        if (running !== null) {
             RunningNode = null;
             result = fn();
             RunningNode = running;
@@ -238,8 +241,9 @@ declare var define : (deps: string[], fn: () => S) => void;
     }
     
     S.cleanup = function cleanup(fn : () => void) : void {
-        if (Owner) {
-            (Owner.cleanups || (Owner.cleanups = [])).push(fn);
+        if (Owner !== null) {
+            if (Owner.cleanups === null) Owner.cleanups = [fn];
+            else Owner.cleanups.push(fn);
         } else {
             throw new Error("S.cleanup() must be called from within an S() computation.  Cannot call it at toplevel.");
         }
@@ -248,7 +252,7 @@ declare var define : (deps: string[], fn: () => S) => void;
     S.subclock = function subclock<T>(fn? : () => T) {
         var clock = new Clock(RunningClock || RootClock);
 
-        return fn ? subclock(fn) : subclock;
+        return fn === undefined ? subclock : subclock(fn);
         
         function subclock<T>(fn : () => T) {
             var result : T = null!,
@@ -287,7 +291,7 @@ declare var define : (deps: string[], fn: () => S) => void;
         constructor(
             public parent : Clock | null
         ) { 
-            if (parent) {
+            if (parent !== null) {
                 this.age = parent.time();
                 this.depth = parent.depth + 1;
             } else {
@@ -299,11 +303,11 @@ declare var define : (deps: string[], fn: () => S) => void;
         time () {
             var time = this.subtime,
                 p = this as Clock;
-            while (p = p.parent!) time += p.subtime;
+            while ((p = p.parent!) !== null) time += p.subtime;
             return time;
         }
     }
-
+    
     class DataNode {
         pending = NOTPENDING as any;   
         log     = null as Log | null;
@@ -401,7 +405,7 @@ declare var define : (deps: string[], fn: () => S) => void;
     
     // Functions
     function logRead(from : Log, to : ComputationNode) {
-        var fromslot = from.freecount ? from.freeslots[--from.freecount] : from.count++,
+        var fromslot = from.freecount !== 0 ? from.freeslots[--from.freecount] : from.count++,
             toslot   = to.count++;
         from.nodes[fromslot] = to;
         from.nodeslots[fromslot] = toslot;
@@ -410,25 +414,25 @@ declare var define : (deps: string[], fn: () => S) => void;
     }
 
     function logDataRead(data : DataNode, to : ComputationNode) {
-        if (!data.log) data.log = newLog();
+        if (data.log === null) data.log = newLog();
         logRead(data.log, to);
     }
     
     function logComputationRead(node : ComputationNode, to : ComputationNode) {
-        if (!node.log) node.log = newLog();
+        if (node.log === null) node.log = newLog();
         logRead(node.log, to);
     }
 
     function logNodePreClock(clock : Clock, to : ComputationNode) {
-        if (!to.preclocks) to.preclocks = new NodePreClockLog();
+        if (to.preclocks === null) to.preclocks = new NodePreClockLog();
         else if (to.preclocks.ages[clock.id] === to.age) return;
         to.preclocks.ages[clock.id] = to.age;
         to.preclocks.clocks[to.preclocks.count++] = clock;
     }
     
     function logClockPreClock(sclock : Clock, rclock : Clock, rnode : ComputationNode) {
-        var clocklog = rclock.preclocks || (rclock.preclocks = new ClockPreClockLog()),
-            nodelog = rnode.preclocks || (rnode.preclocks = new NodePreClockLog());
+        var clocklog = rclock.preclocks === null ? (rclock.preclocks = new ClockPreClockLog()) : rclock.preclocks,
+            nodelog = rnode.preclocks === null ? (rnode.preclocks = new NodePreClockLog()) : rnode.preclocks;
 
         if (nodelog.ages[sclock.id] === rnode.age) return;
 
@@ -437,8 +441,11 @@ declare var define : (deps: string[], fn: () => S) => void;
         nodelog.uclockids[nodelog.ucount++] = sclock.id;
 
         var clockcount = clocklog.clockcounts[sclock.id];
-        if (!clockcount) {
-            if (clockcount === undefined) clocklog.ids[clocklog.count++] = sclock.id;
+        if (clockcount === undefined) {
+            clocklog.ids[clocklog.count++] = sclock.id;
+            clocklog.clockcounts[sclock.id] = 1;
+            clocklog.clocks[sclock.id] = sclock;
+        } else if (clockcount === 0) {
             clocklog.clockcounts[sclock.id] = 1;
             clocklog.clocks[sclock.id] = sclock;
         } else {
@@ -551,14 +558,14 @@ declare var define : (deps: string[], fn: () => S) => void;
             var child = owned[i];
             child.age = child.clock.time();
             child.state = CURRENT;
-            if (child.owned) markOwnedNodesForDisposal(child.owned);
+            if (child.owned !== null) markOwnedNodesForDisposal(child.owned);
         }
     }
 
     function markClockStale(clock : Clock) {
         var time = 0;
-        if ((clock.parent && clock.age < (time = clock.parent!.time())) || clock.state === CURRENT) {
-            if (clock.parent) {
+        if ((clock.parent !== null && clock.age < (time = clock.parent!.time())) || clock.state === CURRENT) {
+            if (clock.parent !== null) {
                 clock.age = time;
                 markClockStale(clock.parent);
                 clock.parent.subclocks.add(clock);
@@ -574,7 +581,7 @@ declare var define : (deps: string[], fn: () => S) => void;
         var time = clock.parent!.time();
         if (clock.age < time || clock.state === STALE) {
             if (clock.age < time) clock.state = CURRENT;
-            if (clock.preclocks) {
+            if (clock.preclocks !== null) {
                 for (var i = 0; i < clock.preclocks.ids.length; i++) {
                     var preclock = clock.preclocks.clocks[clock.preclocks.ids[i]];
                     if (preclock) updateClock(preclock);
@@ -622,14 +629,14 @@ declare var define : (deps: string[], fn: () => S) => void;
             source    : Log,
             slot      : number;
             
-        if (cleanups) {
+        if (cleanups !== null) {
             for (i = 0; i < cleanups.length; i++) {
                 cleanups[i](final);
             }
             node.cleanups = null;
         }
         
-        if (owned) {
+        if (owned !== null) {
             for (i = 0; i < owned.length; i++) {
                 dispose(owned[i]);
             }
@@ -645,7 +652,7 @@ declare var define : (deps: string[], fn: () => S) => void;
         }
         node.count = 0;
 
-        if (preclocks) {
+        if (preclocks !== null) {
             for (i = 0; i < preclocks.count; i++) {
                 preclocks.clocks[i] = null!;
             }
@@ -669,7 +676,7 @@ declare var define : (deps: string[], fn: () => S) => void;
         node.fn        = null;
         node.preclocks = null;
 
-        if (log) {        
+        if (log !== null) {        
             node.log = null;
             for (var i = 0; i < log.count; i++) {
                 log.nodes[i] = null;
