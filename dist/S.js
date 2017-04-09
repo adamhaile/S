@@ -378,7 +378,7 @@
     }
     function logDataRead(data, to) {
         if (data.log === null)
-            data.log = newLog();
+            data.log = new Log();
         logRead(data.log, to);
     }
     function logComputationRead(node, to) {

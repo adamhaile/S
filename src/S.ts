@@ -414,7 +414,7 @@ declare var define : (deps: string[], fn: () => S) => void;
     }
 
     function logDataRead(data : DataNode, to : ComputationNode) {
-        if (data.log === null) data.log = newLog();
+        if (data.log === null) data.log = new Log();
         logRead(data.log, to);
     }
     
