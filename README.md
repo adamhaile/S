@@ -1,92 +1,51 @@
 # S.js
 
-S.js is a small library for performing **simple, clean, fast reactive programming** in Javascript: a simple mental model, a clean and expressive syntax, and fast execution.  It takes its name from two reactive terms: **signal**, a value that changes over time, and **synchronous**, a strategy for simplifying change.
+S.js is a small library for performing **simple, clean, fast reactive programming** in Javascript.  It aims for a simple mental model, a clean and expressive syntax, and fast execution.  
 
+In plain terms, S helps you **keep things up-to-date** in your program.  S programs work like a spreadsheet: when data changes, S automatically updates downstream computations.
+
+Here's a tiny example:
 ```javascript
-var a, b, c, d;               //
-S.root(() => {                //       ^
-    a = S.data(1);            //   a() |  1    3    3    5       
-    b = S.data(2);            //   b() |  2    2    4    6 
-    c = S(() => a() + b());   //   c() |  3    5    7   11 
-    d = S(() => c() * a());   //   d() |  3   15   21   55  
-});   // t0                   //       +------------------>
-                              //         t0   t1   t2   t3 
-a(3); // t1                   //
-b(4); // t2                   // 
-S.freeze(() => {              //
-    a(5);                     //
-    b(6);                     //
-});   // t3                   //
+var a = S.data(1),                   //       a() |   1     3     3     5       
+    b = S.data(2),                   //       b() |   2     2     4     6 
+    c = S(() => a() + b()),          //       c() |   3     5     7    11 
+    d = S(() => c() * a()); // t0    //       d() |   3    15    21    55  
+a(3);                       // t1    //           +------------------------> 
+b(4);                       // t2    //              t0    t1    t2    t3
+S.freeze(() => {                     //    
+    a(5);                            //    
+    b(6);                            //    
+});                         // t3    //    
 ```
+The timeline on the right shows how the values evolve at each instant.  Initially (time t0), `c()` and `d()` are 3, but when `a()` changes to 3 (t1), they become 5 and 15.  Ditto for t2 and t3.  Every time `a()` or `b()` changes, S re-evaluates `c()` and `d()` to make sure they stay consistent.
 
-An S app consists of data and computations on data.  As the data changes, S updates the affected computations.
+To achieve this behavior, static data and computations must be converted to *signals*, which is a reactive term for a value that changes over time.  S data signals are constructed by `S.data(<value>)` and computations by `S(() => <code>)`.  Both return closures: call a signal to read its current value; pass a data signal a new value to change it.
 
-To achieve this, the data and computations are wrapped as *signals* using `S.data(<value>)` for data and `S(() => <code>)` for computations.
+When an S computation runs, S records what signals it references, thereby creating a live dependency graph of running code.  When data changes, S uses that graph to figure out what needs to be updated and in what order.
 
-S implements signals as closures: call a signal to read its current value; pass a data signal a new value to change it.
+S has a small API.  The example above shows `S.freeze()`, which aggregates multiple changes into a single step (t3).  The full API is listed below.
 
-If a change affects multiple computations, S uses what's called a *synchronous* execution model: it is as though all computations update "instantly."  They can't, of course, but S maintains this behavior by three invariants: 
-1) computations always return current (not stale) values
-2) they run exactly once per change event (no missed or redundant updates) 
-3) if they change any data signals, those changes don't take effect until all other updates have finished
+## S Features
 
-S allows computations to generate more computations, with the rule that these "child" computations only live until their "parent" updates.  This allows an application to grow *and shrink* with the size of your data.  As a result, S applications rarely need to manually subscribe or unsubscribe from changes.
+S maintains a few useful behaviors while it runs.  These features are designed to make it easier to reason about reactive programming:
 
-S has a small API for doing things like aggreggating multiple changes into one event (S.freeze()), controlling dependencies (S.sample()), and so on.  See the full API below.
+> **Automatic Dependencies** - No manual (un)subscription to change events.  Dependencies in S are automatic and exact.
+>
+> **Guaranteed Currency** - No need to worry about how change propagates through the system.  S insures that signals always return current and updated values.
+>
+> **Exact Updates** - No missed or redundant updates.  Computations run exactly once per upstream change event.
+>
+> **A Unified Global Timeline** - No confusing nested or overlapping mutations from different sections of code. S apps advance through a series of discrete "instants" during which state is immutable.
+>
+> **Self-Extensible** - Computations can extend the system by creating new "child" computations.
+>
+> **Automatic Disposals** - No manual disposal of stale computations.  "Child" computations are disposed automatically when their "parent" updates.
 
-## How does S work?
-As your program runs, S's data signals and computations communicate with each other to build up a live dependency graph of your code.  Computations set an internal 'calling card' variable which referenced signals use to register a dependency.  Since computations may reference the results of other computations, this graph may have _n_ layers, not just two. 
+For advanced cases, S provides capabilities for dealing with self-mutating code:
 
-When data signal(s) change, S starts from the changed signals and traverses the dependency graph twice: 
-
-1) mark all downstream computations as stale, remove the old dependency edges and dispose of child computations
-
-2) update those computations and (re)create their new dependency edges.  
-
-S usually gets the order of updates correct, but if execution changes, like a different conditional branch, S may need to suspend a calling computation in order to update a called one before returning the updated value.
-
-In S, data signals are immutable while a round of updates is running.  If running code sets any values, those values are held in a pending state until the update finishes.  At that point the new values are committed and the system updates accordingly.  This process repeats until the system reaches a quiet state with no more changes.  It then awaits the next external change.
-
-## S API
-
-### Constructors
-
-### `S.root(dispose => <code>)`
-Computations created by `<code>` live until `dispose` is called.  It is an error to try to construct a computation that is not under a root or parent computation.
-
-### `S.data(<value>)`
-Construct a data signal whose initial value is `<value>`.
-
-### `S(() => <code>)`
-Construct a computation whose value is the result of the given `<code>`.
-
-### `S(val => <code>, <seed>)`
-Construct a reducing computation, whose new value is derived from the last one, staring with `<seed>`.
-
-### `S.on(<signal>, val => <code>, <seed>, <onchanges>)`
-Statically declare a computation's dependencies, rather than relying on S's automatic dependency detection. 
-
-`<seed>` is optional, with default `undefined`.
-
-`<onchanges>` is optional and defaults to `false`.  If `<onchanges>` is true, then the initial run is skipped (i.e. computation starts with value `<seed>` and doesn't run `<code>` until a change occurs).
-
-`<signal>` may be an array, in which case dependencies are created for each signal in the array.
-
-### Behavior
-
-### `S.freeze(() => <code>)`
-Run `<code>`, but hold any data changes it produces in a pending state until it completes, at which point they all run as a single update.  If called within a computation, the system is already frozen, so is inert.  Returns value of `<code>`.
-
-### `S.sample(<signal>)`
-Sample the current value of `<signal>` but don't create a dependency on it.
-
-### `S.cleanup(final => <code>)`
-Run the given function just before the enclosing computation updates or is disposed.  The function receives a boolean parameter indicating whether this is the "final" cleanup, with `true` meaning the computation is being disposed, `false` it is being updated.
-
-S.cleanup() is used to free external resources which a computation may have claimed, like DOM event subscriptions.  Computations can register as many cleanup handlers as needed, usually adjacent to where the resources are claimed.
-
-### `S.subclock(() => <code>)`
-Run computations and data signals created by `<code>` on a subclock, meaning that they don't just run but run *to completion* before surrounding code reads them.
+> **Multi-Step Updates** - Computations can set data signals during their execution.  These changes don't take effect until the current "instant" finishes, resulting in a multi-step update.
+>
+> **Partitionable Time** - Multi-step updates can run on a 'subclock,' meaning that surrounding code will only respond to final, at-rest values, not intermediate ones.
 
 ## An Example: TodoMVC in S (plus friends)
 What else, right?  S is just a core library for dealing with change; it takes more to build an application.  This example uses Surplus.js, aka "S plus" a few companion libraries.  Most notably, it uses Surplus' JSX preprocessor for embedded DOM construction.
@@ -131,5 +90,46 @@ if (localStorage.todos) // load stored todos on start
 S(() =>                 // store todos whenever they change
     localStorage.todos = JSON.stringify(todos()));
 ```
+
+## API
+
+### Constructors
+
+### `S.root(dispose => <code>)`
+Computations created by `<code>` live until `dispose` is called.  S will log an error if you try to construct a computation that is not under a root or parent computation.
+
+### `S.data(<value>)`
+Construct a data signal whose initial value is `<value>`.
+
+### `S(() => <code>)`
+Construct a computation whose value is the result of the given `<code>`.
+
+### `S(val => <code>, <seed>)`
+Construct a reducing computation, whose new value is derived from the last one, staring with `<seed>`.
+
+### `S.on(<signal>, val => <code>, <seed>, <onchanges>)`
+Statically declare a computation's dependencies, rather than relying on S's automatic dependency detection. 
+
+`<seed>` is optional, with default `undefined`.
+
+`<onchanges>` is optional and defaults to `false`.  If `<onchanges>` is true, then the initial run is skipped (i.e. computation starts with value `<seed>` and doesn't run `<code>` until a change occurs).
+
+`<signal>` may be an array, in which case dependencies are created for each signal in the array.
+
+### Behavior
+
+### `S.freeze(() => <code>)`
+Run `<code>`, but hold any data changes it produces in a pending state until it completes, at which point they all run as a single update.  If called within a computation, the system is already frozen, so `freeze` is inert.  Returns value of `<code>`.
+
+### `S.sample(<signal>)`
+Sample the current value of `<signal>` but don't create a dependency on it.
+
+### `S.cleanup(final => <code>)`
+Run the given function just before the enclosing computation updates or is disposed.  The function receives a boolean parameter indicating whether this is the "final" cleanup, with `true` meaning the computation is being disposed, `false` it is being updated.
+
+S.cleanup() is used to free external resources which a computation may have claimed, like DOM event subscriptions.  Computations can register as many cleanup handlers as needed, usually adjacent to where the resources are claimed.
+
+### `S.subclock(() => <code>)`
+Run computations and data signals created by `<code>` on a subclock, meaning that they don't just run but run *to completion* before surrounding code reads them.
 
 &copy; 2017 Adam Haile, adam.haile@gmail.com.  MIT License.
