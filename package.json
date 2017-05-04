@@ -25,6 +25,13 @@
     "signal",
     "dependency"
   ],
+  "repository": { 
+    "type": "git",
+    "url": "https://github.com/adamhaile/S.git"
+  },
+  "bugs" :{ 
+    "url": "https://github.com/adamhaile/S/issues"
+  },
   "author": "Adam Haile",
   "license": "MIT"
 }
