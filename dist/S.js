@@ -75,24 +75,33 @@
         };
     };
     S.root = function root(fn) {
-        var owner = Owner, root = fn.length === 0 ? UNOWNED : newComputationNode(RunningClock || RootClock, null, null), result = undefined;
+        var owner = Owner, root = fn.length === 0 ? UNOWNED : newComputationNode(RunningClock || RootClock, null, null), result = undefined, disposer = fn.length === 0 ? null : function _dispose() {
+            if (RunningClock !== null) {
+                markClockStale(root.clock);
+                root.clock.disposes.add(root);
+            }
+            else {
+                dispose(root);
+            }
+        };
         Owner = root;
-        try {
-            result = fn.length === 0 ? fn() : fn(function _dispose() {
-                if (RunningClock !== null) {
-                    markClockStale(root.clock);
-                    root.clock.disposes.add(root);
-                }
-                else {
-                    dispose(root);
-                }
-            });
+        if (RunningClock === null) {
+            result = topLevelRoot(fn, disposer, owner);
         }
-        finally {
+        else {
+            result = disposer === null ? fn() : fn(disposer);
             Owner = owner;
         }
         return result;
     };
+    function topLevelRoot(fn, disposer, owner) {
+        try {
+            return disposer === null ? fn() : fn(disposer);
+        }
+        finally {
+            Owner = owner;
+        }
+    }
     S.on = function on(ev, fn, seed, onchanges) {
         if (Array.isArray(ev))
             ev = callAll(ev);

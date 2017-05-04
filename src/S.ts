@@ -86,25 +86,35 @@ declare var define : (deps: string[], fn: () => S) => void;
     S.root = function root<T>(fn : (dispose? : () => void) => T) : T {
         var owner = Owner,
             root = fn.length === 0 ? UNOWNED : newComputationNode(RunningClock || RootClock, null, null),
-            result : T = undefined!;
-
-        Owner = root;
-
-        try {
-            result = fn.length === 0 ? fn() : fn(function _dispose() {
+            result : T = undefined!,
+            disposer = fn.length === 0 ? null : function _dispose() {
                 if (RunningClock !== null) {
                     markClockStale(root.clock);
                     root.clock.disposes.add(root);
                 } else {
                     dispose(root);
                 }
-            });
-        } finally {
+            };
+
+        Owner = root;
+
+        if (RunningClock === null) {
+            result = topLevelRoot(fn, disposer, owner);
+        } else {
+            result = disposer === null ? fn() : fn(disposer);
             Owner = owner;
         }
 
         return result;
     };
+
+    function topLevelRoot<T>(fn : (dispose? : () => void) => T, disposer : (() => void) | null, owner : ComputationNode | null) {
+        try {
+            return disposer === null ? fn() : fn(disposer);
+        } finally {
+            Owner = owner;
+        }
+    }
 
     S.on = function on<T>(ev : () => any, fn : (v? : T) => T, seed? : T, onchanges? : boolean) {
         if (Array.isArray(ev)) ev = callAll(ev);
