@@ -1,9 +1,3 @@
-(function (global, factory) {
-	typeof exports === 'object' && typeof module !== 'undefined' ? module.exports = factory() :
-	typeof define === 'function' && define.amd ? define(factory) :
-	(global.S = factory());
-}(this, (function () { 'use strict';
-
 // Public interface
 var S = function S(fn, value) {
     var owner = Owner, clock = RunningClock === null ? RootClock : RunningClock, running = RunningNode;
@@ -77,6 +71,7 @@ var S = function S(fn, value) {
         return value = node.value;
     };
 };
+export default S;
 S.root = function root(fn) {
     var owner = Owner, root = fn.length === 0 ? UNOWNED : newComputationNode(RunningClock || RootClock, null, null), result = undefined, disposer = fn.length === 0 ? null : function _dispose() {
         if (RunningClock !== null) {
@@ -371,18 +366,13 @@ var Queue = (function () {
     return Queue;
 }());
 // Constants
-var NOTPENDING = {};
-var CURRENT = 0;
-var STALE = 1;
-var RUNNING = 2;
+var NOTPENDING = {}, CURRENT = 0, STALE = 1, RUNNING = 2;
 // "Globals" used to keep track of current system state
-var RootClock = new Clock(null);
-var RunningClock = null;
-var RunningNode = null;
-var Owner = null; // owner for new computations
+var RootClock = new Clock(null), RunningClock = null, // currently running clock 
+RunningNode = null, // currently running computation
+Owner = null; // owner for new computations
 // object pools
-var ComputationNodePool = [];
-var LogPool = [];
+var ComputationNodePool = [], LogPool = [];
 // Constants
 var UNOWNED = newComputationNode(RootClock, null, null);
 // Functions
@@ -655,7 +645,3 @@ function newLog() {
     }
     return log;
 }
-
-return S;
-
-})));

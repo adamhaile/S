@@ -1,13 +1,12 @@
 {
+    "include": [
+        "src/S.ts"
+    ],
     "compilerOptions": {
         "target": "ES5",
-        "module": "amd",
-        "sourceMap": true,
-        "strictNullChecks": true,
-        "noImplicitAny": true
-    },
-    "exclude": [
-        "node_modules",
-        ".settings"
-    ]
+        "module": "es2015",
+        "strict": true,
+        "outDir": "dist/es",
+        "declaration": true
+    }
 }

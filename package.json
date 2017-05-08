@@ -3,19 +3,19 @@
   "version": "0.4.1",
   "description": "S.js - simple, clean, fast reactive programming in Javascript",
   "main": "dist/S.js",
+  "module": "dist/es/S.js",
+  "types": "dist/es/S.d.ts",
   "dependencies": {},
   "devDependencies": {
-    "gulp": "^3.8.10",
-    "gulp-rename": "^1.2.0",
-    "gulp-typescript": "^2.8.2",
-    "gulp-uglify": "^1.0.1",
-    "jasmine-core": "^2.1.2",
-    "karma": "^0.12.25",
-    "karma-jasmine": "^0.3.1",
-    "karma-phantomjs-launcher": "^0.1.4",
-    "typescript": "2.1.4"
+    "jasmine": "^2.6.0",
+    "karma": "^1.7.0",
+    "karma-jasmine": "^1.1.0",
+    "karma-chrome-launcher": "^2.1.1",
+    "rollup": "^0.41.6",
+    "typescript": "^2.3.2"
   },
   "scripts": {
+    "build": "tsc && rollup .\\dist\\es\\S.js -f \"umd\" -n \"S\" -o .\\dist\\S.js",
     "test": "karma start"
   },
   "keywords": [
@@ -25,11 +25,11 @@
     "signal",
     "dependency"
   ],
-  "repository": { 
+  "repository": {
     "type": "git",
     "url": "https://github.com/adamhaile/S.git"
   },
-  "bugs" :{ 
+  "bugs": {
     "url": "https://github.com/adamhaile/S/issues"
   },
   "author": "Adam Haile",
