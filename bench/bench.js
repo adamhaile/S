@@ -18,6 +18,7 @@ function main() {
     bench(createComputations1to4, COUNT, 0.25 * COUNT);
     bench(createComputations1to8, COUNT, 0.125 * COUNT);
     bench(createComputations1to1000, COUNT, 0.001 * COUNT);
+    console.log('---');
     bench(updateComputations1to1, COUNT * 4, 1);
     bench(updateComputations2to1, COUNT * 2, 2);
     bench(updateComputations4to1, COUNT, 4);

@@ -386,18 +386,18 @@ function logRead(from, to) {
         to.count = 1;
         toslot = 0;
     }
-    else if (to.sources instanceof Log) {
+    else if (Array.isArray(to.sources)) {
+        // 2+ -> 2++ references, append to array
+        toslot = to.count++;
+        to.sources[toslot] = from;
+        to.sourceslots[toslot] = fromslot;
+    }
+    else {
         // 1 -> 2 references, promote to array
         to.sources = [to.sources, from];
         to.sourceslots = [to.sourceslots, fromslot];
         to.count = 2;
         toslot = 1;
-    }
-    else {
-        // 2+ -> 2++ references, append to array
-        toslot = to.count++;
-        to.sources[toslot] = from;
-        to.sourceslots[toslot] = fromslot;
     }
     from.nodeslots[fromslot] = toslot;
 }
@@ -607,13 +607,7 @@ function cleanup(node, final) {
         }
         node.owned = null;
     }
-    if (sources instanceof Log) {
-        slot = sourceslots;
-        sources.nodes[slot] = null;
-        sources.freeslots[sources.freecount++] = slot;
-        node.sources = null;
-    }
-    else if (sources !== null) {
+    if (Array.isArray(sources)) {
         for (i = 0; i < node.count; i++) {
             source = sources[i];
             slot = sourceslots[i];
@@ -621,6 +615,12 @@ function cleanup(node, final) {
             source.freeslots[source.freecount++] = slot;
             sources[i] = null;
         }
+    }
+    else if (sources !== null) {
+        slot = sourceslots;
+        sources.nodes[slot] = null;
+        sources.freeslots[sources.freecount++] = slot;
+        node.sources = null;
     }
     node.count = 0;
     if (preclocks !== null) {
