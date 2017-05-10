@@ -44,4 +44,36 @@ describe("S.root()", function () {
             S(() => 1)
         }).toThrowError(/root/);
     });
+
+    it("does not freeze updates when used at top level", function () {
+        S.root(() => {
+            var s = S.data(1),
+                c = S(() => s());
+            
+            expect(c()).toBe(1);
+
+            s(2);
+
+            expect(c()).toBe(2);
+
+            s(3);
+
+            expect(c()).toBe(3);
+        });
+    });
+
+    it("persists through entire scope when used at top level", () => {
+        S.root(() => {
+            var s = S.data(1),
+                c1 = S(() => s());
+            
+            s(2);
+
+            var c2 = S(() => s());
+
+            s(3);
+
+            expect(c2()).toBe(3);
+        });
+    });
 });

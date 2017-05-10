@@ -362,8 +362,8 @@ class ComputationNode {
     age       : number;
     state     = CURRENT;
     count     = 0;
-    sources   = [] as Log[];
-    sourceslots = [] as number[];
+    sources   = null as null | Log | Log[];
+    sourceslots = 0 as number | number[];
     log       = null as Log | null;
     preclocks = null as NodePreClockLog | null;
     owned     = null as ComputationNode[] | null;
@@ -446,11 +446,27 @@ var UNOWNED    = newComputationNode(RootClock, null, null);
 // Functions
 function logRead(from : Log, to : ComputationNode) {
     var fromslot = from.freecount !== 0 ? from.freeslots[--from.freecount] : from.count++,
-        toslot   = to.count++;
+        toslot   : number;
     from.nodes[fromslot] = to;
+    if (to.sources === null) {
+        // 0 -> 1 references, use direct pointer
+        to.sources = from;
+        to.sourceslots = fromslot;
+        to.count = 1;
+        toslot = 0;
+    } else if (to.sources instanceof Log) {
+        // 1 -> 2 references, promote to array
+        to.sources = [to.sources, from];
+        to.sourceslots = [to.sourceslots as number, fromslot];
+        to.count = 2;
+        toslot = 1;
+    } else {
+        // 2+ -> 2++ references, append to array
+        toslot = to.count++;
+        to.sources[toslot] = from;
+        (to.sourceslots as number[])[toslot] = fromslot;
+    }
     from.nodeslots[fromslot] = toslot;
-    to.sources[toslot] = from;
-    to.sourceslots[toslot] = fromslot;
 }
 
 function logDataRead(data : DataNode, to : ComputationNode) {
@@ -494,13 +510,16 @@ function logClockPreClock(sclock : Clock, rclock : Clock, rnode : ComputationNod
 }
 
 function event() {
+    // b/c we might be under a top level S.root(), have to preserve current root
+    var owner = Owner;
     RootClock.subclocks.reset();
     RootClock.updates.reset();
     RootClock.subtime++;
     try {
         run(RootClock);
     } finally {
-        RunningClock = Owner = RunningNode = null;
+        RunningClock = RunningNode = null;
+        Owner = owner;
     }
 }
 
@@ -582,7 +601,11 @@ function markComputationsStale(log : Log) {
                 nodes[i] = null;
                 nodes[slot] = node;
                 nodeslots[slot] = nodeslot;
-                node.sourceslots[nodeslot] = slot;
+                if (typeof node.sourceslots === 'number') {
+                    node.sourceslots = slot;
+                } else {
+                    node.sourceslots[nodeslot] = slot;
+                }
             }
         } else {
             dead++;
@@ -683,12 +706,19 @@ function cleanup(node : ComputationNode, final : boolean) {
         node.owned = null;
     }
     
-    for (i = 0; i < node.count; i++) {
-        source = sources[i];
-        slot = sourceslots[i];
-        source.nodes[slot] = null;
-        source.freeslots[source.freecount++] = slot;
-        sources[i] = null!;
+    if (sources instanceof Log) {
+        slot = sourceslots as number;
+        sources.nodes[slot] = null;
+        sources.freeslots[sources.freecount++] = slot;
+        node.sources = null;
+    } else if (sources !== null) {
+        for (i = 0; i < node.count; i++) {
+            source = sources[i];
+            slot = (sourceslots as number[])[i];
+            source.nodes[slot] = null;
+            source.freeslots[source.freecount++] = slot;
+            sources[i] = null!;
+        }
     }
     node.count = 0;
 

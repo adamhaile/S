@@ -309,8 +309,8 @@ var ComputationNode = (function () {
         this.value = value;
         this.state = CURRENT;
         this.count = 0;
-        this.sources = [];
-        this.sourceslots = [];
+        this.sources = null;
+        this.sourceslots = 0;
         this.log = null;
         this.preclocks = null;
         this.owned = null;
@@ -387,11 +387,29 @@ var LogPool = [];
 var UNOWNED = newComputationNode(RootClock, null, null);
 // Functions
 function logRead(from, to) {
-    var fromslot = from.freecount !== 0 ? from.freeslots[--from.freecount] : from.count++, toslot = to.count++;
+    var fromslot = from.freecount !== 0 ? from.freeslots[--from.freecount] : from.count++, toslot;
     from.nodes[fromslot] = to;
+    if (to.sources === null) {
+        // 0 -> 1 references, use direct pointer
+        to.sources = from;
+        to.sourceslots = fromslot;
+        to.count = 1;
+        toslot = 0;
+    }
+    else if (to.sources instanceof Log) {
+        // 1 -> 2 references, promote to array
+        to.sources = [to.sources, from];
+        to.sourceslots = [to.sourceslots, fromslot];
+        to.count = 2;
+        toslot = 1;
+    }
+    else {
+        // 2+ -> 2++ references, append to array
+        toslot = to.count++;
+        to.sources[toslot] = from;
+        to.sourceslots[toslot] = fromslot;
+    }
     from.nodeslots[fromslot] = toslot;
-    to.sources[toslot] = from;
-    to.sourceslots[toslot] = fromslot;
 }
 function logDataRead(data, to) {
     if (data.log === null)
@@ -433,6 +451,8 @@ function logClockPreClock(sclock, rclock, rnode) {
     }
 }
 function event() {
+    // b/c we might be under a top level S.root(), have to preserve current root
+    var owner = Owner;
     RootClock.subclocks.reset();
     RootClock.updates.reset();
     RootClock.subtime++;
@@ -440,7 +460,8 @@ function event() {
         run(RootClock);
     }
     finally {
-        RunningClock = Owner = RunningNode = null;
+        RunningClock = RunningNode = null;
+        Owner = owner;
     }
 }
 function toplevelComputation(node) {
@@ -507,7 +528,12 @@ function markComputationsStale(log) {
                 nodes[i] = null;
                 nodes[slot] = node;
                 nodeslots[slot] = nodeslot;
-                node.sourceslots[nodeslot] = slot;
+                if (typeof node.sourceslots === 'number') {
+                    node.sourceslots = slot;
+                }
+                else {
+                    node.sourceslots[nodeslot] = slot;
+                }
             }
         }
         else {
@@ -591,12 +617,20 @@ function cleanup(node, final) {
         }
         node.owned = null;
     }
-    for (i = 0; i < node.count; i++) {
-        source = sources[i];
-        slot = sourceslots[i];
-        source.nodes[slot] = null;
-        source.freeslots[source.freecount++] = slot;
-        sources[i] = null;
+    if (sources instanceof Log) {
+        slot = sourceslots;
+        sources.nodes[slot] = null;
+        sources.freeslots[sources.freecount++] = slot;
+        node.sources = null;
+    }
+    else if (sources !== null) {
+        for (i = 0; i < node.count; i++) {
+            source = sources[i];
+            slot = sourceslots[i];
+            source.nodes[slot] = null;
+            source.freeslots[source.freecount++] = slot;
+            sources[i] = null;
+        }
     }
     node.count = 0;
     if (preclocks !== null) {
