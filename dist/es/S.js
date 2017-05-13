@@ -303,9 +303,11 @@ var ComputationNode = (function () {
         this.fn = fn;
         this.value = value;
         this.state = CURRENT;
-        this.count = -2;
+        this.source1 = null;
+        this.source1slot = 0;
+        this.count = 0;
         this.sources = null;
-        this.sourceslots = 0;
+        this.sourceslots = null;
         this.log = null;
         this.preclocks = null;
         this.owned = null;
@@ -316,9 +318,11 @@ var ComputationNode = (function () {
 }());
 var Log = (function () {
     function Log() {
-        this.count = -2;
+        this.node1 = null;
+        this.node1slot = 0;
+        this.count = 0;
         this.nodes = null;
-        this.nodeslots = 0;
+        this.nodeslots = null;
         this.freecount = 0;
         this.freeslots = null;
     }
@@ -377,38 +381,33 @@ var ComputationNodePool = [], LogPool = [];
 var UNOWNED = newComputationNode(RootClock, null, null);
 // Functions
 function logRead(from, to) {
-    var fromslot, toslot = to.count === -2 ? 0 : to.count === -1 ? 1 : to.count++;
-    if (from.count === -2) {
-        from.nodes = to;
-        from.nodeslots = toslot;
-        from.count = -1;
-        fromslot = 0;
+    var fromslot, toslot = to.source1 === null ? -1 : to.count++;
+    if (from.node1 === null) {
+        from.node1 = to;
+        from.node1slot = toslot;
+        fromslot = -1;
     }
-    else if (from.count === -1) {
-        from.nodes = [from.nodes, to];
-        from.nodeslots = [from.nodeslots, toslot];
-        from.count = 2;
-        fromslot = 1;
+    else if (from.nodes === null) {
+        from.nodes = [to];
+        from.nodeslots = [toslot];
+        from.count = 1;
+        fromslot = 0;
     }
     else {
         fromslot = from.freecount !== 0 ? from.freeslots[--from.freecount] : from.count++,
             from.nodes[fromslot] = to;
         from.nodeslots[fromslot] = toslot;
     }
-    if (to.count === -2) {
-        // 0 -> 1 references, use direct pointer
-        to.sources = from;
-        to.sourceslots = fromslot;
-        to.count = -1;
+    if (to.source1 === null) {
+        to.source1 = from;
+        to.source1slot = fromslot;
     }
-    else if (to.count === -1) {
-        // 1 -> 2 references, promote to array
-        to.sources = [to.sources, from];
-        to.sourceslots = [to.sourceslots, fromslot];
-        to.count = 2;
+    else if (to.sources === null) {
+        to.sources = [from];
+        to.sourceslots = [fromslot];
+        to.count = 1;
     }
     else {
-        // 2+ -> 2++ references, append to array
         to.sources[toslot] = from;
         to.sourceslots[toslot] = fromslot;
     }
@@ -508,37 +507,35 @@ function applyDataChange(data) {
         markComputationsStale(data.log);
 }
 function markComputationsStale(log) {
-    var nodes = log.nodes, nodeslots = log.nodeslots, dead = 0, slot, nodeslot, node;
-    if (log.count === -1) {
-        markNodeStale(nodes);
-    }
-    else if (log.count !== -2) {
-        // mark all downstream nodes stale which haven't been already, compacting log.nodes as we go
-        for (var i = 0; i < log.count; i++) {
-            node = nodes[i];
-            if (node) {
-                markNodeStale(node);
-                if (dead) {
-                    slot = i - dead;
-                    nodeslot = nodeslots[i];
-                    nodes[i] = null;
-                    nodes[slot] = node;
-                    nodeslots[slot] = nodeslot;
-                    if (node.count === -1) {
-                        node.sourceslots = slot;
-                    }
-                    else {
-                        node.sourceslots[nodeslot] = slot;
-                    }
+    var node1 = log.node1, nodes = log.nodes, nodeslots = log.nodeslots, dead = 0, slot, nodeslot, node;
+    // mark all downstream nodes stale which haven't been already
+    if (node1 !== null)
+        markNodeStale(node1);
+    for (var i = 0; i < log.count; i++) {
+        // compact log.nodes as we iterate through it
+        node = nodes[i];
+        if (node) {
+            markNodeStale(node);
+            if (dead) {
+                slot = i - dead;
+                nodeslot = nodeslots[i];
+                nodes[i] = null;
+                nodes[slot] = node;
+                nodeslots[slot] = nodeslot;
+                if (nodeslot === -1) {
+                    node.source1slot = slot;
+                }
+                else {
+                    node.sourceslots[nodeslot] = slot;
                 }
             }
-            else {
-                dead++;
-            }
         }
-        log.count -= dead;
-        log.freecount = 0;
+        else {
+            dead++;
+        }
     }
+    log.count -= dead;
+    log.freecount = 0;
 }
 function markNodeStale(node) {
     var time = node.clock.time();
@@ -614,7 +611,7 @@ function updateNode(node) {
     }
 }
 function cleanup(node, final) {
-    var sources = node.sources, sourceslots = node.sourceslots, cleanups = node.cleanups, owned = node.owned, preclocks = node.preclocks, i;
+    var source1 = node.source1, sources = node.sources, sourceslots = node.sourceslots, cleanups = node.cleanups, owned = node.owned, preclocks = node.preclocks, i;
     if (cleanups !== null) {
         for (i = 0; i < cleanups.length; i++) {
             cleanups[i](final);
@@ -627,18 +624,15 @@ function cleanup(node, final) {
         }
         node.owned = null;
     }
-    if (node.count === -1) {
-        cleanupSource(sources, sourceslots);
-        node.sources = null;
-        node.count = -2;
+    if (source1 !== null) {
+        cleanupSource(source1, node.source1slot);
+        node.source1 = null;
     }
-    else if (node.count !== -2) {
-        for (i = 0; i < node.count; i++) {
-            cleanupSource(sources[i], sourceslots[i]);
-            sources[i] = null;
-        }
-        node.count = 0;
+    for (i = 0; i < node.count; i++) {
+        cleanupSource(sources[i], sourceslots[i]);
+        sources[i] = null;
     }
+    node.count = 0;
     if (preclocks !== null) {
         for (i = 0; i < preclocks.count; i++) {
             preclocks.clocks[i] = null;
@@ -654,12 +648,10 @@ function cleanup(node, final) {
     }
 }
 function cleanupSource(source, slot) {
-    if (source.count === -1) {
-        source.nodes = null;
-        source.nodeslots = 0;
-        source.count = -2;
+    if (slot === -1) {
+        source.node1 = null;
     }
-    else if (source.count !== -2) {
+    else {
         source.nodes[slot] = null;
         if (slot === source.count - 1) {
             source.count--;
@@ -680,7 +672,10 @@ function dispose(node) {
     node.preclocks = null;
     if (log !== null) {
         node.log = null;
-        log.nodes = null;
+        log.node1 = null;
+        for (var i = 0; i < log.count; i++) {
+            log.nodes[i] = null;
+        }
         LogPool.push(log);
     }
     cleanup(node, true);
@@ -695,9 +690,7 @@ function newComputationNode(clock, fn, value) {
         node = ComputationNodePool.pop();
         node.age = clock.time();
         node.state = CURRENT;
-        node.count = -2;
-        node.sources = null;
-        node.sourceslots = 0;
+        node.count = 0;
         node.clock = clock;
         node.fn = fn;
         node.value = value;
@@ -711,10 +704,8 @@ function newLog() {
     }
     else {
         log = LogPool.pop();
-        log.count = -2;
-        log.nodeslots = 0;
+        log.count = 0;
         log.freecount = 0;
-        log.freeslots = null;
     }
     return log;
 }

@@ -359,9 +359,11 @@ class DataNode {
 class ComputationNode {
     age       : number;
     state     = CURRENT;
-    count     = -2;
-    sources   = null as null | Log | Log[];
-    sourceslots = 0 as number | number[];
+    source1   = null as null | Log;
+    source1slot = 0;
+    count     = 0;
+    sources   = null as null | Log[];
+    sourceslots = null as null | number[];
     log       = null as Log | null;
     preclocks = null as NodePreClockLog | null;
     owned     = null as ComputationNode[] | null;
@@ -377,9 +379,11 @@ class ComputationNode {
 }
 
 class Log {
-    count = -2;
-    nodes = null as null | ComputationNode | (ComputationNode | null)[];
-    nodeslots = 0 as number | number[];
+    node1 = null as null | ComputationNode;
+    node1slot = 0;
+    count = 0;
+    nodes = null as null | (ComputationNode | null)[];
+    nodeslots = null as null | number[];
     freecount = 0;
     freeslots = null as null | number[];
 }
@@ -444,38 +448,33 @@ var UNOWNED    = newComputationNode(RootClock, null, null);
 // Functions
 function logRead(from : Log, to : ComputationNode) {
     var fromslot : number,
-        toslot = to.count === -2 ? 0 : to.count === -1 ? 1 : to.count++;
+        toslot = to.source1 === null ? -1 : to.count++;
         
-    if (from.count === -2) {
-        from.nodes = to;
-        from.nodeslots = toslot;
-        from.count = -1;
+    if (from.node1 === null) {
+        from.node1 = to;
+        from.node1slot = toslot;
+        fromslot = -1;
+    } else if (from.nodes === null) {
+        from.nodes = [to];
+        from.nodeslots = [toslot];
+        from.count = 1;
         fromslot = 0;
-    } else if (from.count === -1) {
-        from.nodes = [from.nodes as ComputationNode, to];
-        from.nodeslots = [from.nodeslots as number, toslot];
-        from.count = 2;
-        fromslot = 1;
     } else {
-        fromslot = from.freecount !== 0 ? (from.freeslots as number[])[--from.freecount] : from.count++,
-        (from.nodes as ComputationNode[])[fromslot] = to;
-        (from.nodeslots as number[])[fromslot] = toslot;
+        fromslot = from.freecount !== 0 ? from.freeslots![--from.freecount] : from.count++,
+        from.nodes[fromslot] = to;
+        from.nodeslots![fromslot] = toslot;
     }
 
-    if (to.count === -2) {
-        // 0 -> 1 references, use direct pointer
-        to.sources = from;
-        to.sourceslots = fromslot;
-        to.count = -1;
-    } else if (to.count === -1) {
-        // 1 -> 2 references, promote to array
-        to.sources = [to.sources as Log, from];
-        to.sourceslots = [to.sourceslots as number, fromslot];
-        to.count = 2;
+    if (to.source1 === null) {
+        to.source1 = from;
+        to.source1slot = fromslot;
+    } else if (to.sources === null) {
+        to.sources = [from];
+        to.sourceslots = [fromslot];
+        to.count = 1;
     } else {
-        // 2+ -> 2++ references, append to array
-        (to.sources as Log[])[toslot] = from;
-        (to.sourceslots as number[])[toslot] = fromslot;
+        to.sources[toslot] = from;
+        to.sourceslots![toslot] = fromslot;
     }
 }
 
@@ -585,42 +584,41 @@ function applyDataChange(data : DataNode) {
 }
 
 function markComputationsStale(log : Log) {
-    var nodes     = log.nodes,
+    var node1     = log.node1,
+        nodes     = log.nodes,
         nodeslots = log.nodeslots,
         dead      = 0,
         slot      : number,
         nodeslot  : number,
-        node      : ComputationNode;
+        node      : null | ComputationNode;
 
-    if (log.count === -1) {
-        markNodeStale(nodes as ComputationNode);
-    } else if (log.count !== -2) {
-        // mark all downstream nodes stale which haven't been already, compacting log.nodes as we go
-        for (var i = 0; i < log.count; i++) {
-            node = (nodes as ComputationNode[])[i];
-            if (node) {
-                markNodeStale(node);
+    // mark all downstream nodes stale which haven't been already
+    if (node1 !== null) markNodeStale(node1);
+    for (var i = 0; i < log.count; i++) {
+        // compact log.nodes as we iterate through it
+        node = nodes![i];
+        if (node) {
+            markNodeStale(node);
 
-                if (dead) {
-                    slot = i - dead;
-                    nodeslot = (nodeslots as number[])[i];
-                    (nodes as null[])[i] = null;
-                    (nodes as ComputationNode[])[slot] = node;
-                    (nodeslots as number[])[slot] = nodeslot;
-                    if (node.count === -1) {
-                        node.sourceslots = slot;
-                    } else {
-                        (node.sourceslots as number[])[nodeslot] = slot;
-                    }
+            if (dead) {
+                slot = i - dead;
+                nodeslot = nodeslots![i];
+                nodes![i] = null;
+                nodes![slot] = node;
+                nodeslots![slot] = nodeslot;
+                if (nodeslot === -1) {
+                    node.source1slot = slot;
+                } else {
+                    node.sourceslots![nodeslot] = slot;
                 }
-            } else {
-                dead++;
             }
+        } else {
+            dead++;
         }
-        
-        log.count -= dead;
-        log.freecount = 0;
     }
+
+    log.count -= dead;
+    log.freecount = 0;
 }
 
 function markNodeStale(node : ComputationNode) {
@@ -702,7 +700,8 @@ function updateNode(node : ComputationNode) {
 }
     
 function cleanup(node : ComputationNode, final : boolean) {
-    var sources     = node.sources,
+    var source1      = node.source1,
+        sources     = node.sources,
         sourceslots = node.sourceslots,
         cleanups    = node.cleanups,
         owned       = node.owned,
@@ -723,17 +722,15 @@ function cleanup(node : ComputationNode, final : boolean) {
         node.owned = null;
     }
     
-    if (node.count === -1) {
-        cleanupSource(sources as Log, sourceslots as number);
-        node.sources = null;
-        node.count = -2;
-    } else if (node.count !== -2) {
-        for (i = 0; i < node.count; i++) {
-            cleanupSource((sources as Log[])[i], (sourceslots as number[])[i]);
-            (sources as Log[])[i] = null!;
-        }
-        node.count = 0;
+    if (source1 !== null) {
+        cleanupSource(source1, node.source1slot);
+        node.source1 = null;
     }
+    for (i = 0; i < node.count; i++) {
+        cleanupSource(sources![i], sourceslots![i]);
+        sources![i] = null!;
+    }
+    node.count = 0;
 
     if (preclocks !== null) {
         for (i = 0; i < preclocks.count; i++) {
@@ -753,12 +750,10 @@ function cleanup(node : ComputationNode, final : boolean) {
 }
 
 function cleanupSource(source : Log, slot : number) {
-    if (source.count === -1) {
-        source.nodes = null;
-        source.nodeslots = 0;
-        source.count = -2;
-    } else if (source.count !== -2) {
-        (source.nodes as null[])[slot] = null;
+    if (slot === -1) {
+        source.node1 = null;
+    } else {
+        source.nodes![slot] = null;
         if (slot === source.count - 1) {
             source.count--;
         } else if (source.freeslots === null) {
@@ -779,7 +774,10 @@ function dispose(node : ComputationNode) {
 
     if (log !== null) {        
         node.log = null;
-        log.nodes = null;
+        log.node1 = null;
+        for (var i = 0; i < log.count; i++) {
+            log.nodes![i] = null;
+        }
         LogPool.push(log);
     }
     
@@ -796,9 +794,7 @@ function newComputationNode(clock : Clock, fn : ((v : any) => any) | null, value
         node = ComputationNodePool.pop()!;
         node.age = clock.time();
         node.state = CURRENT;
-        node.count = -2;
-        node.sources = null;
-        node.sourceslots = 0;
+        node.count = 0;
         node.clock = clock;
         node.fn = fn;
         node.value = value;
@@ -812,10 +808,8 @@ function newLog() {
         log = new Log();
     } else {
         log = LogPool.pop()!;
-        log.count = -2;
-        log.nodeslots = 0;
+        log.count = 0;
         log.freecount = 0;
-        log.freeslots = null;
     }
     return log;
 }
