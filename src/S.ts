@@ -40,7 +40,7 @@ const S = <S>function S<T>(fn : (v? : T) => T, value? : T) : () => T {
 
     if (owner === null) throw new Error("all computations must be created under a parent computation or root");
 
-    var node = newComputationNode(clock, fn, value);
+    var node = new ComputationNode(clock, fn, value);
         
     Owner = RunningNode = node;
     
@@ -59,7 +59,6 @@ const S = <S>function S<T>(fn : (v? : T) => T, value? : T) : () => T {
     RunningNode = running;
 
     return function computation() {
-        if (node.fn !== fn) return value; // disposed, node has been re-used
         if (RunningNode !== null) {
             var rclock = RunningClock!,
                 sclock = node.clock;
@@ -105,7 +104,7 @@ const S = <S>function S<T>(fn : (v? : T) => T, value? : T) : () => T {
             logComputationRead(node, RunningNode);
         }
 
-        return value = node.value;
+        return node.value;
     }
 };
 
@@ -113,7 +112,7 @@ export default S;
 
 S.root = function root<T>(fn : (dispose? : () => void) => T) : T {
     var owner = Owner,
-        root = fn.length === 0 ? UNOWNED : newComputationNode(RunningClock || RootClock, null, null),
+        root = fn.length === 0 ? UNOWNED : new ComputationNode(RunningClock || RootClock, null, null),
         result : T = undefined!,
         disposer = fn.length === 0 ? null : function _dispose() {
             if (RunningClock !== null) {
@@ -436,14 +435,8 @@ var NOTPENDING = {},
 var RootClock    = new Clock(null),
     RunningClock = null as Clock | null, // currently running clock 
     RunningNode  = null as ComputationNode | null, // currently running computation
-    Owner        = null as ComputationNode | null; // owner for new computations
-
-// object pools
-var ComputationNodePool = [] as ComputationNode[],
-    LogPool = [] as Log[];
-
-// Constants
-var UNOWNED    = newComputationNode(RootClock, null, null);
+    Owner        = null as ComputationNode | null, // owner for new computations
+    UNOWNED      = new ComputationNode(RootClock, null, null);
 
 // Functions
 function logRead(from : Log, to : ComputationNode) {
@@ -484,7 +477,7 @@ function logDataRead(data : DataNode, to : ComputationNode) {
 }
 
 function logComputationRead(node : ComputationNode, to : ComputationNode) {
-    if (node.log === null) node.log = newLog();
+    if (node.log === null) node.log = new Log();
     logRead(node.log, to);
 }
 
@@ -778,38 +771,7 @@ function dispose(node : ComputationNode) {
         for (var i = 0; i < log.count; i++) {
             log.nodes![i] = null;
         }
-        LogPool.push(log);
     }
     
     cleanup(node, true);
-
-    ComputationNodePool.push(node);
-}
-
-function newComputationNode(clock : Clock, fn : ((v : any) => any) | null, value : any) {
-    var node : ComputationNode;
-    if (ComputationNodePool.length === 0) {
-        node = new ComputationNode(clock, fn, value);
-    } else {
-        node = ComputationNodePool.pop()!;
-        node.age = clock.time();
-        node.state = CURRENT;
-        node.count = 0;
-        node.clock = clock;
-        node.fn = fn;
-        node.value = value;
-    }
-    return node;
-}
-
-function newLog() {
-    var log : Log;
-    if (LogPool.length === 0) {
-        log = new Log();
-    } else {
-        log = LogPool.pop()!;
-        log.count = 0;
-        log.freecount = 0;
-    }
-    return log;
 }

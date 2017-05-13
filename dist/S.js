@@ -9,7 +9,7 @@ var S = function S(fn, value) {
     var owner = Owner, clock = RunningClock === null ? RootClock : RunningClock, running = RunningNode;
     if (owner === null)
         throw new Error("all computations must be created under a parent computation or root");
-    var node = newComputationNode(clock, fn, value);
+    var node = new ComputationNode(clock, fn, value);
     Owner = RunningNode = node;
     if (RunningClock === null) {
         toplevelComputation(node);
@@ -26,8 +26,6 @@ var S = function S(fn, value) {
     Owner = owner;
     RunningNode = running;
     return function computation() {
-        if (node.fn !== fn)
-            return value; // disposed, node has been re-used
         if (RunningNode !== null) {
             var rclock = RunningClock, sclock = node.clock;
             while (rclock.depth > sclock.depth + 1)
@@ -74,11 +72,11 @@ var S = function S(fn, value) {
             }
             logComputationRead(node, RunningNode);
         }
-        return value = node.value;
+        return node.value;
     };
 };
 S.root = function root(fn) {
-    var owner = Owner, root = fn.length === 0 ? UNOWNED : newComputationNode(RunningClock || RootClock, null, null), result = undefined, disposer = fn.length === 0 ? null : function _dispose() {
+    var owner = Owner, root = fn.length === 0 ? UNOWNED : new ComputationNode(RunningClock || RootClock, null, null), result = undefined, disposer = fn.length === 0 ? null : function _dispose() {
         if (RunningClock !== null) {
             markClockStale(root.clock);
             root.clock.disposes.add(root);
@@ -383,12 +381,8 @@ var RUNNING = 2;
 var RootClock = new Clock(null);
 var RunningClock = null;
 var RunningNode = null;
-var Owner = null; // owner for new computations
-// object pools
-var ComputationNodePool = [];
-var LogPool = [];
-// Constants
-var UNOWNED = newComputationNode(RootClock, null, null);
+var Owner = null;
+var UNOWNED = new ComputationNode(RootClock, null, null);
 // Functions
 function logRead(from, to) {
     var fromslot, toslot = to.source1 === null ? -1 : to.count++;
@@ -429,7 +423,7 @@ function logDataRead(data, to) {
 }
 function logComputationRead(node, to) {
     if (node.log === null)
-        node.log = newLog();
+        node.log = new Log();
     logRead(node.log, to);
 }
 function logNodePreClock(clock, to) {
@@ -686,38 +680,8 @@ function dispose(node) {
         for (var i = 0; i < log.count; i++) {
             log.nodes[i] = null;
         }
-        LogPool.push(log);
     }
     cleanup(node, true);
-    ComputationNodePool.push(node);
-}
-function newComputationNode(clock, fn, value) {
-    var node;
-    if (ComputationNodePool.length === 0) {
-        node = new ComputationNode(clock, fn, value);
-    }
-    else {
-        node = ComputationNodePool.pop();
-        node.age = clock.time();
-        node.state = CURRENT;
-        node.count = 0;
-        node.clock = clock;
-        node.fn = fn;
-        node.value = value;
-    }
-    return node;
-}
-function newLog() {
-    var log;
-    if (LogPool.length === 0) {
-        log = new Log();
-    }
-    else {
-        log = LogPool.pop();
-        log.count = 0;
-        log.freecount = 0;
-    }
-    return log;
 }
 
 return S;
