@@ -1,6 +1,6 @@
 {
   "name": "s-js",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "S.js - simple, clean, fast reactive programming in Javascript",
   "main": "dist/S.js",
   "module": "dist/es/S.js",
@@ -17,7 +17,7 @@
   "scripts": {
     "build": "tsc && rollup dist/es/S.js -f \"umd\" -n \"S\" -o dist/S.js && rollup dist/es/withsubclocks.js -f \"umd\" -n \"S\" -o dist/withsubclocks.js",
     "test": "jasmine",
-    "bench": "node --allow-natives-syntax .\\bench\\bench.js"
+    "bench": "node --allow-natives-syntax bench/bench.js"
   },
   "keywords": [
     "reactive",
