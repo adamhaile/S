@@ -1,6 +1,7 @@
 {
     "include": [
-        "src/S.ts"
+        "src/S.ts",
+        "src/withsubclocks.ts"
     ],
     "compilerOptions": {
         "target": "ES5",

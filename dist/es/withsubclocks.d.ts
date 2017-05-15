@@ -9,6 +9,8 @@ export interface S {
     freeze<T>(fn: () => T): T;
     sample<T>(fn: () => T): T;
     cleanup(fn: (final: boolean) => any): void;
+    subclock(): <T>(fn: () => T) => T;
+    subclock<T>(fn: () => T): T;
 }
 export interface DataSignal<T> {
     (): T;

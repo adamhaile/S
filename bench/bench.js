@@ -1,4 +1,4 @@
-S = typeof S === 'undefined' ? require('../dist/S') : S;
+S = typeof S === 'undefined' ? require('..') : S;
 
 var now = typeof process === 'undefined' ? browserNow : nodeNow;
 
