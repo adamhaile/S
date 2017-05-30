@@ -39,11 +39,11 @@ describe("S.root()", function () {
         });
     });
 
-    it("is necessary to create a toplevel computation", function () {
-        expect(() => {
-            S(() => 1)
-        }).toThrowError(/root/);
-    });
+    //it("is necessary to create a toplevel computation", function () {
+    //    expect(() => {
+    //        S(() => 1)
+    //    }).toThrowError(/root/);
+    //});
 
     it("does not freeze updates when used at top level", function () {
         S.root(() => {

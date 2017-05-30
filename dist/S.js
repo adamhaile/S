@@ -8,7 +8,7 @@
 var S = function S(fn, value) {
     var owner = Owner, running = RunningNode;
     if (owner === null)
-        throw new Error("all computations must be created under a parent computation or root");
+        console.warn("computations created without a root or parent cannot be disposed");
     var node = new ComputationNode(fn, value);
     Owner = RunningNode = node;
     if (RunningClock === null) {
@@ -17,7 +17,7 @@ var S = function S(fn, value) {
     else {
         node.value = node.fn(node.value);
     }
-    if (owner !== UNOWNED) {
+    if (owner && owner !== UNOWNED) {
         if (owner.owned === null)
             owner.owned = [node];
         else
@@ -135,7 +135,7 @@ S.value = function value(current, eq) {
             if (!same) {
                 var time = RootClock.time;
                 if (age === time)
-                    throw new Error("conflicting values: " + value + " is not the same as " + current);
+                    throw new Error("conflicting values: " + update + " is not the same as " + current);
                 age = time;
                 current = update;
                 data(update);

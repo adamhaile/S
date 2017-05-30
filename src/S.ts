@@ -33,7 +33,7 @@ const S = <S>function S<T>(fn : (v? : T) => T, value? : T) : () => T {
     var owner  = Owner,
         running = RunningNode;
 
-    if (owner === null) throw new Error("all computations must be created under a parent computation or root");
+    if (owner === null) console.warn("computations created without a root or parent will never be disposed");
 
     var node = new ComputationNode(fn, value);
         
@@ -45,7 +45,7 @@ const S = <S>function S<T>(fn : (v? : T) => T, value? : T) : () => T {
         node.value = node.fn!(node.value);
     }
     
-    if (owner !== UNOWNED) {
+    if (owner && owner !== UNOWNED) {
         if (owner.owned === null) owner.owned = [node];
         else owner.owned.push(node);
     }
@@ -169,7 +169,7 @@ S.value = function value<T>(current : T, eq? : (a : T, b : T) => boolean) : Data
             if (!same) {
                 var time = RootClock.time;
                 if (age === time) 
-                    throw new Error("conflicting values: " + value + " is not the same as " + current);
+                    throw new Error("conflicting values: " + update + " is not the same as " + current);
                 age = time;
                 current = update!;
                 data(update!);
@@ -219,7 +219,7 @@ S.cleanup = function cleanup(fn : () => void) : void {
         if (Owner.cleanups === null) Owner.cleanups = [fn];
         else Owner.cleanups.push(fn);
     } else {
-        throw new Error("S.cleanup() must be called from within an S() computation.  Cannot call it at toplevel.");
+        console.warn("cleanups created without a root or parent will never be run");
     }
 };
 
