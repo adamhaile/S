@@ -1,6 +1,6 @@
 {
   "name": "s-js",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "description": "S.js - simple, clean, fast reactive programming in Javascript",
   "main": "dist/S.js",
   "module": "dist/es/S.js",
