@@ -8,7 +8,7 @@
 var S = function S(fn, value) {
     var owner = Owner, clock = RunningClock === null ? RootClock : RunningClock, running = RunningNode;
     if (owner === null)
-        console.warn("computations created without a root or parent cannot be disposed");
+        console.warn("computations created without a root or parent will never be disposed");
     var node = new ComputationNode(clock, fn, value);
     Owner = RunningNode = node;
     if (RunningClock === null) {
@@ -75,6 +75,8 @@ var S = function S(fn, value) {
         return node.value;
     };
 };
+// compatibility with commonjs systems that expect default export to be at require('s.js').default rather than just require('s-js')
+Object.defineProperty(S, 'default', { value: S });
 S.root = function root(fn) {
     var owner = Owner, root = fn.length === 0 ? UNOWNED : new ComputationNode(RunningClock || RootClock, null, null), result = undefined, disposer = fn.length === 0 ? null : function _dispose() {
         if (RunningClock !== null) {
@@ -239,7 +241,7 @@ S.cleanup = function cleanup(fn) {
             Owner.cleanups.push(fn);
     }
     else {
-        throw new Error("S.cleanup() must be called from within an S() computation.  Cannot call it at toplevel.");
+        console.warn("cleanups created without a root or parent will never be run");
     }
 };
 S.subclock = function subclock(fn) {
@@ -288,9 +290,9 @@ var Clock = (function () {
             time += p.subtime;
         return time;
     };
+    Clock.count = 0;
     return Clock;
 }());
-Clock.count = 0;
 var DataNode = (function () {
     function DataNode(clock, value) {
         this.clock = clock;

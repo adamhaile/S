@@ -66,6 +66,9 @@ const S = <S>function S<T>(fn : (v? : T) => T, value? : T) : () => T {
     }
 };
 
+// compatibility with commonjs systems that expect default export to be at require('s.js').default rather than just require('s-js')
+Object.defineProperty(S, 'default', { value : S });
+
 export default S;
 
 S.root = function root<T>(fn : (dispose? : () => void) => T) : T {
@@ -214,7 +217,7 @@ S.sample = function sample<T>(fn : () => T) : T {
     return result;
 }
 
-S.cleanup = function cleanup(fn : () => void) : void {
+S.cleanup = function cleanup(fn : (final : boolean) => void) : void {
     if (Owner !== null) {
         if (Owner.cleanups === null) Owner.cleanups = [fn];
         else Owner.cleanups.push(fn);
