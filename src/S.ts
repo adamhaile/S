@@ -492,7 +492,7 @@ function updateNode(node : ComputationNode) {
 }
     
 function cleanup(node : ComputationNode, final : boolean) {
-    var source1      = node.source1,
+    var source1     = node.source1,
         sources     = node.sources,
         sourceslots = node.sourceslots,
         cleanups    = node.cleanups,
@@ -541,15 +541,7 @@ function cleanupSource(source : Log, slot : number) {
 }
     
 function dispose(node : ComputationNode) {
-    var log = node.log;
-
-    node.fn        = null;
-
-    if (log !== null) {        
-        node.log = null;
-        log.node1 = null;
-        log.nodes = null;
-    }
-    
+    node.fn  = null;
+    node.log = null;
     cleanup(node, true);
 }

@@ -469,13 +469,8 @@ function cleanupSource(source, slot) {
     }
 }
 function dispose(node) {
-    var log = node.log;
     node.fn = null;
-    if (log !== null) {
-        node.log = null;
-        log.node1 = null;
-        log.nodes = null;
-    }
+    node.log = null;
     cleanup(node, true);
 }
 

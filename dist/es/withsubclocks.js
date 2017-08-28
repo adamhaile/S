@@ -663,16 +663,9 @@ function cleanupSource(source, slot) {
     }
 }
 function dispose(node) {
-    var log = node.log;
     node.clock = null;
     node.fn = null;
+    node.log = null;
     node.preclocks = null;
-    if (log !== null) {
-        node.log = null;
-        log.node1 = null;
-        for (var i = 0; i < log.count; i++) {
-            log.nodes[i] = null;
-        }
-    }
     cleanup(node, true);
 }
