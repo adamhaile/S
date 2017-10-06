@@ -7,10 +7,10 @@
   "types": "dist/es/S.d.ts",
   "dependencies": {},
   "devDependencies": {
-    "jasmine": "^2.6.0",
+    "jasmine": "^2.8.0",
     "karma": "^1.7.0",
-    "karma-jasmine": "^1.1.0",
     "karma-chrome-launcher": "^2.1.1",
+    "karma-jasmine": "^1.1.0",
     "rollup": "^0.45.2",
     "typescript": "^2.4.2"
   },
