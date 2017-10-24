@@ -226,7 +226,7 @@ S.data = function data<T>(value : T) : (value? : T) => T {
 S.value = function value<T>(current : T, eq? : (a : T, b : T) => boolean) : DataSignal<T> {
     var data  = S.data(current),
         clock = RunningClock || RootClock,
-        age   = 0;
+        age   = -1;
     return function value(update? : T) {
         if (arguments.length === 0) {
             return data();

@@ -127,7 +127,7 @@ S.data = function data(value) {
     };
 };
 S.value = function value(current, eq) {
-    var data = S.data(current), age = 0;
+    var data = S.data(current), age = -1;
     return function value(update) {
         if (arguments.length === 0) {
             return data();

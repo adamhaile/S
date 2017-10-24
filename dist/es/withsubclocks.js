@@ -179,7 +179,7 @@ S.data = function data(value) {
     };
 };
 S.value = function value(current, eq) {
-    var data = S.data(current), clock = RunningClock || RootClock, age = 0;
+    var data = S.data(current), clock = RunningClock || RootClock, age = -1;
     return function value(update) {
         if (arguments.length === 0) {
             return data();
