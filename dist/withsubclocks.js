@@ -264,7 +264,7 @@ S.subclock = function subclock(fn) {
 };
 // Internal implementation
 /// Graph classes and operations
-var Clock = (function () {
+var Clock = /** @class */ (function () {
     function Clock(parent) {
         this.parent = parent;
         this.id = Clock.count++;
@@ -293,7 +293,7 @@ var Clock = (function () {
     Clock.count = 0;
     return Clock;
 }());
-var DataNode = (function () {
+var DataNode = /** @class */ (function () {
     function DataNode(clock, value) {
         this.clock = clock;
         this.value = value;
@@ -302,7 +302,7 @@ var DataNode = (function () {
     }
     return DataNode;
 }());
-var ComputationNode = (function () {
+var ComputationNode = /** @class */ (function () {
     function ComputationNode(clock, fn, value) {
         this.clock = clock;
         this.fn = fn;
@@ -320,7 +320,7 @@ var ComputationNode = (function () {
     }
     return ComputationNode;
 }());
-var Log = (function () {
+var Log = /** @class */ (function () {
     function Log() {
         this.node1 = null;
         this.node1slot = 0;
@@ -329,7 +329,7 @@ var Log = (function () {
     }
     return Log;
 }());
-var NodePreClockLog = (function () {
+var NodePreClockLog = /** @class */ (function () {
     function NodePreClockLog() {
         this.count = 0;
         this.clocks = []; // [clock], where clock.parent === node.clock
@@ -340,7 +340,7 @@ var NodePreClockLog = (function () {
     }
     return NodePreClockLog;
 }());
-var ClockPreClockLog = (function () {
+var ClockPreClockLog = /** @class */ (function () {
     function ClockPreClockLog() {
         this.count = 0;
         this.clockcounts = []; // clock.id -> ref count
@@ -349,7 +349,7 @@ var ClockPreClockLog = (function () {
     }
     return ClockPreClockLog;
 }());
-var Queue = (function () {
+var Queue = /** @class */ (function () {
     function Queue() {
         this.items = [];
         this.count = 0;

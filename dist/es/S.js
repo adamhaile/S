@@ -184,7 +184,7 @@ S.cleanup = function cleanup(fn) {
 };
 // Internal implementation
 /// Graph classes and operations
-var Clock = (function () {
+var Clock = /** @class */ (function () {
     function Clock() {
         this.time = 0;
         this.changes = new Queue(); // batched changes to data nodes
@@ -193,7 +193,7 @@ var Clock = (function () {
     }
     return Clock;
 }());
-var DataNode = (function () {
+var DataNode = /** @class */ (function () {
     function DataNode(value) {
         this.value = value;
         this.pending = NOTPENDING;
@@ -201,7 +201,7 @@ var DataNode = (function () {
     }
     return DataNode;
 }());
-var ComputationNode = (function () {
+var ComputationNode = /** @class */ (function () {
     function ComputationNode(fn, value) {
         this.fn = fn;
         this.value = value;
@@ -217,7 +217,7 @@ var ComputationNode = (function () {
     }
     return ComputationNode;
 }());
-var Log = (function () {
+var Log = /** @class */ (function () {
     function Log() {
         this.node1 = null;
         this.node1slot = 0;
@@ -226,7 +226,7 @@ var Log = (function () {
     }
     return Log;
 }());
-var Queue = (function () {
+var Queue = /** @class */ (function () {
     function Queue() {
         this.items = [];
         this.count = 0;
@@ -268,8 +268,8 @@ function logRead(from, to) {
         fromslot = 0;
     }
     else {
-        fromslot = from.nodes.length,
-            from.nodes.push(to);
+        fromslot = from.nodes.length;
+        from.nodes.push(to);
         from.nodeslots.push(toslot);
     }
     if (to.source1 === null) {

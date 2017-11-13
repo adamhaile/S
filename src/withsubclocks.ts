@@ -1,7 +1,7 @@
 
 export interface S {
     // Computation root
-    root<T>(fn : (dispose? : () => void) => T) : T;
+    root<T>(fn : (dispose : () => void) => T) : T;
 
     // Computation constructors
     <T>(fn : () => T) : () => T;
@@ -33,7 +33,7 @@ export interface DataSignal<T> {
 }
 
 // Public interface
-const S = <S>function S<T>(fn : (v? : T) => T, value? : T) : () => T {
+const S = <S>function S<T>(fn : (v : T) => T, value : T) : () => T {
     var owner  = Owner,
         clock  = RunningClock === null ? RootClock : RunningClock,
         running = RunningNode;
@@ -113,7 +113,7 @@ Object.defineProperty(S, 'default', { value : S });
 
 export default S;
 
-S.root = function root<T>(fn : (dispose? : () => void) => T) : T {
+S.root = function root<T>(fn : (dispose : () => void) => T) : T {
     var owner = Owner,
         root = fn.length === 0 ? UNOWNED : new ComputationNode(RunningClock || RootClock, null, null),
         result : T = undefined!,
@@ -131,16 +131,16 @@ S.root = function root<T>(fn : (dispose? : () => void) => T) : T {
     if (RunningClock === null) {
         result = topLevelRoot(fn, disposer, owner);
     } else {
-        result = disposer === null ? fn() : fn(disposer);
+        result = disposer === null ? (fn as any)() : fn(disposer);
         Owner = owner;
     }
 
     return result;
 };
 
-function topLevelRoot<T>(fn : (dispose? : () => void) => T, disposer : (() => void) | null, owner : ComputationNode | null) {
+function topLevelRoot<T>(fn : (dispose : () => void) => T, disposer : (() => void) | null, owner : ComputationNode | null) {
     try {
-        return disposer === null ? fn() : fn(disposer);
+        return disposer === null ? (fn as any)() : fn(disposer);
     } finally {
         Owner = owner;
     }
@@ -152,7 +152,7 @@ S.on = function on<T>(ev : () => any, fn : (v? : T) => T, seed? : T, onchanges? 
 
     return S(on, seed);
     
-    function on(value : T) {
+    function on(value : T | undefined) {
         var running = RunningNode;
         ev(); 
         if (onchanges) onchanges = false;
