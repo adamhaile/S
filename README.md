@@ -66,8 +66,8 @@ var Todo = t => ({               // our Todo constructor
           <a onClick={addTodo}>+</a>
           {todos.map(todo =>     // insert todo views
              <div>
-                <input type="checkbox" {...data(todo.done)}/>
-                <input type="text" {...data(todo.title)}/>
+                <input type="checkbox" fn={data(todo.done)}/>
+                <input type="text" fn={data(todo.title)}/>
                 <a onClick={() => todos.remove(todo)}>&times;</a>
              </div>)}
        </div>);
