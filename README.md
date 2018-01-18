@@ -88,7 +88,8 @@ Reactive programs also have the benefit of an open structure that enables extens
 if (localStorage.todos) // load stored todos on start
     todos(JSON.parse(localStorage.todos).map(Todo));
 S(() =>                 // store todos whenever they change
-    localStorage.todos = JSON.stringify(todos()));
+    localStorage.todos = JSON.stringify(todos().map(t => 
+        ({ title: t.title(), done: t.done() })));
 ```
 
 ## API
