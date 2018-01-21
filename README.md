@@ -60,10 +60,11 @@ var Todo = t => ({               // our Todo constructor
        todos.push(Todo({ title: newTitle(), done: false }));
        newTitle("");             // clear new title
     },
-    view = S.root(() =>
-       <div>                     // declarative main view
-          <input type="text" {...data(newTitle)}/>
-          <a onClick={addTodo}>+</a>
+    view = S.root(() =>          // declarative main view
+       <div>                     
+          <h2>Minimalist ToDos in Surplus</h2>
+          <input type="text" fn={data(newTitle)}/>
+          <a onClick={addTodo}> + </a>
           {todos.map(todo =>     // insert todo views
              <div>
                 <input type="checkbox" fn={data(todo.done)}/>
@@ -74,6 +75,8 @@ var Todo = t => ({               // our Todo constructor
 
 document.body.appendChild(view); // add view to document
 ```
+Run on [CodePen](https://codepen.io/adamhaile/pen/ppvdGa?editors=0010).
+
 Some things to note:
 
 - There's no code to handle updating the application.  Other than a liberal sprinkling of `()'s`, this could be static code.  In the lingo, S enables declarative programming, where we focus on defining how things should be and S handles updating the app from one state to the next as our data changes.
