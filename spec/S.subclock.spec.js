@@ -154,6 +154,33 @@ if (S.subclock) {
             });
         });
 
+        it("runs any changes in outer clocks when created at top level", function () {
+            S.root(() => {
+                var outer = S.data(1);
+
+                S.subclock(() => {
+                    outer(2);
+                });
+
+                expect(outer()).toBe(2);
+                outer(3);
+            });
+        });
+
+        it("runs any changes in sibling clocks when created at top level", function () {
+            S.root(() => {
+                var outer = S.subclock(() => S.data(1));
+
+                S.subclock(() => {
+                    outer(2);
+                });
+
+                expect(outer()).toBe(2);
+                outer(3);
+                expect(outer()).toBe(3);
+            });
+        });
+
         it("handles whiteboard case", function () {
             S.root(function () {
                 var t = "",
@@ -215,6 +242,27 @@ if (S.subclock) {
                 d(5);
                 expect(p1.c1()).toBe(10);
                 expect(t).toBe('p2c1,p3c1,p1c1,c2,c1,');
+            });
+        });
+
+        it("handles irisjay test case", function () {
+            S.root(() => {
+                var A = S.data(0),
+                    log = S.data();
+
+                S.subclock(() => {
+                    S(() => log(A() + ' logged'));
+                })
+
+                var logs = [];
+                S(() => logs.push(log()));
+                
+                expect(logs).toEqual(["0 logged"]);
+
+                A(1);
+                expect(logs).toEqual(["0 logged", "1 logged"]);
+                A(8);
+                expect(logs).toEqual(["0 logged", "1 logged", "8 logged"]);
             });
         });
     });

@@ -306,6 +306,8 @@ S.subclock = function subclock<T>(fn? : () => T) {
         } finally {
             RunningClock = running;
         }
+        // if we were run from top level, have to flush any changes in RootClock
+        if (RunningClock === null) event();
         return result;
     }
 }
