@@ -32,7 +32,7 @@ S maintains a few useful behaviors while it runs.  These features are designed t
 
 > **Automatic Dependencies** - No manual (un)subscription to change events.  Dependencies in S are automatic and exact.
 >
-> **Guaranteed Currency** - No need to worry about how change propagates through the system.  S insures that signals always return current and updated values.
+> **Guaranteed Currency** - No need to worry about how change propagates through the system.  S ensures that signals always return current and updated values.
 >
 > **Exact Updates** - No missed or redundant updates.  Computations run exactly once per upstream change event.
 >
