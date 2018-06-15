@@ -26,6 +26,16 @@ When an S computation runs, S records what signals it references, thereby creati
 
 S has a small API.  The example above shows `S.freeze()`, which aggregates multiple changes into a single step (t3).  The full API is listed below.
 
+## Table of Contents
+- [Features](#s-features)
+- [Example](#an-example-todomvc-in-s-plus-friends)
+- [API](#api)
+  - [Data Signals](#data-signals)
+  - [Computations](#computations)
+- [Utilities](#utilities)
+- [Advanced](#advanced)
+- [Experimental](#experimental)
+
 ## S Features
 
 S maintains a few useful behaviors while it runs.  These features are designed to make it easier to reason about reactive programming:
