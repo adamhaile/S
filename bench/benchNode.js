@@ -52,10 +52,10 @@ function run(fn, n, scount) {
         fn(n / 100, sources);
         sources = createDataSignals(scount, []);
         for (var i = 0; i < scount; i++) {
-            sources[i]();
-            sources[i]();
+            sources[i].current();
+            sources[i].current();
             %OptimizeFunctionOnNextCall(sources[i]);
-            sources[i]();
+            sources[i].current();
         }
 
         // start GC clean
@@ -77,7 +77,7 @@ function run(fn, n, scount) {
 
 function createDataSignals(n, sources) {
     for (var i = 0; i < n; i++) {
-        sources[i] = S.data(i);
+        sources[i] = S.makeDataNode(i);
     }
     return sources;
 }
@@ -193,49 +193,49 @@ function createComputations1000to1(n, sources) {
 }
 
 function createComputation0(i) {
-    S(function () { return i; });
+    S.makeComputationNode(function () { return i; }, undefined);
 }
 
 function createComputation1(s1) {
-    S(function () { return s1(); });
+    S.makeComputationNode(function () { return s1.current(); }, undefined);
 }
 
 function createComputation2(s1, s2) {
-    S(function () { return s1() + s2(); });
+    S.makeComputationNode(function () { return s1.current() + s2.current(); }, undefined);
 }
 
 function createComputation4(s1, s2, s3, s4) {
-    S(function () { return s1() + s2() + s3() + s4(); });
+    S.makeComputationNode(function () { return s1.current() + s2.current() + s3.current() + s4.current(); }, undefined);
 }
 
 function createComputation8(s1, s2, s3, s4, s5, s6, s7, s8) {
-    S(function () { return s1() + s2() + s3() + s4() + s5() + s6() + s7() + s8(); });
+    S.makeComputationNode(function () { return s1.current() + s2.current() + s3.current() + s4.current() + s5.current() + s6.current() + s7.current() + s8.current(); }, undefined);
 }
 
 function createComputation1000(ss, offset) {
-    S(function () {
+    S.makeComputationNode(function () {
         var sum = 0;
         for (var i = 0; i < 1000; i++) {
-            sum += ss[offset + i]();
+            sum += ss[offset + i].current();
         }
         return sum;
-    });
+    }, undefined);
 }
 
 function updateComputations1to1(n, sources) {
     var s1 = sources[0],
-        c = S(function () { return s1(); });
+        c = S.makeComputationNode(function () { return s1.current(); }, undefined);
     for (var i = 0; i < n; i++) {
-        s1(i);
+        s1.next(i);
     }
 }
 
 function updateComputations2to1(n, sources) {
     var s1 = sources[0],
         s2 = sources[1],
-        c = S(function () { return s1() + s2(); });
+        c = S.makeComputationNode(function () { return s1.current() + s2.current(); }, undefined);
     for (var i = 0; i < n; i++) {
-        s1(i);
+        s1.next(i);
     }
 }
 
@@ -244,53 +244,53 @@ function updateComputations4to1(n, sources) {
         s2 = sources[1],
         s3 = sources[2],
         s4 = sources[3],
-        c = S(function () { return s1() + s2() + s3() + s4(); });
+        c = S.makeComputationNode(function () { return s1.current() + s2.current() + s3.current() + s4.current(); }, undefined);
     for (var i = 0; i < n; i++) {
-        s1(i);
+        s1.next(i);
     }
 }
 
 function updateComputations1000to1(n, sources) {
     var s1 = sources[0],
-        c = S(function () {
+        c = S.makeComputationNode(function () {
             var sum = 0;
             for (var i = 0; i < 1000; i++) {
-                sum += sources[i]();
+                sum += sources[i].current();
             }
             return sum;
-        });
+        }, undefined);
     for (var i = 0; i < n; i++) {
-        s1(i);
+        s1.next(i);
     }
 }
 
 function updateComputations1to2(n, sources) {
     var s1 = sources[0],
-        c1 = S(function () { return s1(); }),
-        c2 = S(function () { return s1(); });
+        c1 = S.makeComputationNode(function () { return s1.current(); }, undefined),
+        c2 = S.makeComputationNode(function () { return s1.current(); }, undefined);
     for (var i = 0; i < n / 2; i++) {
-        s1(i);
+        s1.next(i);
     }
 }
 
 function updateComputations1to4(n, sources) {
     var s1 = sources[0],
-        c1 = S(function () { return s1(); }),
-        c2 = S(function () { return s1(); }),
-        c3 = S(function () { return s1(); }),
-        c4 = S(function () { return s1(); });
+        c1 = S.makeComputationNode(function () { return s1.current(); }, undefined),
+        c2 = S.makeComputationNode(function () { return s1.current(); }, undefined),
+        c3 = S.makeComputationNode(function () { return s1.current(); }, undefined),
+        c4 = S.makeComputationNode(function () { return s1.current(); }, undefined);
     for (var i = 0; i < n / 4; i++) {
-        s1(i);
+        s1.next(i);
     }
 }
 
 function updateComputations1to1000(n, sources) {
     var s1 = sources[0];
     for (var i = 0; i < 1000; i++) {
-        S(function () { return s1(); });
+        S.makeComputationNode(function () { return s1.current(); }, undefined);
     }
     for (var i = 0; i < n / 1000; i++) {
-        s1(i);
+        s1.next(i);
     }
 }
 

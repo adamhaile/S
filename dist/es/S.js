@@ -1,35 +1,8 @@
 // Public interface
 var S = function S(fn, value) {
-    var owner = Owner, running = RunningNode;
-    if (owner === null)
-        console.warn("computations created without a root or parent will never be disposed");
     var node = new ComputationNode(fn, value);
-    Owner = RunningNode = node;
-    if (RunningClock === null) {
-        toplevelComputation(node);
-    }
-    else {
-        node.value = node.fn(node.value);
-    }
-    if (owner && owner !== UNOWNED) {
-        if (owner.owned === null)
-            owner.owned = [node];
-        else
-            owner.owned.push(node);
-    }
-    Owner = owner;
-    RunningNode = running;
     return function computation() {
-        if (RunningNode !== null) {
-            if (node.age === RootClock.time) {
-                if (node.state === RUNNING)
-                    throw new Error("circular dependency");
-                else
-                    updateNode(node); // checks for state === STALE internally, so don't need to check here
-            }
-            logComputationRead(node, RunningNode);
-        }
-        return node.value;
+        return node.current();
     };
 };
 // compatibility with commonjs systems that expect default export to be at require('s.js').default rather than just require('s-js')
@@ -86,38 +59,17 @@ function callAll(ss) {
             ss[i]();
     };
 }
+S.effect = function effect(fn, value) {
+    new ComputationNode(fn, value);
+};
 S.data = function data(value) {
     var node = new DataNode(value);
     return function data(value) {
-        if (arguments.length > 0) {
-            if (RunningClock !== null) {
-                if (node.pending !== NOTPENDING) {
-                    if (value !== node.pending) {
-                        throw new Error("conflicting changes: " + value + " !== " + node.pending);
-                    }
-                }
-                else {
-                    node.pending = value;
-                    RootClock.changes.add(node);
-                }
-            }
-            else {
-                if (node.log !== null) {
-                    node.pending = value;
-                    RootClock.changes.add(node);
-                    event();
-                }
-                else {
-                    node.value = value;
-                }
-            }
-            return value;
+        if (arguments.length === 0) {
+            return node.current();
         }
         else {
-            if (RunningNode !== null) {
-                logDataRead(node, RunningNode);
-            }
-            return node.value;
+            return node.next(value);
         }
     };
 };
@@ -182,6 +134,16 @@ S.cleanup = function cleanup(fn) {
         console.warn("cleanups created without a root or parent will never be run");
     }
 };
+// experimental : exposing node constructors and some state
+S.makeDataNode = function makeDataNode(value) {
+    return new DataNode(value);
+};
+S.makeComputationNode = function makeComputationNode(fn, seed) {
+    return new ComputationNode(fn, seed);
+};
+S.isFrozen = function isFrozen() {
+    return RunningClock !== null;
+};
 // Internal implementation
 /// Graph classes and operations
 var Clock = /** @class */ (function () {
@@ -193,18 +155,52 @@ var Clock = /** @class */ (function () {
     }
     return Clock;
 }());
+var RootClockProxy = {
+    time: function () { return RootClock.time; }
+};
 var DataNode = /** @class */ (function () {
     function DataNode(value) {
         this.value = value;
         this.pending = NOTPENDING;
         this.log = null;
     }
+    DataNode.prototype.current = function () {
+        if (RunningNode !== null) {
+            logDataRead(this, RunningNode);
+        }
+        return this.value;
+    };
+    DataNode.prototype.next = function (value) {
+        if (RunningClock !== null) {
+            if (this.pending !== NOTPENDING) {
+                if (value !== this.pending) {
+                    throw new Error("conflicting changes: " + value + " !== " + this.pending);
+                }
+            }
+            else {
+                this.pending = value;
+                RootClock.changes.add(this);
+            }
+        }
+        else {
+            if (this.log !== null) {
+                this.pending = value;
+                RootClock.changes.add(this);
+                event();
+            }
+            else {
+                this.value = value;
+            }
+        }
+        return value;
+    };
+    DataNode.prototype.clock = function () {
+        return RootClockProxy;
+    };
     return DataNode;
 }());
 var ComputationNode = /** @class */ (function () {
     function ComputationNode(fn, value) {
-        this.fn = fn;
-        this.value = value;
         this.state = CURRENT;
         this.source1 = null;
         this.source1slot = 0;
@@ -213,8 +209,45 @@ var ComputationNode = /** @class */ (function () {
         this.log = null;
         this.owned = null;
         this.cleanups = null;
+        this.fn = fn;
+        this.value = value;
         this.age = RootClock.time;
+        if (fn === null)
+            return;
+        var owner = Owner, running = RunningNode;
+        if (owner === null)
+            console.warn("computations created without a root or parent will never be disposed");
+        Owner = RunningNode = this;
+        if (RunningClock === null) {
+            toplevelComputation(this);
+        }
+        else {
+            this.value = this.fn(this.value);
+        }
+        if (owner && owner !== UNOWNED) {
+            if (owner.owned === null)
+                owner.owned = [this];
+            else
+                owner.owned.push(this);
+        }
+        Owner = owner;
+        RunningNode = running;
     }
+    ComputationNode.prototype.current = function () {
+        if (RunningNode !== null) {
+            if (this.age === RootClock.time) {
+                if (this.state === RUNNING)
+                    throw new Error("circular dependency");
+                else
+                    updateNode(this); // checks for state === STALE internally, so don't need to check here
+            }
+            logComputationRead(this, RunningNode);
+        }
+        return this.value;
+    };
+    ComputationNode.prototype.clock = function () {
+        return RootClockProxy;
+    };
     return ComputationNode;
 }());
 var Log = /** @class */ (function () {

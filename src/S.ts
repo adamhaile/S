@@ -8,6 +8,8 @@ export interface S {
     <T>(fn : (v : T) => T, seed : T) : () => T;
     on<T>(ev : () => any, fn : () => T) : () => T;
     on<T>(ev : () => any, fn : (v : T) => T, seed : T, onchanges?: boolean) : () => T;
+    effect<T>(fn : () => T) : void;
+    effect<T>(fn : (v : T) => T, seed : T) : void;
 
     // Data signal constructors
     data<T>(value : T) : DataSignal<T>;
@@ -21,6 +23,12 @@ export interface S {
 
     // Freeing external resources
     cleanup(fn : (final : boolean) => any) : void;
+
+    // experimental
+    isFrozen() : boolean;
+    makeDataNode<T>(value : T) : IDataNode<T>;
+    makeComputationNode<T>(fn : () => T) : IComputationNode<T>;
+    makeComputationNode<T>(fn : (val : T) => T, seed : T) : IComputationNode<T>;
 }
 
 export interface DataSignal<T> {
@@ -29,40 +37,11 @@ export interface DataSignal<T> {
 }
 
 // Public interface
-const S = <S>function S<T>(fn : (v : T) => T, value : T) : () => T {
-    var owner  = Owner,
-        running = RunningNode;
-
-    if (owner === null) console.warn("computations created without a root or parent will never be disposed");
-
+var S = <S>function S<T>(fn : (v : T) => T, value : T) : () => T {
     var node = new ComputationNode(fn, value);
-        
-    Owner = RunningNode = node;
-    
-    if (RunningClock === null) {
-        toplevelComputation(node);
-    } else {
-        node.value = node.fn!(node.value);
-    }
-    
-    if (owner && owner !== UNOWNED) {
-        if (owner.owned === null) owner.owned = [node];
-        else owner.owned.push(node);
-    }
-    
-    Owner = owner;
-    RunningNode = running;
 
     return function computation() {
-        if (RunningNode !== null) {
-            if (node.age === RootClock.time) {
-                if (node.state === RUNNING) throw new Error("circular dependency");
-                else updateNode(node); // checks for state === STALE internally, so don't need to check here
-            }
-            logComputationRead(node, RunningNode);
-        }
-
-        return node.value;
+        return node.current();
     }
 };
 
@@ -73,7 +52,7 @@ export default S;
 
 S.root = function root<T>(fn : (dispose : () => void) => T) : T {
     var owner = Owner,
-        root = fn.length === 0 ? UNOWNED : new ComputationNode(null, null),
+        root = fn.length === 0 ? UNOWNED : new ComputationNode(null!, null),
         result : T = undefined!,
         disposer = fn.length === 0 ? null : function _dispose() {
             if (RunningClock !== null) {
@@ -128,35 +107,18 @@ function callAll(ss : (() => any)[]) {
     }
 }
 
+S.effect = function effect<T>(fn : (v : T) => T, value? : T) : void {
+    new ComputationNode(fn, value);
+}
+
 S.data = function data<T>(value : T) : (value? : T) => T {
     var node = new DataNode(value);
 
     return function data(value? : T) : T {
-        if (arguments.length > 0) {
-            if (RunningClock !== null) {
-                if (node.pending !== NOTPENDING) { // value has already been set once, check for conflicts
-                    if (value !== node.pending) {
-                        throw new Error("conflicting changes: " + value + " !== " + node.pending);
-                    }
-                } else { // add to list of changes
-                    node.pending = value;
-                    RootClock.changes.add(node);
-                }
-            } else { // not batching, respond to change now
-                if (node.log !== null) {
-                    node.pending = value;
-                    RootClock.changes.add(node);
-                    event();
-                } else {
-                    node.value = value;
-                }
-            }
-            return value!;
+        if (arguments.length === 0) {
+            return node.current();
         } else {
-            if (RunningNode !== null) {
-                logDataRead(node, RunningNode);
-            }
-            return node.value;
+            return node.next(value);
         }
     }
 };
@@ -226,6 +188,34 @@ S.cleanup = function cleanup(fn : (final : boolean) => void) : void {
     }
 };
 
+// experimental : exposing node constructors and some state
+S.makeDataNode = function makeDataNode(value) { 
+    return new DataNode(value); 
+};
+
+export interface IDataNode<T> {
+    clock() : IClock;
+    current() : T;
+    next(value : T) : T;
+}
+
+export interface IComputationNode<T> {
+    clock() : IClock;
+    current() : T;
+}
+
+export interface IClock {
+    time() : number;
+}
+
+S.makeComputationNode = function makeComputationNode(fn : any, seed? : any) { 
+    return new ComputationNode(fn, seed); 
+};
+
+S.isFrozen = function isFrozen() { 
+    return RunningClock !== null; 
+};
+
 // Internal implementation
 
 /// Graph classes and operations
@@ -237,6 +227,10 @@ class Clock {
     disposes  = new Queue<ComputationNode>(); // disposals to run after current batch of updates finishes
 }
 
+var RootClockProxy = {
+    time: function () { return RootClock.time; }
+};
+
 class DataNode {
     pending = NOTPENDING as any;   
     log     = null as Log | null;
@@ -244,9 +238,44 @@ class DataNode {
     constructor(
         public value : any
     ) { }
+
+    current() {
+        if (RunningNode !== null) {
+            logDataRead(this, RunningNode);
+        }
+        return this.value;
+    }
+
+    next(value : any) {
+        if (RunningClock !== null) {
+            if (this.pending !== NOTPENDING) { // value has already been set once, check for conflicts
+                if (value !== this.pending) {
+                    throw new Error("conflicting changes: " + value + " !== " + this.pending);
+                }
+            } else { // add to list of changes
+                this.pending = value;
+                RootClock.changes.add(this);
+            }
+        } else { // not batching, respond to change now
+            if (this.log !== null) {
+                this.pending = value;
+                RootClock.changes.add(this);
+                event();
+            } else {
+                this.value = value;
+            }
+        }
+        return value!;
+    }
+
+    clock() {
+        return RootClockProxy;
+    }
 }
 
 class ComputationNode {
+    fn        : ((v : any) => any) | null;
+    value     : any;
     age       : number;
     state     = CURRENT;
     source1   = null as null | Log;
@@ -258,10 +287,51 @@ class ComputationNode {
     cleanups  = null as (((final : boolean) => void)[]) | null;
     
     constructor(
-        public fn    : ((v : any) => any) | null,
-        public value : any
+        fn    : (v : any) => any,
+        value : any
     ) { 
-        this.age = RootClock.time;
+        this.fn    = fn;
+        this.value = value;
+        this.age   = RootClock.time;
+        
+        if (fn === null) return;
+
+        var owner   = Owner,
+            running = RunningNode;
+
+        if (owner === null) console.warn("computations created without a root or parent will never be disposed");
+            
+        Owner = RunningNode = this;
+
+        if (RunningClock === null) {
+            toplevelComputation(this);
+        } else {
+            this.value = this.fn!(this.value);
+        }
+
+        if (owner && owner !== UNOWNED) {
+            if (owner.owned === null) owner.owned = [this];
+            else owner.owned.push(this);
+        }
+
+        Owner = owner;
+        RunningNode = running;
+    }
+
+    current() {
+        if (RunningNode !== null) {
+            if (this.age === RootClock.time) {
+                if (this.state === RUNNING) throw new Error("circular dependency");
+                else updateNode(this); // checks for state === STALE internally, so don't need to check here
+            }
+            logComputationRead(this, RunningNode);
+        }
+
+        return this.value;
+    }
+
+    clock() {
+        return RootClockProxy;
     }
 }
 
@@ -305,7 +375,7 @@ var RootClock    = new Clock(),
     RunningClock = null as Clock | null, // currently running clock 
     RunningNode  = null as ComputationNode | null, // currently running computation
     Owner        = null as ComputationNode | null, // owner for new computations
-    UNOWNED      = new ComputationNode(null, null);
+    UNOWNED      = new ComputationNode(null!, null);
 
 // Functions
 function logRead(from : Log, to : ComputationNode) {
