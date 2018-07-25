@@ -12,6 +12,7 @@ export interface S {
     sample<T>(fn: () => T): T;
     cleanup(fn: (final: boolean) => any): void;
     isFrozen(): boolean;
+    isListening(): boolean;
     makeDataNode<T>(value: T): IDataNode<T>;
     makeComputationNode<T>(fn: () => T): IComputationNode<T>;
     makeComputationNode<T>(fn: (val: T) => T, seed: T): IComputationNode<T>;

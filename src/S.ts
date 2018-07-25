@@ -24,8 +24,9 @@ export interface S {
     // Freeing external resources
     cleanup(fn : (final : boolean) => any) : void;
 
-    // experimental
+    // experimental - methods for creating new kinds of bindings
     isFrozen() : boolean;
+    isListening() : boolean;
     makeDataNode<T>(value : T) : IDataNode<T>;
     makeComputationNode<T>(fn : () => T) : IComputationNode<T>;
     makeComputationNode<T>(fn : (val : T) => T, seed : T) : IComputationNode<T>;
@@ -214,6 +215,10 @@ S.makeComputationNode = function makeComputationNode(fn : any, seed? : any) {
 
 S.isFrozen = function isFrozen() { 
     return RunningClock !== null; 
+};
+
+S.isListening = function isListening() { 
+    return RunningNode !== null; 
 };
 
 // Internal implementation

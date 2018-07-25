@@ -144,6 +144,9 @@ S.makeComputationNode = function makeComputationNode(fn, seed) {
 S.isFrozen = function isFrozen() {
     return RunningClock !== null;
 };
+S.isListening = function isListening() {
+    return RunningNode !== null;
+};
 // Internal implementation
 /// Graph classes and operations
 var Clock = /** @class */ (function () {
