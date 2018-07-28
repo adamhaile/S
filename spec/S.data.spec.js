@@ -13,4 +13,42 @@ describe("S.data", function () {
         var d = S.data(1);
         expect(d(2)).toBe(2);
     });
+
+    it("does not throw if set to the same value twice in a freeze", function () {
+        var d = S.data(1);
+        S.freeze(() => {
+            d(2);
+            d(2);
+        });
+        expect(d()).toBe(2);
+    });
+
+    it("throws if set to two different values in a freeze", function () {
+        var d = S.data(1);
+        S.freeze(() => {
+            d(2);
+            expect(() => d(3)).toThrowError(/conflict/);
+        });
+    });
+
+    it("does not throw if set to the same value twice in a computation", function () {
+        S.root(() => {
+            var d = S.data(1);
+            S(() => {
+                d(2);
+                d(2);
+            });
+            expect(d()).toBe(2);
+        });
+    });
+
+    it("throws if set to two different values in a computation", function () {
+        S.root(() => {
+            var d = S.data(1);
+            S(() => {
+                d(2);
+                expect(() => d(3)).toThrowError(/conflict/);
+            });
+        });
+    });
 });
