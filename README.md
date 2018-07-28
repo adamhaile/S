@@ -8,6 +8,8 @@ An S app consists of *data signals* and *computations*:
 
 - *computations* are created with `S(() => <code>)`.  They are kept up-to-date as data signals change.
 
+Both kinds of signals are represented as small functions: call a signal to read its current value, pass a data signal a new value to update it.
+
 Beyond these two, S has a handful of utilities for controlling what counts as a change and how S responds.
 
 ## Features
@@ -168,7 +170,7 @@ Tip: `S.cleanup()` and `S.on()` can be useful utilities when writing computation
 
 ### ... And Maybe Not Pure Functions
 
-Ask yourself: if a pure computation isn't read in your app, does it need to run?  
+Ask yourself: if a pure computation isn't read in your app, does it need to run?
 
 The `S()` constructor is symmetric: it takes a paramless function that returns a value, and it returns a paramless function that returns the same value.  The only difference is *when* that function runs.  Without `S()`, it runs once per call.  With `S()`, it runs once per change.  
 
