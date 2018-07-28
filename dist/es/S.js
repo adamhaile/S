@@ -175,17 +175,17 @@ var DataNode = /** @class */ (function () {
     };
     DataNode.prototype.next = function (value) {
         if (RunningClock !== null) {
-            if (this.pending !== NOTPENDING) {
+            if (this.pending !== NOTPENDING) { // value has already been set once, check for conflicts
                 if (value !== this.pending) {
                     throw new Error("conflicting changes: " + value + " !== " + this.pending);
                 }
             }
-            else {
+            else { // add to list of changes
                 this.pending = value;
                 RootClock.changes.add(this);
             }
         }
-        else {
+        else { // not batching, respond to change now
             if (this.log !== null) {
                 this.pending = value;
                 RootClock.changes.add(this);
@@ -365,7 +365,7 @@ function run(clock) {
     clock.disposes.reset();
     // for each batch ...
     while (clock.changes.count !== 0 || clock.updates.count !== 0 || clock.disposes.count !== 0) {
-        if (count > 0)
+        if (count > 0) // don't tick on first run, or else we expire already scheduled updates
             clock.time++;
         clock.changes.run(applyDataChange);
         clock.updates.run(updateNode);

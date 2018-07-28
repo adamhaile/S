@@ -143,18 +143,18 @@ S.data = function data(value) {
         var cclock = rclock === sclock ? sclock : sclock.parent;
         if (arguments.length > 0) {
             if (RunningClock !== null) {
-                if (node.pending !== NOTPENDING) {
+                if (node.pending !== NOTPENDING) { // value has already been set once, check for conflicts
                     if (value !== node.pending) {
                         throw new Error("conflicting changes: " + value + " !== " + node.pending);
                     }
                 }
-                else {
+                else { // add to list of changes
                     markClockStale(cclock);
                     node.pending = value;
                     cclock.changes.add(node);
                 }
             }
-            else {
+            else { // not batching, respond to change now
                 if (node.log !== null) {
                     node.pending = value;
                     RootClock.changes.add(node);
@@ -481,7 +481,7 @@ function run(clock) {
     clock.disposes.reset();
     // for each batch ...
     while (clock.changes.count !== 0 || clock.subclocks.count !== 0 || clock.updates.count !== 0 || clock.disposes.count !== 0) {
-        if (count > 0)
+        if (count > 0) // don't tick on first run, or else we expire already scheduled updates
             clock.subtime++;
         clock.changes.run(applyDataChange);
         clock.subclocks.run(updateClock);
