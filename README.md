@@ -1,108 +1,71 @@
 # S.js
 
-S.js is a small library for performing **simple, clean, fast reactive programming** in Javascript.  It aims for a simple mental model, a clean and expressive syntax, and fast execution.  
+S.js is a small reactive programming library.  It combines an automatic dependency graph with a synchronous execution engine.  The goal is to make reactive programming simple, clean, and fast.  
 
-In plain terms, S helps you **keep things up-to-date** in your program.  S programs work like a spreadsheet: when data changes, S automatically updates downstream computations.
+An S app consists of *data signals* and *computations*:
 
-Here's a tiny example:
-```javascript
-const                                // 
-    a = S.data(1),                   //     a() |   1     3     3     5
-    b = S.data(2),                   //     b() |   2     2     4     6
-    c = S(() => a() + b()),          //     c() |   3     5     7    11
-    d = S(() => c() * a()); // t0    //     d() |   3    15    21    55
-a(3);                       // t1    //         +------------------------>
-b(4);                       // t2    //            t0    t1    t2    t3
-S.freeze(() => {                     //    
-    a(5);                            //    
-    b(6);                            //    
-});                         // t3    //    
-```
-The timeline on the right shows how the values evolve at each instant.  Initially (time t0), `c()` and `d()` are 3, but when `a()` changes to 3 (t1), they become 5 and 15.  Ditto for t2 and t3.  Every time `a()` or `b()` changes, S re-evaluates `c()` and `d()` to make sure they stay consistent.
+- *data signals* are created with `S.data(<value>)`.  They are small containers for a piece of data that may change.
 
-To achieve this behavior, static data and computations must be converted to *signals*, which is a reactive term for a value that changes over time.  S data signals are constructed by `S.data(<value>)` and computations by `S(() => <code>)`.  Both return closures: call a signal to read its current value; pass a data signal a new value to change it.
+- *computations* are created with `S(() => <code>)`.  They are kept up-to-date as data signals change.
 
-When an S computation runs, S records what signals it references, thereby creating a live dependency graph of running code.  When data changes, S uses that graph to figure out what needs to be updated and in what order.
+Beyond these two, S has a handful of utilities for controlling what counts as a change and how S responds.
 
-S has a small API.  The example above shows `S.freeze()`, which aggregates multiple changes into a single step (t3).  The full API is listed below.
+## Features
 
-## S Features
+**Automatic Updates** - When data signal(s) change, S automatically re-runs any computations which read the old values.
 
-S maintains a few useful behaviors while it runs.  These features are designed to make it easier to reason about reactive programming:
+**A Clear, Consistent Timeline** - S apps advance through a series of discrete "ticks."  In each tick, all signals are guaranteed to return up-to-date values, and state is immutable until the tick completes.  This greatly simplifies the often difficult task of reasoning about how change flows through a reactive app.
 
-> **Automatic Dependencies** - No manual (un)subscription to change events.  Dependencies in S are automatic and exact.
->
-> **Guaranteed Currency** - No need to worry about how change propagates through the system.  S ensures that signals always return current and updated values.
->
-> **Exact Updates** - No missed or redundant updates.  Computations run exactly once per upstream change event.
->
-> **A Unified Global Timeline** - No confusing nested or overlapping mutations from different sections of code. S apps advance through a series of discrete "instants" during which state is immutable.
->
-> **Self-Extensible** - Computations can extend the system by creating new "child" computations.
->
-> **Automatic Disposals** - No manual disposal of stale computations.  "Child" computations are disposed automatically when their "parent" updates.
+**Batched Updates** - Multiple data signals can be changed in a single tick (aka "transactions").
 
-For advanced cases, S provides capabilities for dealing with self-mutating code:
+**Automatic Disposals** - S computations can themselves create more computations, with the rule that "child" computations are disposed when their "parent" updates.  This simple rule allows apps to be leak-free without the need for manual disposals.
 
-> **Multi-Step Updates** - Computations can set data signals during their execution.  These changes don't take effect until the current "instant" finishes, resulting in a multi-step update.
->
-> **Partitionable Time** - Multi-step updates can run on a 'subclock,' meaning that surrounding code will only respond to final, at-rest values, not intermediate ones.
+## A Quick Example
 
-## An Example: TodoMVC in S (plus friends)
-What else, right?  S is just a core library for dealing with change; it takes more to build an application.  This example uses Surplus.js, aka "S plus" a few companion libraries.  Most notably, it uses Surplus' JSX preprocessor for embedded DOM construction.
-```jsx
-const 
-    Todo = t => ({              // our Todo constructor
-       title: S.data(t.title),  // properties are data signals
-       done: S.data(t.done)
-    }),
-    todos = SArray([]),         // our array of todos
-    newTitle = S.data(""),      // title for new todos
-    addTodo = () => {           // push new title onto list
-       todos.push(Todo({ title: newTitle(), done: false }));
-       newTitle("");            // clear new title
-    },
-    view = S.root(() =>         // declarative main view
-       <div>                     
-          <h2>Minimalist ToDos in Surplus</h2>
-          <input type="text" fn={data(newTitle)}/>
-          <a onClick={addTodo}> + </a>
-          {todos.map(todo =>    // insert todo views
-             <div>
-                <input type="checkbox" fn={data(todo.done)}/>
-                <input type="text" fn={data(todo.title)}/>
-                <a onClick={() => todos.remove(todo)}>&times;</a>
-             </div>)}
-       </div>);
-
-document.body.appendChild(view); // add view to document
-```
-Run on [CodePen](https://codepen.io/adamhaile/pen/ppvdGa?editors=0010).
-
-Some things to note:
-
-- There's no code to handle updating the application.  Other than a liberal sprinkling of `()'s`, this could be static code.  In the lingo, S enables declarative programming, where we focus on defining how things should be and S handles updating the app from one state to the next as our data changes.
-
-- The Surplus library leverages S computations to construct the dynamic parts of the view (the '{ ... }' expressions).  Whenever our data changes, S updates the affected parts of the DOM automatically.  
-
-- S handles updates in as efficient a manner as possible: Surplus apps generally place at or near the top of the various web framework benchmarks (ToDoMVC, dbmonster, js-framework-benchmark, etc).
-
-Reactive programs also have the benefit of an open structure that enables extensibility.  For instance, we can add localStorage persistence with no changes to the code above and only a handful of new lines:
+Start with the the world's smallest web app.  It just sets the body of the page to the text "Hello, world!"
 
 ```javascript
-if (localStorage.todos) // load stored todos on start
-    todos(JSON.parse(localStorage.todos).map(Todo));
-S(() =>                 // store todos whenever they change
-    localStorage.todos = JSON.stringify(todos().map(t => 
-        ({ title: t.title(), done: t.done() })));
+let greeting = "Hello",
+    name = "world";
+
+document.body.textContent = `${greeting}, ${name}!`;
 ```
+
+Now let's change the name.
+
+```javascript
+name = "reactivity";
+```
+
+The page is now out of date, since it still has the old name, "Hello, world!"  It didn't *react* to the data change.  So let's fix that with S's wrappers.
+
+```javascript
+let greeting = S.data("Hello"),
+    name = S.data("world");
+
+S(() => document.body.textContent = `${greeting()}, ${name()}!`);
+```
+
+The wrappers return small functions, called *signals*, which are containers for values that change over time.  We read the current value of a signal by calling it, and if it's a data signal, we can set its next value by passing it in.
+
+```javascript
+name("reactivity");
+```
+
+S knows that we read the old value of `name()` when we set the page text, so it re-runs that computation now that `name()` has changed.  The page now reads "Hello, reactivity!"  Yay!
+
+We've converted the plain code we started with into a small machine, able to detect and keep abreast of incoming changes.  Our data signals define the kind of changes we might see, our computations how we respond to them.
+
+For longer examples see:
+- the [minimalist todos](https://github.com/adamhaile/surplus#example) application in the [Surplus](https://github.com/adamhaile/surplus) library
+- the [Surplus implementation of the "Realworld" demo](https://github.com/adamhaile/surplus-realworld)
 
 ## API
 
 ## Data Signals
 
 ### `S.data(<value>)`
-Construct a data signal whose initial value is `<value>`.  A data signal is a small container for a single value.  It's where information and change enter the system.  Read the current value of a data signal by calling it, set the next value by passing in a new one:
+A data signal is a small container for a single value.  It's where information and change enter the system.  Read the current value of a data signal by calling it, set the next value by passing in a new one:
 
 ```javascript
 const name = S.data("sue");
@@ -110,7 +73,9 @@ name(); // returns "sue"
 name("emily") // sets name() to "emily" and returns "emily"
 ```
 
-Note that you are setting the **next** value: if you set a data signal in a context where time is frozen, like in an `S.freeze()` or a computation body, then your change will not take effect until time advances.  This is because of S's unified global timeline of atomic instants: if your change took effect immediately, then there would be a before and after the change, breaking the instant in two:
+Data signals define the granularity of change in your application.  Depending on your needs, you may choose to make them fine-grained &ndash; containing only an atomic value like a string, number, etc &ndash; or coarse &ndash; an entire large object in a single data signal.
+
+Note that when setting a data signal you are setting the **next** value: if you set a data signal in a context where time is frozen, like in an `S.freeze()` or a computation body, then your change will not take effect until time advances.  This is because of S's unified global timeline of atomic instants: if your change took effect immediately, then there would be a before and after the change, breaking the instant in two:
 
 ```javascript
 const name = S.data("sue");
@@ -167,7 +132,7 @@ const user = S.value(sue, (a, b) => a.userId === b.userId);
 ## Computations
 
 ### `S(() => <code>)`
-Construct a computation whose value is the result of the given `<code>`.  A computation is a "live" piece of code which S will re-run as needed when data changes.
+A computation is a "live" piece of code which S will re-run as needed when data signals change.
 
 S runs the supplied function immediately, and as it runs, S automatically monitors any signals that it reads.  To S, your function looks like:
 ```javascript
@@ -179,7 +144,9 @@ S(() => {
 ```
 If any of those signals change, S schedules the computation to be re-run.
 
-The referenced signals don't need to be in the lexical body of the function: they might be in a function called from your computation.  All that matters is that evaluating the computation caused them to be read.  Similarly, signals that are in the body of the function but aren't read due to conditional branches aren't recorded.  This is true even if prior executions went down a different branch and did read them: only the last run matters, because only those signals were involved in creating the current value.
+The referenced signals don't need to be in the lexical body of the function: they might be in a function called from your computation.  All that matters is that evaluating the computation caused them to be read.  
+
+Similarly, signals that are in the body of the function but aren't read due to conditional branches aren't recorded.  This is true even if prior executions went down a different branch and did read them: only the last run matters, because only those signals were involved in creating the current value.
 
 If some of those signals are computations, S guarantees that they will always return a current value.  You'll never get a "stale" value, one that is affected by an upstream change but hasn't been updated yet.  To your function, the world is always temporally consistent.
 
@@ -201,7 +168,7 @@ Tip: `S.cleanup()` and `S.on()` can be useful utilities when writing computation
 
 ### ... And Maybe Not Pure Functions
 
-Ask yourself: if a pure computation isn't called in your app, does it need to run?  
+Ask yourself: if a pure computation isn't read in your app, does it need to run?  
 
 The `S()` constructor is symmetric: it takes a paramless function that returns a value, and it returns a paramless function that returns the same value.  The only difference is *when* that function runs.  Without `S()`, it runs once per call.  With `S()`, it runs once per change.  
 
