@@ -39,10 +39,16 @@ export interface DataSignal<T> {
 
 // Public interface
 var S = <S>function S<T>(fn : (v : T) => T, value : T) : () => T {
-    var node = new ComputationNode(fn, value);
+    var node = initComputation(fn, value);
 
-    return function computation() {
-        return node.current();
+    if (node === null) {
+        value = LastLazyValue;
+        LastLazyValue = null;
+        return function computation() { return value; }
+    } else {
+        return function computation() {
+            return node!.current();
+        }
     }
 };
 
@@ -53,7 +59,7 @@ export default S;
 
 S.root = function root<T>(fn : (dispose : () => void) => T) : T {
     var owner = Owner,
-        root = fn.length === 0 ? UNOWNED : new ComputationNode(null!, null),
+        root = fn.length === 0 ? UNOWNED : new ComputationNode(),
         result : T = undefined!,
         disposer = fn.length === 0 ? null : function _dispose() {
             if (RunningClock !== null) {
@@ -90,13 +96,13 @@ S.on = function on<T>(ev : () => any, fn : (v? : T) => T, seed? : T, onchanges? 
     return S(on, seed);
     
     function on(value : T | undefined) {
-        var running = RunningNode;
+        var listener = Listener;
         ev(); 
         if (onchanges) onchanges = false;
         else {
-            RunningNode = null;
+            Listener = null;
             value = fn(value);
-            RunningNode = running;
+            Listener = listener;
         } 
         return value;
     }
@@ -109,7 +115,8 @@ function callAll(ss : (() => any)[]) {
 }
 
 S.effect = function effect<T>(fn : (v : T) => T, value? : T) : void {
-    new ComputationNode(fn, value);
+    var node = initComputation(fn, value);
+    if (node === null) LastLazyValue = undefined;
 }
 
 S.data = function data<T>(value : T) : (value? : T) => T {
@@ -167,12 +174,12 @@ S.freeze = function freeze<T>(fn : () => T) : T {
 
 S.sample = function sample<T>(fn : () => T) : T {
     var result : T,
-        running = RunningNode;
+        listener = Listener;
     
-    if (running !== null) {
-        RunningNode = null;
+    if (listener !== null) {
+        Listener = null;
         result = fn();
-        RunningNode = running;
+        Listener = listener;
     } else {
         result = fn();
     }
@@ -181,12 +188,12 @@ S.sample = function sample<T>(fn : () => T) : T {
 }
 
 S.cleanup = function cleanup(fn : (final : boolean) => void) : void {
-    if (Owner !== null) {
-        if (Owner.cleanups === null) Owner.cleanups = [fn];
-        else Owner.cleanups.push(fn);
-    } else {
-        console.warn("cleanups created without a root or parent will never be run");
-    }
+    if (Owner === null) console.warn("cleanups created without a root or parent will never be run");
+    else if (Owner === LAZYNODE) {
+        Owner = Listener = new ComputationNode();
+        Owner.cleanups = [fn];
+    } else if (Owner.cleanups === null) Owner.cleanups = [fn];
+    else Owner.cleanups.push(fn);
 };
 
 // experimental : exposing node constructors and some state
@@ -210,7 +217,13 @@ export interface IClock {
 }
 
 S.makeComputationNode = function makeComputationNode(fn : any, seed? : any) { 
-    return new ComputationNode(fn, seed); 
+    var node = initComputation(fn, seed); 
+    if (node === null) {
+        node = new ComputationNode();
+        node.value = LastLazyValue;
+        LastLazyValue = null;
+    }
+    return node;
 };
 
 S.isFrozen = function isFrozen() { 
@@ -218,7 +231,7 @@ S.isFrozen = function isFrozen() {
 };
 
 S.isListening = function isListening() { 
-    return RunningNode !== null; 
+    return Listener !== null; 
 };
 
 // Internal implementation
@@ -245,8 +258,8 @@ class DataNode {
     ) { }
 
     current() {
-        if (RunningNode !== null) {
-            logDataRead(this, RunningNode);
+        if (Listener !== null) {
+            logDataRead(this);
         }
         return this.value;
     }
@@ -279,9 +292,9 @@ class DataNode {
 }
 
 class ComputationNode {
-    fn        : ((v : any) => any) | null;
-    value     : any;
-    age       : number;
+    fn        = null as ((v : any) => any) | null;
+    value     = undefined as any;
+    age       = -1
     state     = CURRENT;
     source1   = null as null | Log;
     source1slot = 0;
@@ -291,45 +304,16 @@ class ComputationNode {
     owned     = null as ComputationNode[] | null;
     cleanups  = null as (((final : boolean) => void)[]) | null;
     
-    constructor(
-        fn    : (v : any) => any,
-        value : any
-    ) { 
-        this.fn    = fn;
-        this.value = value;
-        this.age   = RootClock.time;
-        
-        if (fn === null) return;
-
-        var owner   = Owner,
-            running = RunningNode;
-
-        if (owner === null) console.warn("computations created without a root or parent will never be disposed");
-            
-        Owner = RunningNode = this;
-
-        if (RunningClock === null) {
-            toplevelComputation(this);
-        } else {
-            this.value = this.fn!(this.value);
-        }
-
-        if (owner && owner !== UNOWNED) {
-            if (owner.owned === null) owner.owned = [this];
-            else owner.owned.push(this);
-        }
-
-        Owner = owner;
-        RunningNode = running;
+    constructor() { 
     }
 
     current() {
-        if (RunningNode !== null) {
+        if (Listener !== null) {
             if (this.age === RootClock.time) {
                 if (this.state === RUNNING) throw new Error("circular dependency");
                 else updateNode(this); // checks for state === STALE internally, so don't need to check here
             }
-            logComputationRead(this, RunningNode);
+            logComputationRead(this);
         }
 
         return this.value;
@@ -378,13 +362,16 @@ var NOTPENDING = {},
 // "Globals" used to keep track of current system state
 var RootClock    = new Clock(),
     RunningClock = null as Clock | null, // currently running clock 
-    RunningNode  = null as ComputationNode | null, // currently running computation
+    Listener     = null as ComputationNode | null, // currently listening computation
     Owner        = null as ComputationNode | null, // owner for new computations
-    UNOWNED      = new ComputationNode(null!, null);
+    UNOWNED      = new ComputationNode(),
+    LAZYNODE     = new ComputationNode(),
+    LastLazyValue = undefined as any;
 
 // Functions
-function logRead(from : Log, to : ComputationNode) {
-    var fromslot : number,
+function logRead(from : Log) {
+    var to = Listener === LAZYNODE ? Owner = Listener = new ComputationNode() : Listener!,
+        fromslot : number,
         toslot = to.source1 === null ? -1 : to.sources === null ? 0 : to.sources.length;
         
     if (from.node1 === null) {
@@ -413,14 +400,14 @@ function logRead(from : Log, to : ComputationNode) {
     }
 }
 
-function logDataRead(data : DataNode, to : ComputationNode) {
+function logDataRead(data : DataNode) {
     if (data.log === null) data.log = new Log();
-    logRead(data.log, to);
+    logRead(data.log);
 }
 
-function logComputationRead(node : ComputationNode, to : ComputationNode) {
+function logComputationRead(node : ComputationNode) {
     if (node.log === null) node.log = new Log();
-    logRead(node.log, to);
+    logRead(node.log);
 }
 
 function event() {
@@ -431,25 +418,94 @@ function event() {
     try {
         run(RootClock);
     } finally {
-        RunningClock = RunningNode = null;
+        RunningClock = Listener = null;
         Owner = owner;
     }
 }
 
-function toplevelComputation<T>(node : ComputationNode) {
+function initComputation(fn : (v : any) => any, value : any) {
+    var node     = null as ComputationNode | null,
+        owner    = Owner,
+        listener = Listener,
+        topLevel = RunningClock === null,
+        i : number;
+
+    if (owner === null) console.warn("computations created without a root or parent will never be disposed");
+        
+    Owner = Listener = LAZYNODE;
+
+    if (topLevel) {
+        value = toplevelComputation(fn, value);
+    } else {
+        value = fn(value);
+    }
+
+    if (Owner !== LAZYNODE) {
+        node = Owner;
+        if (node.source1 !== null) {
+            node.fn = fn;
+            node.value = value;
+            node.age = RootClock.time;
+
+            if (owner && owner !== UNOWNED) {
+                if (owner.owned === null) owner.owned = [node];
+                else owner.owned.push(node);
+            }
+        } else {
+            if (owner && owner !== UNOWNED) {
+                if (node.owned !== null) {
+                    if (owner.owned === null) owner.owned = node.owned;
+                    else for (i = 0; i < node.owned.length; i++) {
+                        owner.owned.push(node.owned[i]);
+                    }
+                }
+                if (node.cleanups !== null) {
+                    if (owner.cleanups === null) owner.cleanups = node.cleanups;
+                    else for (i = 0; i < node.cleanups.length; i++) {
+                        owner.cleanups.push(node.cleanups[i]);
+                    }
+                }
+            }
+            node = null;
+        }
+    }
+
+    if (topLevel) {
+        finishTopLevelComputation();
+    }
+
+    Owner = owner;
+    Listener = listener;
+    
+    if (node === null) {
+        LastLazyValue = value;
+    }
+
+    return node;
+}
+
+function toplevelComputation<T>(fn : (v : any) => any, value : any) {
     RunningClock = RootClock;
     RootClock.changes.reset();
     RootClock.updates.reset();
 
     try {
-        node.value = node.fn!(node.value);
+        value = fn(value);
+    } catch {
+        RunningClock = Owner = Listener = null;
+    }
 
+    return value;
+}
+
+function finishTopLevelComputation() {
+    try {
         if (RootClock.changes.count > 0 || RootClock.updates.count > 0) {
             RootClock.time++;
             run(RootClock);
         }
     } finally {
-        RunningClock = Owner = RunningNode = null;
+        RunningClock = Owner = Listener = null;
     }
 }
     
@@ -521,9 +577,9 @@ function markOwnedNodesForDisposal(owned : ComputationNode[]) {
 function updateNode(node : ComputationNode) {
     if (node.state === STALE) {
         var owner = Owner,
-            running = RunningNode;
+            listener = Listener;
     
-        Owner = RunningNode = node;
+        Owner = Listener = node;
     
         node.state = RUNNING;
         cleanup(node, false);
@@ -531,7 +587,7 @@ function updateNode(node : ComputationNode) {
         node.state = CURRENT;
         
         Owner = owner;
-        RunningNode = running;
+        Listener = listener;
     }
 }
     
