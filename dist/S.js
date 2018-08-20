@@ -6,10 +6,9 @@
 
     // Public interface
     var S = function S(fn, value) {
-        var node = initComputation(fn, value);
+        var node = makeComputationNode(fn, value);
         if (node === null) {
-            value = LastLazyValue;
-            LastLazyValue = null;
+            value = getLastNodeValue();
             return function computation() { return value; };
         }
         else {
@@ -21,32 +20,27 @@
     // compatibility with commonjs systems that expect default export to be at require('s.js').default rather than just require('s-js')
     Object.defineProperty(S, 'default', { value: S });
     S.root = function root(fn) {
-        var owner = Owner, root = fn.length === 0 ? UNOWNED : new ComputationNode(), result = undefined, disposer = fn.length === 0 ? null : function _dispose() {
-            if (RunningClock !== null) {
-                RootClock.disposes.add(root);
-            }
-            else {
-                dispose(root);
-            }
-        };
-        Owner = root;
-        if (RunningClock === null) {
-            result = topLevelRoot(fn, disposer, owner);
+        var root = null, initialized = false;
+        if (fn.length === 0) {
+            return unowned(fn);
         }
         else {
-            result = disposer === null ? fn() : fn(disposer);
-            Owner = owner;
+            root = makeRootNode(fn, function _dispose() {
+                if (!initialized) {
+                    throw new Error("cannot dispose of an S.root() while it is still being created");
+                }
+                else if (root === null) ;
+                else if (RunningClock !== null) {
+                    RootClock.disposes.add(root);
+                }
+                else {
+                    dispose(root);
+                }
+            });
+            initialized = true;
+            return getLastNodeValue();
         }
-        return result;
     };
-    function topLevelRoot(fn, disposer, owner) {
-        try {
-            return disposer === null ? fn() : fn(disposer);
-        }
-        finally {
-            Owner = owner;
-        }
-    }
     S.on = function on(ev, fn, seed, onchanges) {
         if (Array.isArray(ev))
             ev = callAll(ev);
@@ -72,9 +66,9 @@
         };
     }
     S.effect = function effect(fn, value) {
-        var node = initComputation(fn, value);
+        var node = makeComputationNode(fn, value);
         if (node === null)
-            LastLazyValue = undefined;
+            LastValue = undefined;
     };
     S.data = function data(value) {
         var node = new DataNode(value);
@@ -141,7 +135,9 @@
         if (Owner === null)
             console.warn("cleanups created without a root or parent will never be run");
         else if (Owner === LAZYNODE) {
-            Owner = Listener = new ComputationNode();
+            Owner = new ComputationNode();
+            if (Listener === LAZYNODE)
+                Listener = Owner;
             Owner.cleanups = [fn];
         }
         else if (Owner.cleanups === null)
@@ -153,14 +149,16 @@
     S.makeDataNode = function makeDataNode(value) {
         return new DataNode(value);
     };
-    S.makeComputationNode = function makeComputationNode(fn, seed) {
-        var node = initComputation(fn, seed);
-        if (node === null) {
-            node = new ComputationNode();
-            node.value = LastLazyValue;
-            LastLazyValue = null;
+    S.makeComputationNode = makeComputationNode;
+    S.getLastNodeValue = getLastNodeValue;
+    S.makeRootNode = makeRootNode;
+    S.disposeNode = function disposeNode(node) {
+        if (RunningClock !== null) {
+            RootClock.disposes.add(node);
         }
-        return node;
+        else {
+            dispose(node);
+        }
     };
     S.isFrozen = function isFrozen() {
         return RunningClock !== null;
@@ -290,8 +288,122 @@
     var RootClock = new Clock(), RunningClock = null, // currently running clock 
     Listener = null, // currently listening computation
     Owner = null, // owner for new computations
-    UNOWNED = new ComputationNode(), LAZYNODE = new ComputationNode(), LastLazyValue = undefined;
+    UNOWNED = new ComputationNode(), LAZYNODE = new ComputationNode(), LastValue = undefined;
     // Functions
+    function makeComputationNode(fn, value) {
+        var node = null, owner = Owner, listener = Listener, topLevel = RunningClock === null, i;
+        if (owner === null)
+            console.warn("computations created without a root or parent will never be disposed");
+        Owner = Listener = LAZYNODE;
+        if (topLevel) {
+            value = toplevelComputation(fn, value);
+        }
+        else {
+            value = fn(value);
+        }
+        node = Owner;
+        if (node === LAZYNODE) {
+            node = null;
+        }
+        else if (node.source1 !== null) {
+            node.fn = fn;
+            node.value = value;
+            node.age = RootClock.time;
+            if (owner !== null && owner !== UNOWNED) {
+                if (owner === LAZYNODE)
+                    owner = new ComputationNode();
+                if (listener === LAZYNODE)
+                    listener = owner;
+                if (owner.owned === null)
+                    owner.owned = [node];
+                else
+                    owner.owned.push(node);
+            }
+        }
+        else if (owner !== null && owner !== UNOWNED) {
+            if (owner === LAZYNODE)
+                owner = new ComputationNode();
+            if (listener === LAZYNODE)
+                listener = owner;
+            if (node.owned !== null) {
+                if (owner.owned === null)
+                    owner.owned = node.owned;
+                else
+                    for (i = 0; i < node.owned.length; i++) {
+                        owner.owned.push(node.owned[i]);
+                    }
+            }
+            if (node.cleanups !== null) {
+                if (owner.cleanups === null)
+                    owner.cleanups = node.cleanups;
+                else
+                    for (i = 0; i < node.cleanups.length; i++) {
+                        owner.cleanups.push(node.cleanups[i]);
+                    }
+            }
+            node = null;
+        }
+        if (topLevel) {
+            finishTopLevelComputation();
+        }
+        Owner = owner;
+        Listener = listener;
+        LastValue = node === null ? value : undefined;
+        return node;
+    }
+    function getLastNodeValue() {
+        var value = LastValue;
+        LastValue = undefined;
+        return value;
+    }
+    function toplevelComputation(fn, value) {
+        var node;
+        RunningClock = RootClock;
+        RootClock.changes.reset();
+        RootClock.updates.reset();
+        try {
+            value = fn(value);
+            node = Owner;
+        }
+        finally {
+            RunningClock = Owner = Listener = null;
+        }
+        Owner = Listener = node;
+        return value;
+    }
+    function finishTopLevelComputation() {
+        try {
+            if (RootClock.changes.count > 0 || RootClock.updates.count > 0) {
+                RootClock.time++;
+                run(RootClock);
+            }
+        }
+        finally {
+            RunningClock = Owner = Listener = null;
+        }
+    }
+    function makeRootNode(fn, p) {
+        var owner = Owner, node = null;
+        Owner = LAZYNODE;
+        try {
+            LastValue = fn(p);
+            node = Owner === LAZYNODE ? null : Owner;
+        }
+        finally {
+            Owner = owner;
+        }
+        return node;
+    }
+    function unowned(fn) {
+        var owner = Owner;
+        Owner = UNOWNED;
+        try {
+            return fn();
+        }
+        finally {
+            Owner = owner;
+        }
+    }
     function logRead(from) {
         var to = Listener === LAZYNODE ? Owner = Listener = new ComputationNode() : Listener, fromslot, toslot = to.source1 === null ? -1 : to.sources === null ? 0 : to.sources.length;
         if (from.node1 === null) {
@@ -343,85 +455,6 @@
         finally {
             RunningClock = Listener = null;
             Owner = owner;
-        }
-    }
-    function initComputation(fn, value) {
-        var node = null, owner = Owner, listener = Listener, topLevel = RunningClock === null, i;
-        if (owner === null)
-            console.warn("computations created without a root or parent will never be disposed");
-        Owner = Listener = LAZYNODE;
-        if (topLevel) {
-            value = toplevelComputation(fn, value);
-        }
-        else {
-            value = fn(value);
-        }
-        if (Owner !== LAZYNODE) {
-            node = Owner;
-            if (node.source1 !== null) {
-                node.fn = fn;
-                node.value = value;
-                node.age = RootClock.time;
-                if (owner && owner !== UNOWNED) {
-                    if (owner.owned === null)
-                        owner.owned = [node];
-                    else
-                        owner.owned.push(node);
-                }
-            }
-            else {
-                if (owner && owner !== UNOWNED) {
-                    if (node.owned !== null) {
-                        if (owner.owned === null)
-                            owner.owned = node.owned;
-                        else
-                            for (i = 0; i < node.owned.length; i++) {
-                                owner.owned.push(node.owned[i]);
-                            }
-                    }
-                    if (node.cleanups !== null) {
-                        if (owner.cleanups === null)
-                            owner.cleanups = node.cleanups;
-                        else
-                            for (i = 0; i < node.cleanups.length; i++) {
-                                owner.cleanups.push(node.cleanups[i]);
-                            }
-                    }
-                }
-                node = null;
-            }
-        }
-        if (topLevel) {
-            finishTopLevelComputation();
-        }
-        Owner = owner;
-        Listener = listener;
-        if (node === null) {
-            LastLazyValue = value;
-        }
-        return node;
-    }
-    function toplevelComputation(fn, value) {
-        RunningClock = RootClock;
-        RootClock.changes.reset();
-        RootClock.updates.reset();
-        try {
-            value = fn(value);
-        }
-        catch (_a) {
-            RunningClock = Owner = Listener = null;
-        }
-        return value;
-    }
-    function finishTopLevelComputation() {
-        try {
-            if (RootClock.changes.count > 0 || RootClock.updates.count > 0) {
-                RootClock.time++;
-                run(RootClock);
-            }
-        }
-        finally {
-            RunningClock = Owner = Listener = null;
         }
     }
     function run(clock) {

@@ -1,5 +1,5 @@
 export interface S {
-    root<T>(fn: (dispose: () => void) => T): T;
+    root<T>(fn: (dispose?: () => void) => T): T;
     <T>(fn: () => T): () => T;
     <T>(fn: (v: T) => T, seed: T): () => T;
     on<T>(ev: () => any, fn: () => T): () => T;
@@ -14,8 +14,11 @@ export interface S {
     isFrozen(): boolean;
     isListening(): boolean;
     makeDataNode<T>(value: T): IDataNode<T>;
-    makeComputationNode<T>(fn: () => T): IComputationNode<T>;
-    makeComputationNode<T>(fn: (val: T) => T, seed: T): IComputationNode<T>;
+    makeComputationNode<T>(fn: () => T): INode<T> | null;
+    makeComputationNode<T>(fn: (val: T) => T, seed: T): INode<T> | null;
+    makeRootNode<T, U>(fn: (val: U) => T, p: U): INode<T> | null;
+    getLastNodeValue(): any;
+    disposeNode(node: INode<any>): void;
 }
 export interface DataSignal<T> {
     (): T;
@@ -23,15 +26,14 @@ export interface DataSignal<T> {
 }
 declare var S: S;
 export default S;
-export interface IDataNode<T> {
-    clock(): IClock;
-    current(): T;
-    next(value: T): T;
-}
-export interface IComputationNode<T> {
-    clock(): IClock;
-    current(): T;
-}
 export interface IClock {
     time(): number;
 }
+interface INode<T> {
+    clock(): IClock;
+    current(): T;
+}
+interface IDataNode<T> extends INode<T> {
+    next(value: T): T;
+}
+export { INode as Node, IDataNode as DataNode, IClock as Clock };
