@@ -66,12 +66,14 @@ describe("S() with subcomputations", function () {
         });
 
         it("disposes child when it is disposed", function () {
-            S.root(function (dispose) {
+            const dispose = S.root(function (dispose) {
                 init();
-                dispose();
-                e(3);
-                expect(g()).toBe(2);
+                return dispose;
             });
+            
+            dispose();
+            e(3);
+            expect(g()).toBe(2);
         });
     });
 
