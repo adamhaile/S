@@ -14,9 +14,7 @@ export interface S {
     isFrozen(): boolean;
     isListening(): boolean;
     makeDataNode<T>(value: T): IDataNode<T>;
-    makeComputationNode<T>(fn: () => T): INode<T> | null;
-    makeComputationNode<T>(fn: (val: T) => T, seed: T): INode<T> | null;
-    makeRootNode<T, U>(fn: (val: U) => T, p: U): INode<T> | null;
+    makeComputationNode<T>(fn: (val: T | undefined) => T, seed: T | undefined, orphan: boolean, sample: boolean): INode<T> | null;
     getLastNodeValue(): any;
     disposeNode(node: INode<any>): void;
 }
