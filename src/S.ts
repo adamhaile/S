@@ -176,13 +176,9 @@ S.sample = function sample<T>(fn : () => T) : T {
     var result : T,
         listener = Listener;
     
-    if (listener !== null) {
-        Listener = null;
-        result = fn();
-        Listener = listener;
-    } else {
-        result = fn();
-    }
+    Listener = null;
+    result = fn();
+    Listener = listener;
     
     return result;
 }
@@ -367,23 +363,51 @@ var RootClock    = new Clock(),
 
 // Functions
 function makeComputationNode<T>(fn : (v : T | undefined) => T, value : T, orphan : boolean, sample : boolean) : ComputationNode | null {
-    if (RunningClock === null) return makeToplevelComputationNode(fn, value, orphan, sample);
-
     var node     = getCandidateNode(),
         owner    = Owner,
-        listener = Listener;
+        listener = Listener,
+        toplevel = RunningClock === null;
         
     Owner = node;
     Listener = sample ? null : node;
 
-    value = fn(value);
+    if (toplevel) {
+        value = execToplevelComputation(fn, value);
+    } else {
+        value = fn(value);
+    } 
 
     Owner = owner;
     Listener = listener;
 
     var recycled = tryRecycleNode(node, fn, value, orphan);
 
+    if (toplevel) finishToplevelComputation();
+
     return recycled ? null : node;
+}
+
+function execToplevelComputation<T>(fn : (v : T | undefined) => T, value : T) {
+    RunningClock = RootClock;
+    RootClock.changes.reset();
+    RootClock.updates.reset();
+
+    try {
+        return fn(value);
+    } finally {
+        Owner = Listener = RunningClock = null;
+    }
+}
+
+function finishToplevelComputation() {
+    if (RootClock.changes.count > 0 || RootClock.updates.count > 0) {
+        RootClock.time++;
+        try {
+            run(RootClock);
+        } finally {
+            RunningClock = Owner = Listener = null;
+        }
+    }
 }
 
 function getCandidateNode() {
@@ -439,36 +463,6 @@ function getLastNodeValue() {
     var value = LastNodeValue;
     LastNodeValue = undefined;
     return value;
-}
-
-function makeToplevelComputationNode<T>(fn : (v : T | undefined) => T, value : T | undefined, orphan : boolean, sample : boolean) {
-    var node : ComputationNode | null;
-    RunningClock = RootClock;
-    RootClock.changes.reset();
-    RootClock.updates.reset();
-
-    try {
-        node = makeComputationNode(fn, value, orphan, sample);
-        
-        if (RootClock.changes.count > 0 || RootClock.updates.count > 0) {
-            RootClock.time++;
-            run(RootClock);
-        }
-    } finally {
-        RunningClock = Owner = Listener = null;
-    }
-
-    return node;
-}
-
-function unowned<T, U>(fn : () => T) {
-    var owner = Owner;
-    Owner = UNOWNED;
-    try {
-        return fn();
-    } finally {
-        Owner = owner;
-    }
 }
 
 function logRead(from : Log) {

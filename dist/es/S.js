@@ -119,14 +119,9 @@ S.freeze = function freeze(fn) {
 };
 S.sample = function sample(fn) {
     var result, listener = Listener;
-    if (listener !== null) {
-        Listener = null;
-        result = fn();
-        Listener = listener;
-    }
-    else {
-        result = fn();
-    }
+    Listener = null;
+    result = fn();
+    Listener = listener;
     return result;
 };
 S.cleanup = function cleanup(fn) {
@@ -282,16 +277,43 @@ Owner = null, // owner for new computations
 UNOWNED = new ComputationNode(), LastNode = null, LastNodeValue = undefined;
 // Functions
 function makeComputationNode(fn, value, orphan, sample) {
-    if (RunningClock === null)
-        return makeToplevelComputationNode(fn, value, orphan, sample);
-    var node = getCandidateNode(), owner = Owner, listener = Listener;
+    var node = getCandidateNode(), owner = Owner, listener = Listener, toplevel = RunningClock === null;
     Owner = node;
     Listener = sample ? null : node;
-    value = fn(value);
+    if (toplevel) {
+        value = execToplevelComputation(fn, value);
+    }
+    else {
+        value = fn(value);
+    }
     Owner = owner;
     Listener = listener;
     var recycled = tryRecycleNode(node, fn, value, orphan);
+    if (toplevel)
+        finishToplevelComputation();
     return recycled ? null : node;
+}
+function execToplevelComputation(fn, value) {
+    RunningClock = RootClock;
+    RootClock.changes.reset();
+    RootClock.updates.reset();
+    try {
+        return fn(value);
+    }
+    finally {
+        Owner = Listener = RunningClock = null;
+    }
+}
+function finishToplevelComputation() {
+    if (RootClock.changes.count > 0 || RootClock.updates.count > 0) {
+        RootClock.time++;
+        try {
+            run(RootClock);
+        }
+        finally {
+            RunningClock = Owner = Listener = null;
+        }
+    }
 }
 function getCandidateNode() {
     var node = LastNode;
@@ -345,33 +367,6 @@ function getLastNodeValue() {
     var value = LastNodeValue;
     LastNodeValue = undefined;
     return value;
-}
-function makeToplevelComputationNode(fn, value, orphan, sample) {
-    var node;
-    RunningClock = RootClock;
-    RootClock.changes.reset();
-    RootClock.updates.reset();
-    try {
-        node = makeComputationNode(fn, value, orphan, sample);
-        if (RootClock.changes.count > 0 || RootClock.updates.count > 0) {
-            RootClock.time++;
-            run(RootClock);
-        }
-    }
-    finally {
-        RunningClock = Owner = Listener = null;
-    }
-    return node;
-}
-function unowned(fn) {
-    var owner = Owner;
-    Owner = UNOWNED;
-    try {
-        return fn();
-    }
-    finally {
-        Owner = owner;
-    }
 }
 function logRead(from) {
     var to = Listener, fromslot, toslot = to.source1 === null ? -1 : to.sources === null ? 0 : to.sources.length;
