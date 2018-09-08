@@ -7,10 +7,9 @@
     // Public interface
     var S = function S(fn, value) {
         //if (Owner === null) console.warn("computations created without a root or parent will never be disposed");
-        var node = makeComputationNode(fn, value, false, false);
+        var _a = makeComputationNode(fn, value, false, false), node = _a.node, _value = _a.value;
         if (node === null) {
-            value = getLastNodeValue();
-            return function computation() { return value; };
+            return function computation() { return _value; };
         }
         else {
             return function computation() {
@@ -67,9 +66,7 @@
         };
     }
     S.effect = function effect(fn, value) {
-        var node = makeComputationNode(fn, value, false, false);
-        if (node === null)
-            LastNodeValue = undefined;
+        makeComputationNode(fn, value, false, false);
     };
     S.data = function data(value) {
         var node = new DataNode(value);
@@ -140,7 +137,6 @@
         return new DataNode(value);
     };
     S.makeComputationNode = makeComputationNode;
-    S.getLastNodeValue = getLastNodeValue;
     S.disposeNode = function disposeNode(node) {
         if (RunningClock !== null) {
             RootClock.disposes.add(node);
@@ -277,7 +273,7 @@
     var RootClock = new Clock(), RunningClock = null, // currently running clock 
     Listener = null, // currently listening computation
     Owner = null, // owner for new computations
-    UNOWNED = new ComputationNode(), LastNode = null, LastNodeValue = undefined;
+    UNOWNED = new ComputationNode(), LastNode = null;
     // Functions
     function makeComputationNode(fn, value, orphan, sample) {
         var node = getCandidateNode(), owner = Owner, listener = Listener, toplevel = RunningClock === null;
@@ -294,7 +290,10 @@
         var recycled = tryRecycleNode(node, fn, value, orphan);
         if (toplevel)
             finishToplevelComputation();
-        return recycled ? null : node;
+        return {
+            node: recycled ? null : node,
+            value: value
+        };
     }
     function execToplevelComputation(fn, value) {
         RunningClock = RootClock;
@@ -330,7 +329,6 @@
         var _owner = orphan || Owner === null || Owner === UNOWNED ? null : Owner, recycle = node.source1 === null && (node.owned === null && node.cleanups === null || _owner !== null), i;
         if (recycle) {
             LastNode = node;
-            LastNodeValue = value;
             if (_owner !== null) {
                 if (node.owned !== null) {
                     if (_owner.owned === null)
@@ -353,7 +351,6 @@
             }
         }
         else {
-            LastNodeValue = undefined;
             node.fn = fn;
             node.value = value;
             node.age = RootClock.time;
@@ -365,11 +362,6 @@
             }
         }
         return recycle;
-    }
-    function getLastNodeValue() {
-        var value = LastNodeValue;
-        LastNodeValue = undefined;
-        return value;
     }
     function logRead(from) {
         var to = Listener, fromslot, toslot = to.source1 === null ? -1 : to.sources === null ? 0 : to.sources.length;

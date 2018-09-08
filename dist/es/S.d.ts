@@ -14,8 +14,14 @@ export interface S {
     isFrozen(): boolean;
     isListening(): boolean;
     makeDataNode<T>(value: T): IDataNode<T>;
-    makeComputationNode<T>(fn: (val: T | undefined) => T, seed: T | undefined, orphan: boolean, sample: boolean): INode<T> | null;
-    getLastNodeValue(): any;
+    makeComputationNode<T, S>(fn: (val: S) => T, seed: S, orphan: boolean, sample: true): {
+        node: INode<T> | null;
+        value: T;
+    };
+    makeComputationNode<T, S>(fn: (val: T | S) => T, seed: S, orphan: boolean, sample: boolean): {
+        node: INode<T> | null;
+        value: T;
+    };
     disposeNode(node: INode<any>): void;
 }
 export interface DataSignal<T> {

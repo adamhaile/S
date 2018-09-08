@@ -28,8 +28,8 @@ export interface S {
     isFrozen() : boolean;
     isListening() : boolean;
     makeDataNode<T>(value : T) : IDataNode<T>;
-    makeComputationNode<T>(fn : (val : T | undefined) => T, seed : T | undefined, orphan : boolean, sample : boolean) : INode<T> | null;
-    getLastNodeValue() : any;
+    makeComputationNode<T, S>(fn : (val : S) => T, seed : S, orphan : boolean, sample : true) : { node : INode<T> | null, value : T };
+    makeComputationNode<T, S>(fn : (val : T | S) => T, seed : S, orphan : boolean, sample : boolean) : { node : INode<T> | null, value : T };
     disposeNode(node : INode<any>) : void;
 }
 
@@ -43,11 +43,10 @@ var S = <S>function S<T>(fn : (v : T | undefined) => T, value? : T) : () => T {
 
     //if (Owner === null) console.warn("computations created without a root or parent will never be disposed");
 
-    var node = makeComputationNode(fn, value, false, false);
+    var { node, value: _value } = makeComputationNode(fn, value, false, false);
 
     if (node === null) {
-        value = getLastNodeValue();
-        return function computation() { return value!; }
+        return function computation() { return _value; }
     } else {
         return function computation() {
             return node!.current();
@@ -115,8 +114,7 @@ function callAll(ss : (() => any)[]) {
 }
 
 S.effect = function effect<T>(fn : (v : T | undefined) => T, value? : T) : void {
-    var node = makeComputationNode(fn, value, false, false);
-    if (node === null) LastNodeValue = undefined;
+    makeComputationNode(fn, value, false, false);
 }
 
 S.data = function data<T>(value : T) : (value? : T) => T {
@@ -210,7 +208,6 @@ interface IDataNode<T> extends INode<T> {
 export { INode as Node, IDataNode as DataNode, IClock as Clock };
 
 S.makeComputationNode = makeComputationNode;
-S.getLastNodeValue = getLastNodeValue;
 S.disposeNode = function disposeNode(node : ComputationNode) {
     if (RunningClock !== null) {
         RootClock.disposes.add(node);
@@ -358,11 +355,10 @@ var RootClock    = new Clock(),
     Listener     = null as ComputationNode | null, // currently listening computation
     Owner        = null as ComputationNode | null, // owner for new computations
     UNOWNED      = new ComputationNode(),
-    LastNode     = null as ComputationNode | null,
-    LastNodeValue = undefined as any;
+    LastNode     = null as ComputationNode | null;
 
 // Functions
-function makeComputationNode<T>(fn : (v : T | undefined) => T, value : T, orphan : boolean, sample : boolean) : ComputationNode | null {
+function makeComputationNode<T>(fn : (v : T | undefined) => T, value : T | undefined, orphan : boolean, sample : boolean) : { node: ComputationNode | null, value : T } {
     var node     = getCandidateNode(),
         owner    = Owner,
         listener = Listener,
@@ -384,7 +380,10 @@ function makeComputationNode<T>(fn : (v : T | undefined) => T, value : T, orphan
 
     if (toplevel) finishToplevelComputation();
 
-    return recycled ? null : node;
+    return { 
+        node: recycled ? null : node, 
+        value: value! 
+    };
 }
 
 function execToplevelComputation<T>(fn : (v : T | undefined) => T, value : T) {
@@ -424,7 +423,6 @@ function tryRecycleNode<T>(node : ComputationNode, fn : (v : T | undefined) => T
 
     if (recycle) {
         LastNode = node;
-        LastNodeValue = value;
 
         if (_owner !== null) {
             if (node.owned !== null) {
@@ -444,8 +442,6 @@ function tryRecycleNode<T>(node : ComputationNode, fn : (v : T | undefined) => T
             }
         }
     } else {      
-        LastNodeValue = undefined;
-
         node.fn = fn;
         node.value = value;
         node.age = RootClock.time;
@@ -457,12 +453,6 @@ function tryRecycleNode<T>(node : ComputationNode, fn : (v : T | undefined) => T
     }
 
     return recycle;
-}
-
-function getLastNodeValue() {
-    var value = LastNodeValue;
-    LastNodeValue = undefined;
-    return value;
 }
 
 function logRead(from : Log) {
