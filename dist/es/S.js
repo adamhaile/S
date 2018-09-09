@@ -33,7 +33,7 @@ S.root = function root(fn) {
     finally {
         Owner = owner;
     }
-    if (disposer !== null && tryRecycleNode(root, null, undefined, true)) {
+    if (disposer !== null && recycleOrClaimNode(root, null, undefined, true)) {
         root = null;
     }
     return result;
@@ -77,10 +77,10 @@ S.data = function data(value) {
     };
 };
 S.value = function value(current, eq) {
-    var data = S.data(current), age = -1;
+    var node = new DataNode(current), age = -1;
     return function value(update) {
         if (arguments.length === 0) {
-            return data();
+            return node.current();
         }
         else {
             var same = eq ? eq(current, update) : current === update;
@@ -90,7 +90,7 @@ S.value = function value(current, eq) {
                     throw new Error("conflicting values: " + update + " is not the same as " + current);
                 age = time;
                 current = update;
-                data(update);
+                node.next(update);
             }
             return update;
         }
@@ -265,12 +265,12 @@ var Queue = /** @class */ (function () {
     return Queue;
 }());
 // Constants
-var NOTPENDING = {}, CURRENT = 0, STALE = 1, RUNNING = 2;
+var NOTPENDING = {}, CURRENT = 0, STALE = 1, RUNNING = 2, UNOWNED = new ComputationNode();
 // "Globals" used to keep track of current system state
 var RootClock = new Clock(), RunningClock = null, // currently running clock 
 Listener = null, // currently listening computation
 Owner = null, // owner for new computations
-UNOWNED = new ComputationNode(), LastNode = null;
+LastNode = null; // cached unused node, for re-use
 // Functions
 function makeComputationNode(fn, value, orphan, sample) {
     var node = getCandidateNode(), owner = Owner, listener = Listener, toplevel = RunningClock === null;
@@ -284,7 +284,7 @@ function makeComputationNode(fn, value, orphan, sample) {
     }
     Owner = owner;
     Listener = listener;
-    var recycled = tryRecycleNode(node, fn, value, orphan);
+    var recycled = recycleOrClaimNode(node, fn, value, orphan);
     if (toplevel)
         finishToplevelComputation();
     return {
@@ -322,7 +322,7 @@ function getCandidateNode() {
         LastNode = null;
     return node;
 }
-function tryRecycleNode(node, fn, value, orphan) {
+function recycleOrClaimNode(node, fn, value, orphan) {
     var _owner = orphan || Owner === null || Owner === UNOWNED ? null : Owner, recycle = node.source1 === null && (node.owned === null && node.cleanups === null || _owner !== null), i;
     if (recycle) {
         LastNode = node;

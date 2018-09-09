@@ -1,4 +1,3 @@
-
 export interface S {
     // Computation root
     root<T>(fn : (dispose? : () => void) => T) : T;
@@ -81,7 +80,7 @@ S.root = function root<T>(fn : (dispose : () => void) => T) : T {
         Owner = owner;
     }
 
-    if (disposer !== null && tryRecycleNode(root, null as any, undefined, true)) {
+    if (disposer !== null && recycleOrClaimNode(root, null as any, undefined, true)) {
         root = null!;
     }
 
@@ -130,11 +129,11 @@ S.data = function data<T>(value : T) : (value? : T) => T {
 };
 
 S.value = function value<T>(current : T, eq? : (a : T, b : T) => boolean) : DataSignal<T> {
-    var data  = S.data(current),
+    var node  = new DataNode(current),
         age   = -1;
     return function value(update? : T) {
         if (arguments.length === 0) {
-            return data();
+            return node.current();
         } else {
             var same = eq ? eq(current, update!) : current === update;
             if (!same) {
@@ -143,7 +142,7 @@ S.value = function value<T>(current : T, eq? : (a : T, b : T) => boolean) : Data
                     throw new Error("conflicting values: " + update + " is not the same as " + current);
                 age = time;
                 current = update!;
-                data(update!);
+                node.next(update!);
             }
             return update!;
         }
@@ -294,8 +293,7 @@ class ComputationNode {
     owned     = null as ComputationNode[] | null;
     cleanups  = null as (((final : boolean) => void)[]) | null;
     
-    constructor() { 
-    }
+    constructor() { }
 
     current() {
         if (Listener !== null) {
@@ -347,15 +345,15 @@ class Queue<T> {
 var NOTPENDING = {},
     CURRENT    = 0,
     STALE      = 1,
-    RUNNING    = 2;
+    RUNNING    = 2,
+    UNOWNED    = new ComputationNode();
 
 // "Globals" used to keep track of current system state
 var RootClock    = new Clock(),
     RunningClock = null as Clock | null, // currently running clock 
     Listener     = null as ComputationNode | null, // currently listening computation
     Owner        = null as ComputationNode | null, // owner for new computations
-    UNOWNED      = new ComputationNode(),
-    LastNode     = null as ComputationNode | null;
+    LastNode     = null as ComputationNode | null; // cached unused node, for re-use
 
 // Functions
 function makeComputationNode<T>(fn : (v : T | undefined) => T, value : T | undefined, orphan : boolean, sample : boolean) : { node: ComputationNode | null, value : T } {
@@ -376,7 +374,7 @@ function makeComputationNode<T>(fn : (v : T | undefined) => T, value : T | undef
     Owner = owner;
     Listener = listener;
 
-    var recycled = tryRecycleNode(node, fn, value, orphan);
+    var recycled = recycleOrClaimNode(node, fn, value, orphan);
 
     if (toplevel) finishToplevelComputation();
 
@@ -416,7 +414,7 @@ function getCandidateNode() {
     return node;
 }
 
-function tryRecycleNode<T>(node : ComputationNode, fn : (v : T | undefined) => T, value : T, orphan : boolean) {
+function recycleOrClaimNode<T>(node : ComputationNode, fn : (v : T | undefined) => T, value : T, orphan : boolean) {
     var _owner = orphan || Owner === null || Owner === UNOWNED ? null : Owner,
         recycle = node.source1 === null && (node.owned === null && node.cleanups === null || _owner !== null),
         i : number;
