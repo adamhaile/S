@@ -40,7 +40,7 @@ export interface DataSignal<T> {
 // Public interface
 var S = <S>function S<T>(fn : (v : T | undefined) => T, value? : T) : () => T {
 
-    //if (Owner === null) console.warn("computations created without a root or parent will never be disposed");
+    if (Owner === null) console.warn("computations created without a root or parent will never be disposed");
 
     var { node, value: _value } = makeComputationNode(fn, value, false, false);
 

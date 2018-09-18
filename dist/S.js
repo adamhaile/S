@@ -6,7 +6,8 @@
 
     // Public interface
     var S = function S(fn, value) {
-        //if (Owner === null) console.warn("computations created without a root or parent will never be disposed");
+        if (Owner === null)
+            console.warn("computations created without a root or parent will never be disposed");
         var _a = makeComputationNode(fn, value, false, false), node = _a.node, _value = _a.value;
         if (node === null) {
             return function computation() { return _value; };
