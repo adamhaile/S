@@ -377,7 +377,7 @@ function makeComputationNode<T>(fn : (v : T | undefined) => T, value : T | undef
 
     var recycled = recycleOrClaimNode(node, fn, value, orphan);
 
-    if (toplevel) finishToplevelComputation();
+    if (toplevel) finishToplevelComputation(owner, listener);
 
     makeComputationNodeResult.node = recycled ? null : node;
     makeComputationNodeResult.value =  value!;
@@ -397,13 +397,15 @@ function execToplevelComputation<T>(fn : (v : T | undefined) => T, value : T) {
     }
 }
 
-function finishToplevelComputation() {
+function finishToplevelComputation(owner : ComputationNode | null, listener : ComputationNode | null) {
     if (RootClock.changes.count > 0 || RootClock.updates.count > 0) {
         RootClock.time++;
         try {
             run(RootClock);
         } finally {
-            RunningClock = Owner = Listener = null;
+            RunningClock = null;
+            Owner = owner;
+            Listener = listener;
         }
     }
 }

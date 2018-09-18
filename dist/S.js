@@ -291,7 +291,7 @@
         Listener = listener;
         var recycled = recycleOrClaimNode(node, fn, value, orphan);
         if (toplevel)
-            finishToplevelComputation();
+            finishToplevelComputation(owner, listener);
         makeComputationNodeResult.node = recycled ? null : node;
         makeComputationNodeResult.value = value;
         return makeComputationNodeResult;
@@ -307,14 +307,16 @@
             Owner = Listener = RunningClock = null;
         }
     }
-    function finishToplevelComputation() {
+    function finishToplevelComputation(owner, listener) {
         if (RootClock.changes.count > 0 || RootClock.updates.count > 0) {
             RootClock.time++;
             try {
                 run(RootClock);
             }
             finally {
-                RunningClock = Owner = Listener = null;
+                RunningClock = null;
+                Owner = owner;
+                Listener = listener;
             }
         }
     }
