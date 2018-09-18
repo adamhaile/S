@@ -275,6 +275,7 @@
     Owner = null, // owner for new computations
     LastNode = null; // cached unused node, for re-use
     // Functions
+    var makeComputationNodeResult = { node: null, value: undefined };
     function makeComputationNode(fn, value, orphan, sample) {
         var node = getCandidateNode(), owner = Owner, listener = Listener, toplevel = RunningClock === null;
         Owner = node;
@@ -290,10 +291,9 @@
         var recycled = recycleOrClaimNode(node, fn, value, orphan);
         if (toplevel)
             finishToplevelComputation();
-        return {
-            node: recycled ? null : node,
-            value: value
-        };
+        makeComputationNodeResult.node = recycled ? null : node;
+        makeComputationNodeResult.value = value;
+        return makeComputationNodeResult;
     }
     function execToplevelComputation(fn, value) {
         RunningClock = RootClock;

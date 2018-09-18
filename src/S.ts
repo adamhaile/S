@@ -356,6 +356,7 @@ var RootClock    = new Clock(),
     LastNode     = null as ComputationNode | null; // cached unused node, for re-use
 
 // Functions
+var makeComputationNodeResult = { node : null as null | ComputationNode, value : undefined as any };
 function makeComputationNode<T>(fn : (v : T | undefined) => T, value : T | undefined, orphan : boolean, sample : boolean) : { node: ComputationNode | null, value : T } {
     var node     = getCandidateNode(),
         owner    = Owner,
@@ -378,10 +379,10 @@ function makeComputationNode<T>(fn : (v : T | undefined) => T, value : T | undef
 
     if (toplevel) finishToplevelComputation();
 
-    return { 
-        node: recycled ? null : node, 
-        value: value! 
-    };
+    makeComputationNodeResult.node = recycled ? null : node;
+    makeComputationNodeResult.value =  value!;
+
+    return makeComputationNodeResult;
 }
 
 function execToplevelComputation<T>(fn : (v : T | undefined) => T, value : T) {
