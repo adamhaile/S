@@ -7,27 +7,30 @@ var COUNT = 1e5;
 main();
 
 function main() {
-    var total = 0;
-    total += bench(createDataSignals, COUNT, COUNT);
-    total += bench(createComputations0to1, COUNT, 0);
-    total += bench(createComputations1to1, COUNT, COUNT);
-    total += bench(createComputations2to1, COUNT / 2, COUNT);
-    total += bench(createComputations4to1, COUNT / 4, COUNT);
-    total += bench(createComputations1000to1, COUNT / 1000, COUNT);
+    var createTotal = 0;
+    createTotal += bench(createDataSignals, COUNT, COUNT);
+    createTotal += bench(createComputations0to1, COUNT, 0);
+    createTotal += bench(createComputations1to1, COUNT, COUNT);
+    createTotal += bench(createComputations2to1, COUNT / 2, COUNT);
+    createTotal += bench(createComputations4to1, COUNT / 4, COUNT);
+    createTotal += bench(createComputations1000to1, COUNT / 1000, COUNT);
     //total += bench1(createComputations8, COUNT, 8 * COUNT);
-    total += bench(createComputations1to2, COUNT, COUNT / 2);
-    total += bench(createComputations1to4, COUNT, COUNT / 4);
-    total += bench(createComputations1to8, COUNT, COUNT / 8);
-    total += bench(createComputations1to1000, COUNT, COUNT / 1000);
+    createTotal += bench(createComputations1to2, COUNT, COUNT / 2);
+    createTotal += bench(createComputations1to4, COUNT, COUNT / 4);
+    createTotal += bench(createComputations1to8, COUNT, COUNT / 8);
+    createTotal += bench(createComputations1to1000, COUNT, COUNT / 1000);
+    console.log(`create total: ${createTotal.toFixed(0)}`);
     console.log('---');
-    total += bench(updateComputations1to1, COUNT * 4, 1);
-    total += bench(updateComputations2to1, COUNT * 2, 2);
-    total += bench(updateComputations4to1, COUNT, 4);
-    total += bench(updateComputations1000to1, COUNT / 100, 1000);
-    total += bench(updateComputations1to2, COUNT * 4, 1);
-    total += bench(updateComputations1to4, COUNT * 4, 1);
-    total += bench(updateComputations1to1000, COUNT * 4, 1);
-    console.log(`total: ${total.toFixed(0)}`);
+    var updateTotal = 0;
+    updateTotal += bench(updateComputations1to1, COUNT * 4, 1);
+    updateTotal += bench(updateComputations2to1, COUNT * 2, 2);
+    updateTotal += bench(updateComputations4to1, COUNT, 4);
+    updateTotal += bench(updateComputations1000to1, COUNT / 100, 1000);
+    updateTotal += bench(updateComputations1to2, COUNT * 4, 1);
+    updateTotal += bench(updateComputations1to4, COUNT * 4, 1);
+    updateTotal += bench(updateComputations1to1000, COUNT * 4, 1);
+    console.log(`update total: ${updateTotal.toFixed(0)}`);
+    console.log(`total: ${(createTotal + updateTotal).toFixed(0)}`);
 }
 
 function bench(fn, count, scount) {
@@ -54,7 +57,7 @@ function run(fn, n, scount) {
         for (var i = 0; i < scount; i++) {
             sources[i]();
             sources[i]();
-            %OptimizeFunctionOnNextCall(sources[i]);
+            //%OptimizeFunctionOnNextCall(sources[i]);
             sources[i]();
         }
 
