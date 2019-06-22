@@ -12,7 +12,7 @@
     "karma-chrome-launcher": "^2.2.0",
     "karma-jasmine": "^2.0.1",
     "rollup": "^1.16.2",
-    "typescript": "^2.9.2"
+    "typescript": "^3.5.2"
   },
   "scripts": {
     "build": "tsc && rollup dist/es/S.js -f \"umd\" -n \"S\" -o dist/S.js && rollup dist/es/withsubclocks.js -f \"umd\" -n \"S\" -o dist/withsubclocks.js",
