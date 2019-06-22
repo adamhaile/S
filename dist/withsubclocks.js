@@ -1,8 +1,8 @@
 (function (global, factory) {
     typeof exports === 'object' && typeof module !== 'undefined' ? module.exports = factory() :
     typeof define === 'function' && define.amd ? define(factory) :
-    (global.S = factory());
-}(this, (function () { 'use strict';
+    (global = global || self, global.S = factory());
+}(this, function () { 'use strict';
 
     // Public interface
     var S = function S(fn, value) {
@@ -656,4 +656,4 @@
 
     return S;
 
-})));
+}));
