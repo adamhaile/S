@@ -385,7 +385,7 @@ function makeComputationNode<T>(fn : (v : T | undefined) => T, value : T | undef
     return makeComputationNodeResult;
 }
 
-function execToplevelComputation<T>(fn : (v : T | undefined) => T, value : T) {
+function execToplevelComputation<T>(fn : (v : T | undefined) => T, value : T | undefined) {
     RunningClock = RootClock;
     RootClock.changes.reset();
     RootClock.updates.reset();

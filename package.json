@@ -7,12 +7,12 @@
   "types": "dist/es/S.d.ts",
   "dependencies": {},
   "devDependencies": {
-    "jasmine": "^3.1.0",
-    "karma": "^2.0.5",
+    "jasmine": "^3.4.0",
+    "karma": "^4.1.0",
     "karma-chrome-launcher": "^2.2.0",
-    "karma-jasmine": "^1.1.2",
-    "rollup": "^0.63.4",
-    "typescript": "^2.9.2"
+    "karma-jasmine": "^2.0.1",
+    "rollup": "^1.16.2",
+    "typescript": "^3.5.2"
   },
   "scripts": {
     "build": "tsc && rollup dist/es/S.js -f \"umd\" -n \"S\" -o dist/S.js && rollup dist/es/withsubclocks.js -f \"umd\" -n \"S\" -o dist/withsubclocks.js",
