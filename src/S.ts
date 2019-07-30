@@ -312,11 +312,20 @@ class ComputationNode {
     }
 }
 
-class Log {
-    node1 = null as null | ComputationNode;
-    node1slot = 0;
-    nodes = null as null | ComputationNode[];
-    nodeslots = null as null | number[];
+interface Log {
+  node1     : ComputationNode | null;
+  node1slot : number;
+  nodes     : ComputationNode[] | null;
+  nodeslots : number[] | null;
+}
+
+function Log() : Log {
+    return {
+        node1: null,
+        node1slot: 0,
+        nodes: null,
+        nodeslots: null
+    }
 }
     
 class Queue<T> {
@@ -488,12 +497,12 @@ function logRead(from : Log) {
 }
 
 function logDataRead(data : DataNode) {
-    if (data.log === null) data.log = new Log();
+    if (data.log === null) data.log = Log();
     logRead(data.log);
 }
 
 function logComputationRead(node : ComputationNode) {
-    if (node.log === null) node.log = new Log();
+    if (node.log === null) node.log = Log();
     logRead(node.log);
 }
 
