@@ -248,7 +248,7 @@ class DataNode {
 
     current() {
         if (Listener !== null) {
-            logDataRead(this);
+            logRead(this);
         }
         return this.value;
     }
@@ -301,7 +301,7 @@ class ComputationNode {
                 if (this.state === RUNNING) throw new Error("circular dependency");
                 else updateNode(this); // checks for state === STALE internally, so don't need to check here
             }
-            logComputationRead(this);
+            logRead(this);
         }
 
         return this.value;
@@ -456,8 +456,11 @@ function recycleOrClaimNode<T>(node : ComputationNode, fn : (v : T | undefined) 
     return recycle;
 }
 
-function logRead(from : Log) {
-    var to = Listener!,
+function logRead(data : DataNode | ComputationNode) {
+    if (data.log === null) data.log = new Log();
+
+    var from = data.log,
+        to = Listener!,
         fromslot : number,
         toslot = to.source1 === null ? -1 : to.sources === null ? 0 : to.sources.length;
         
@@ -485,16 +488,6 @@ function logRead(from : Log) {
         to.sources.push(from);
         to.sourceslots!.push(fromslot);
     }
-}
-
-function logDataRead(data : DataNode) {
-    if (data.log === null) data.log = new Log();
-    logRead(data.log);
-}
-
-function logComputationRead(node : ComputationNode) {
-    if (node.log === null) node.log = new Log();
-    logRead(node.log);
 }
 
 function event() {
