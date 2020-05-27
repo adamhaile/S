@@ -1,5 +1,6 @@
 export interface S {
     root<T>(fn: (dispose: () => void) => T): T;
+    root<T>(fn: () => T): T;
     <T>(fn: () => T): () => T;
     <T>(fn: (v: T) => T, seed: T): () => T;
     on<T>(ev: () => any, fn: () => T): () => T;
