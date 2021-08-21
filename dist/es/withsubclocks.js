@@ -162,6 +162,7 @@ S.data = function data(value) {
                 }
                 else {
                     node.value = value;
+                    RootClock.subtime++;
                 }
             }
             return value;

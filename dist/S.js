@@ -198,6 +198,7 @@
                 }
                 else {
                     this.value = value;
+                    RootClock.time++;
                 }
             }
             return value;

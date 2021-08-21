@@ -53,4 +53,15 @@ describe("S.value", function () {
             expect(f()).toBe(2);
         });
     });
+
+    it("tolerates consecutive updates when not batching", function () {
+        // Verify fix for https://github.com/adamhaile/S/issues/25
+        S.root(function () {
+            var d = S.value(1);
+            d(2);
+            expect(d()).toBe(2);
+            d(3);
+            expect(d()).toBe(3);
+        });
+    });
 });

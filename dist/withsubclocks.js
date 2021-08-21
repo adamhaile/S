@@ -167,6 +167,7 @@
                     }
                     else {
                         node.value = value;
+                        RootClock.subtime++;
                     }
                 }
                 return value;
