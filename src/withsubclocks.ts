@@ -209,6 +209,7 @@ S.data = function data<T>(value : T) : (value? : T) => T {
                     event();
                 } else {
                     node.value = value;
+                    RootClock.subtime++;
                 }
             }
             return value!;
