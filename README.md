@@ -1,5 +1,8 @@
 # S.js
 
+[![npm Package Version](https://img.shields.io/npm/v/s-js?maxAge=3600)](https://www.npmjs.com/package/s-js)
+
+
 S.js is a small reactive programming library.  It combines an automatic dependency graph with a synchronous execution engine.  The goal is to make reactive programming simple, clean, and fast.  
 
 An S app consists of *data signals* and *computations*:
